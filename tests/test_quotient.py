@@ -281,6 +281,62 @@ class TestLimits(Base):
         self.assertIn("Too early", report)
 
 
+class TestWeek(Base):
+    """0.6: all installment jobs together against what is left of the week."""
+
+    def setUp(self):
+        super().setUp()
+        now = int(pv.time.time())
+        resets = now + 3 * 86400 - 60  # 3 days left
+        # 1% of the week = 100k wt, and 40% of the week is used
+        pv.append_jsonl(pv.limits_path(), {"ts": "x", "epoch": now - 3000, "seven_day": 30, "seven_day_resets": resets})
+        pv.append_jsonl(pv.limits_path(), {"ts": "x", "epoch": now - 10, "seven_day": 40, "seven_day_resets": resets})
+        moment = pv.datetime.fromtimestamp(now - 1000).astimezone().isoformat()
+        pv.append_jsonl(os.path.join(pv.home(), "turns.jsonl"), {"ts": moment, "wt": 1000000})
+
+    def job(self, name, daily, days, quote=None):
+        args = mock.Mock(dir=self.dir, task="job", task_file=None, days=days, daily=daily, quote=quote, model=None,
+                         after="nothing")
+        args.name = name
+        self.run_hook(lambda: pv.rate_new(args), {})
+
+    def test_jobs_that_fit_alone_but_not_together(self):
+        self.job("one", 1000000, 5)   # 3 days left: 3M wt = 30%
+        plan = pv.week_plan(pv.config())
+        self.assertEqual((round(plan["need"]), plan["fits"]), (30, True))   # 60% left - 20% reserve = 40%
+        self.job("two", 1000000, 5)
+        plan = pv.week_plan(pv.config())
+        self.assertEqual((round(plan["need"]), round(plan["for_jobs"]), plan["fits"]), (60, 40, False))
+        first = pv.week_alert(pv.config())
+        self.assertIn("choice window", first)
+        self.assertIsNone(pv.week_alert(pv.config()))  # told once
+        self.assertIn("NOT fit", pv.week_text(plan, "en"))
+
+    def test_pause_takes_a_job_out_of_the_week(self):
+        self.job("one", 1000000, 5)
+        self.job("two", 1000000, 5)
+        pause = mock.Mock()
+        pause.name = "two"
+        self.run_hook(lambda: pv.rate_pause(pause), {})
+        self.assertTrue(pv.week_plan(pv.config())["fits"])
+        args = mock.Mock(force=True)
+        args.name = "two"
+        with mock.patch.object(pv, "find_claude") as find:
+            said = self.run_hook(lambda: pv.run_installment(args), {})
+        find.assert_not_called()
+        self.assertIn("paused", said)
+
+    def test_an_installment_shrinks_to_stay_out_of_the_reserve(self):
+        self.job("big", 5000000, 5)   # more than the 40% (4M wt) there is
+        args = mock.Mock(force=True)
+        args.name = "big"
+        with mock.patch.object(pv, "find_claude", return_value="claude"), \
+                mock.patch.object(pv.subprocess, "run", side_effect=pv.subprocess.TimeoutExpired("c", 1)) as run:
+            said = self.run_hook(lambda: pv.run_installment(args), {})
+        self.assertIn("shortened to 4.00M", said)
+        self.assertEqual(run.call_args.kwargs["env"]["QUOTIENT_CAP"], "4000000")
+
+
 class TestInstallments(Base):
     def new_job(self, **kw):
         args = mock.Mock(dir=self.dir, task="job", task_file=None, days=None, daily=None, quote=None, model=None,

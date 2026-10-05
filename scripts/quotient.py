@@ -29,7 +29,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.5.1"
+VERSION = "0.6.0"
 
 DEFAULTS = {
     # Below this many weighted tokens no quote is asked for.
@@ -54,6 +54,10 @@ DEFAULTS = {
     "lang": "en",
     # Path to the claude executable; empty means "find it".
     "claude_path": "",
+    "week": {
+        # Share of the weekly limit kept free for normal use; installments never plan into it.
+        "reserve_percent": 20,
+    },
     "rate": {
         # Put in front of every installment prompt (for example a tag your own hooks skip).
         "prompt_prefix": "",
@@ -412,6 +416,7 @@ def protocol(cfg, factor):
         "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at 03:00), 'Ogni giorno'/'Every day' (the daily time; free field) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: it sleeps only if nobody is using it). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely." % (cmd, cmd),
         "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them, and how many wt 1% holds when it can estimate it. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
         "In the window, for each level add what share of the 5-hour and weekly limits it would take and what would be left, when Quotient gives the size of 1%; if a level does not fit in what is left of the 5-hour window, say so and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left.",
+        "WEEK: before creating installments, run `%s rate week`: it adds up all open installment jobs until the weekly limit resets, against what is left minus a reserve for normal use (%d%%). If the new job would not fit with the others, say so in the window and offer: keep all, slow some down (`rate set <name> --daily <n>`), pause some (`rate pause <name>`), or pace the new one over more days." % (run_cmd(), cfg["week"]["reserve_percent"]),
         "Every decision Quotient needs from the user goes through the choice window, with a free field.",
     ]) + "\n"
 
@@ -487,6 +492,9 @@ def hook_prompt():
     lines = ["[Quotient %s] Threshold %s wt. %s %s Quote rules: see the Quotient protocol at the start of the session." % (
         VERSION, fmt(cfg["threshold"]), calibration(cfg, learned), " ".join(hints))]
     lines += rate_events()
+    alert = week_alert(cfg)
+    if alert:
+        lines.append(alert)
     job = state.get("job")
     pending = state.get("pending")
     if job:
@@ -593,7 +601,7 @@ def hook_pretool():
     path = data.get("transcript_path") or ""
     entries = read_jsonl(path)
     spent, _ = cost_of(entries + subagent_entries(path, None), cfg["weights"])
-    cap = job["daily_cap"]
+    cap = int(os.environ.get("QUOTIENT_CAP") or job["daily_cap"])
     if spent < cap:
         return
     handoff = os.path.normcase(os.path.abspath(os.path.join(rate_dir(name), "HANDOFF.md")))
@@ -805,6 +813,146 @@ def setup_statusline(args):
         out("Status line set in %s. It starts with the next session.\n" % path)
     else:
         out('Add this to %s:\n"statusLine": %s\n' % (path, json.dumps(setting)))
+
+
+# ---------------------------------------------------------------- the week: all installment jobs together
+
+def open_jobs():
+    base = os.path.join(home(), "rate")
+    jobs = []
+    if os.path.isdir(base):
+        for name in sorted(os.listdir(base)):
+            job = load_json(os.path.join(base, name, "job.json"), None)
+            if job and job.get("status") == "open":
+                job["_runs"] = read_jsonl(os.path.join(base, name, "runs.jsonl"))
+                jobs.append(job)
+    return jobs
+
+
+def week_plan(cfg):
+    """What the open installment jobs will spend before the weekly limit resets, against what is left.
+
+    Each job runs its cap once a day (more if it is set to). The plan is in weighted tokens;
+    it becomes a share of the week only when Quotient has estimated how much 1% holds.
+    """
+    week = latest_limits().get("seven_day")
+    cap = capacity("seven_day")
+    now = time.time()
+    resets = (week or {}).get("resets") or now + 7 * 86400
+    days_left = max(1, math.ceil((resets - now) / 86400))
+    factor = learning(cfg)["factor"]
+    rows = []
+    for job in open_jobs():
+        runs = job["_runs"]
+        spent = sum(r.get("wt") or 0 for r in runs)
+        left_runs = max(0, (job.get("days") or 0) - len(runs)) if job.get("days") else days_left
+        per_day = job.get("per_day") or 1
+        planned = min(left_runs, days_left * per_day) * job["daily_cap"]
+        if job.get("quote"):
+            planned = min(planned, max(0, job["quote"] * factor - spent))
+        rows.append({"name": job["name"], "planned": planned, "cap": job["daily_cap"], "runs_left": left_runs})
+    total = sum(r["planned"] for r in rows)
+    plan = {"rows": rows, "total": total, "days_left": days_left, "reserve": cfg["week"]["reserve_percent"],
+            "used": week["used"] if week else None, "resets": week["resets"] if week else None,
+            "per_point": cap["per_point"] if cap else None}
+    if week and cap:
+        plan["left"] = max(0.0, 100 - week["used"])
+        plan["for_jobs"] = max(0.0, plan["left"] - plan["reserve"])
+        plan["need"] = total / cap["per_point"]
+        plan["fits"] = plan["need"] <= plan["for_jobs"]
+    return plan
+
+
+def week_text(plan, lang):
+    it = lang == "it"
+    lines = []
+    for r in plan["rows"]:
+        share = (" (~%.0f%% %s)" % (r["planned"] / plan["per_point"], "della settimana" if it else "of the week")) if plan["per_point"] else ""
+        lines.append(("%s: %s token pesati previsti fino all'azzeramento%s, %s rate rimaste" if it else
+                      "%s: %s wt planned until the reset%s, %s installments left") % (
+            r["name"], fmt(r["planned"]), share, r["runs_left"]))
+    if not plan["rows"]:
+        lines.append("Nessun lavoro a rate attivo." if it else "No open installment jobs.")
+    if "need" in plan:
+        lines.append(("Totale: circa %.0f%% della settimana. Resta il %.0f%%; tolta la riserva del %d%% per l'uso normale, "
+                      "per le rate c'è il %.0f%%. %s" if it else
+                      "Total: about %.0f%% of the week. %.0f%% is left; after the %d%% reserve for normal use, "
+                      "%.0f%% is there for installments. %s") % (
+            plan["need"], plan["left"], plan["reserve"], plan["for_jobs"],
+            ("Ci sta." if plan["fits"] else "NON ci sta: scegli quali lavori tenere, rallentare o mettere in pausa.") if it else
+            ("It fits." if plan["fits"] else "It does NOT fit: choose which jobs to keep, slow down or pause.")))
+    else:
+        lines.append(("Totale: %s token pesati. Quanto vale in percentuale della settimana non è ancora stimato: "
+                      "servono alcuni giorni di letture dei limiti." if it else
+                      "Total: %s wt. Its share of the week is not estimated yet: it needs a few days of limit readings.") % fmt(plan["total"]))
+    return "\n".join(lines)
+
+
+def rate_week(args):
+    cfg = config()
+    out(week_text(week_plan(cfg), cfg.get("lang")) + "\n")
+
+
+def week_alert(cfg):
+    """One line for Claude when the open jobs do not fit in the week; said once for each new situation."""
+    plan = week_plan(cfg)
+    if "fits" not in plan or plan["fits"]:
+        return None
+    key = "%s:%d:%d" % (",".join(r["name"] for r in plan["rows"]), round(plan["need"]), round(plan["for_jobs"]))
+    path = os.path.join(home(), "week-told.txt")
+    if load_text(path) == key:
+        return None
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(key)
+    return ("WEEK: the open installment jobs need ~%.0f%% of the week before it resets, but only %.0f%% is there for them "
+            "(%.0f%% left minus the %d%% reserve for normal use). Jobs: %s. Open the choice window: which jobs to keep, "
+            "which to slow down (`rate set <name> --daily <n>`), which to pause (`rate pause <name>`); free field." % (
+                plan["need"], plan["for_jobs"], plan["left"], plan["reserve"],
+                ", ".join("%s ~%.0f%%" % (r["name"], r["planned"] / plan["per_point"]) for r in plan["rows"])))
+
+
+def week_room(cfg, job):
+    """Weighted tokens this installment may spend without eating into the reserve (None if unknown)."""
+    plan = week_plan(cfg)
+    if "for_jobs" not in plan:
+        return None
+    return plan["for_jobs"] * plan["per_point"]
+
+
+def rate_pause(args):
+    set_status(args.name, "paused", from_status="open")
+
+
+def rate_resume(args):
+    set_status(args.name, "open", from_status="paused")
+
+
+def set_status(name, status, from_status):
+    folder = rate_dir(name)
+    job = load_json(os.path.join(folder, "job.json"), None)
+    if not job:
+        sys.exit("quotient: no job named '%s'" % name)
+    if job["status"] != from_status:
+        sys.exit("quotient: '%s' is %s" % (name, job["status"]))
+    job["status"] = status
+    save_json(os.path.join(folder, "job.json"), job)
+    out("Job '%s' is now %s.%s\n" % (name, status, " Its scheduled runs stay, and skip it until `rate resume`." if status == "paused" else ""))
+
+
+def rate_set(args):
+    folder = rate_dir(args.name)
+    job = load_json(os.path.join(folder, "job.json"), None)
+    if not job:
+        sys.exit("quotient: no job named '%s'" % args.name)
+    if args.daily:
+        job["daily_cap"] = int(args.daily)
+    if args.per_day:
+        job["per_day"] = int(args.per_day)
+    if args.days:
+        job["days"] = int(args.days)
+    save_json(os.path.join(folder, "job.json"), job)
+    out("Job '%s': %s wt per installment, %s per day, %s installments in all.\n" % (
+        args.name, fmt(job["daily_cap"]), job.get("per_day") or 1, job.get("days") or "?"))
 
 
 # ---------------------------------------------------------------- report
@@ -1069,7 +1217,7 @@ def run_installment(args):
     job = load_json(os.path.join(folder, "job.json"), None)
     if not job:
         sys.exit("quotient: no job named '%s'" % args.name)
-    if job["status"] in ("done", "stopped"):
+    if job["status"] in ("done", "stopped", "paused"):
         out("Job '%s' is %s.\n" % (args.name, job["status"]))
         return
     runs = read_jsonl(os.path.join(folder, "runs.jsonl"))
@@ -1082,9 +1230,20 @@ def run_installment(args):
     if not claude:
         sys.exit("quotient: claude not found; set it with: config claude_path <path>")
     rc = cfg["rate"]
+    # The week comes first: an installment never plans into the reserve for normal use.
+    cap = job["daily_cap"]
+    room = week_room(cfg, job)
+    if room is not None and room < cap:
+        if room < cap * 0.1:
+            job["last_skip"] = {"at": now_iso(), "why": "week", "room": round(room)}
+            save_json(os.path.join(folder, "job.json"), job)
+            out("Installment of '%s' skipped: the week has only %s wt left before the reserve.\n" % (args.name, fmt(room)))
+            return
+        cap = int(room)
+        out("Installment of '%s' shortened to %s wt to stay out of the reserve.\n" % (args.name, fmt(cap)))
     prompt = (rc["prompt_prefix"] + " " if rc["prompt_prefix"] else "") + RATE_PROMPT.format(
         task=os.path.join(folder, "TASK.md"), handoff=os.path.join(folder, "HANDOFF.md"),
-        cap=fmt(job["daily_cap"]), number=len(runs) + 1, days=job.get("days") or "?")
+        cap=fmt(cap), number=len(runs) + 1, days=job.get("days") or "?")
     hook = {"hooks": {"PreToolUse": [{"hooks": [{
         "type": "command", "command": sys.executable,
         "args": [os.path.abspath(__file__), "hook-pretool"], "timeout": 30}]}]}}
@@ -1095,9 +1254,9 @@ def run_installment(args):
     if job.get("model"):
         cmd += ["--model", job["model"]]
     if job.get("usd_per_wt"):
-        cmd += ["--max-budget-usd", "%.2f" % (job["daily_cap"] * job["usd_per_wt"] * rc["usd_cap_margin"])]
+        cmd += ["--max-budget-usd", "%.2f" % (cap * job["usd_per_wt"] * rc["usd_cap_margin"])]
     cmd += list(rc["extra_args"])
-    env = dict(os.environ, QUOTIENT_JOB=args.name)
+    env = dict(os.environ, QUOTIENT_JOB=args.name, QUOTIENT_CAP=str(cap))
     started = now_iso()
     try:
         proc = subprocess.run(cmd, cwd=job["dir"], env=env, capture_output=True,
@@ -1433,6 +1592,16 @@ def main(argv=None):
     p.add_argument("name")
     p.add_argument("what", choices=("nothing", "sleep", "hibernate"))
     rsub.add_parser("check", help="can a scheduled installment wake this PC?")
+    rsub.add_parser("week", help="all open installment jobs against what is left of the week")
+    p = rsub.add_parser("pause", help="pause a job: its scheduled runs skip it")
+    p.add_argument("name")
+    p = rsub.add_parser("resume", help="resume a paused job")
+    p.add_argument("name")
+    p = rsub.add_parser("set", help="change a job: cap per installment, installments per day, how many in all")
+    p.add_argument("name")
+    p.add_argument("--daily", type=int)
+    p.add_argument("--per-day", type=int)
+    p.add_argument("--days", type=int)
     p = rsub.add_parser("stop", help="stop a job and remove its scheduled runs")
     p.add_argument("name")
 
@@ -1461,7 +1630,8 @@ def main(argv=None):
         cmd_config(args)
     elif args.cmd == "rate":
         actions = {"new": rate_new, "run": rate_run, "status": rate_status, "schedule": rate_schedule,
-                   "once": rate_once, "stop": rate_stop, "after": rate_after, "check": rate_check}
+                   "once": rate_once, "stop": rate_stop, "after": rate_after, "check": rate_check,
+                   "week": rate_week, "pause": rate_pause, "resume": rate_resume, "set": rate_set}
         if args.rate_cmd not in actions:
             rate.print_help()
             return

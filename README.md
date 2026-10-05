@@ -52,6 +52,23 @@ The share of your subscription limit is not in Claude Code's files, so Quotient 
 
 One thing the numbers show quickly: every model call re-reads the whole conversation. In a 400,000-token conversation that is about 40,000 wt per call before Claude writes a word. Long conversations cost more than they look.
 
+## The week: all installment jobs together
+
+Each job on its own can fit in the week while two or three together do not. Quotient adds up the installments of all open jobs until the weekly limit resets and compares them with what is left, minus a **reserve for normal use** (20% by default, `config week.reserve_percent 25` to change it).
+
+```
+python scripts/quotient.py rate week              # every open job, the total, and whether it fits
+python scripts/quotient.py rate pause book        # the job's scheduled runs skip it
+python scripts/quotient.py rate resume book
+python scripts/quotient.py rate set book --daily 150000   # slow it down: smaller installments
+```
+
+- When the jobs no longer fit, the next time you write a choice window asks which jobs to keep, slow down or pause. It asks once for each new situation.
+- Before a new job is created, Claude checks the week, and if it would not fit it says so in the window.
+- An installment never plans into the reserve: if the week is short it runs smaller, and if almost nothing is left it waits.
+
+The share of the week needs the estimate of how much 1% holds (see below): until Quotient has a few days of readings, the plan is shown in weighted tokens only.
+
 ## The PC works while you are away
 
 On Windows, a scheduled installment **wakes the PC from sleep or hibernation**, works, and if you chose so **puts it back to sleep**, but only if nobody has used the keyboard or mouse in the last 10 minutes: if you are using the PC, it stays on. While an installment works, Windows is kept from going back to sleep halfway. If the PC was off at the scheduled time, the installment runs as soon as it is back on.

@@ -52,6 +52,23 @@ La percentuale del limite dell'abbonamento non c'è nei file di Claude Code, qui
 
 Una cosa che i numeri mostrano subito: a ogni chiamata il modello rilegge tutta la conversazione. In una conversazione da 400.000 token sono circa 40.000 token pesati a chiamata, prima ancora che Claude scriva una parola. Le conversazioni lunghe costano più di quanto sembra.
 
+## La settimana: tutti i lavori a rate insieme
+
+Ogni lavoro da solo può stare nella settimana, mentre due o tre insieme no. Quotient somma le rate di tutti i lavori attivi fino all'azzeramento del limite settimanale e le confronta con quello che resta, tolta una **riserva per l'uso normale** (20% di partenza, `config week.reserve_percent 25` per cambiarla).
+
+```
+python scripts/quotient.py rate week               # ogni lavoro attivo, il totale, e se ci sta
+python scripts/quotient.py rate pause libro        # le sue rate programmate lo saltano
+python scripts/quotient.py rate resume libro
+python scripts/quotient.py rate set libro --daily 150000   # rallentarlo: rate più piccole
+```
+
+- Quando i lavori non ci stanno più, la prossima volta che scrivi si apre una finestra: quali lavori tenere, rallentare o mettere in pausa. Lo chiede una volta per ogni situazione nuova.
+- Prima di creare un lavoro nuovo, Claude controlla la settimana e, se non ci starebbe, te lo dice nella finestra.
+- Una rata non entra mai nella riserva: se la settimana è corta la rata si accorcia, e se non resta quasi niente aspetta.
+
+La percentuale della settimana ha bisogno della stima di quanto vale l'1% (vedi sotto): finché Quotient non ha qualche giorno di letture, il piano si vede solo in token pesati.
+
 ## Il PC lavora mentre non ci sei
 
 Su Windows, una rata programmata **sveglia il PC dalla sospensione o dall'ibernazione**, lavora e, se l'hai scelto, **lo rimette a dormire**, ma solo se nessuno ha usato tastiera o mouse negli ultimi 10 minuti: se stai usando il PC, resta acceso. Mentre la rata lavora, Windows non può rimettersi a dormire a metà. Se all'ora prevista il PC era spento, la rata parte appena si riaccende.
