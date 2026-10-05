@@ -31,7 +31,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.7.5"
+VERSION = "0.8.0"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /quotient:setup, or Claude Code's plugin settings).
@@ -385,6 +385,21 @@ def finished_jobs():
             if j.get("raw_estimate") and j.get("actual")]
 
 
+def shared_path():
+    """Numbers only (estimate, real cost, date) of real jobs, shipped with the plugin in data/shared.jsonl."""
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "shared.jsonl")
+
+
+def shared_jobs(own=()):
+    seen = {(j.get("raw_estimate"), j.get("actual")) for j in own}
+    rows = []
+    for r in read_jsonl(shared_path()):
+        if r.get("raw_estimate") and r.get("actual") and (r["raw_estimate"], r["actual"]) not in seen:
+            rows.append({"raw_estimate": r["raw_estimate"], "actual": r["actual"], "finished": r.get("date", ""),
+                         "choice": "shared", "shared": True})
+    return rows
+
+
 def factor_from(jobs, window):
     """Median ratio real/estimate of the recent jobs (geometric, so x2 and /2 weigh the same)."""
     ratios = [j["actual"] / j["raw_estimate"] for j in jobs[-window:]]
@@ -410,11 +425,13 @@ def median(values):
 
 
 def learning(cfg):
+    """The correction factor: from your own jobs, or, until you have enough of them, together with the shared ones."""
     jobs = finished_jobs()
     window = cfg["history_window"]
+    shared = shared_jobs(jobs)
     rows = []
     for i, job in enumerate(jobs):
-        before = factor_from(jobs[:i], window)
+        before = factor_from((shared if i < cfg["min_jobs"] else []) + jobs[:i], window)
         corrected = job["raw_estimate"] * before
         rows.append({
             "job": job,
@@ -423,7 +440,10 @@ def learning(cfg):
             "miss_raw": miss(job["actual"] / job["raw_estimate"]),
             "miss_corrected": miss(job["actual"] / corrected),
         })
-    return {"jobs": jobs, "rows": rows, "factor": factor_from(jobs, window)}
+    use_shared = len(jobs) < cfg["min_jobs"]
+    basis = (shared if use_shared else []) + jobs
+    return {"jobs": jobs, "rows": rows, "factor": factor_from(basis, window),
+            "shared": len(shared) if use_shared else 0}
 
 
 # ---------------------------------------------------------------- formatting
@@ -452,11 +472,15 @@ def run_cmd():
 
 def calibration(cfg, learned):
     n = len(learned["jobs"])
+    shared = learned.get("shared", 0)
+    if n == 0 and shared:
+        return ("No finished jobs of your own yet: the correction factor x%.2f comes from %d shared real jobs "
+                "(numbers only); your own jobs take over after %d." % (learned["factor"], shared, cfg["min_jobs"]))
     if n == 0:
         return "No finished jobs yet, so the correction factor is x1 and the first estimates will be rough."
     rows = learned["rows"]
-    return "Correction factor from %d finished job(s): x%.2f%s; typical miss before correction %s, recent miss with it %s." % (
-        n, learned["factor"], " (still uncertain)" if n < cfg["min_jobs"] else "",
+    return "Correction factor from %d finished job(s)%s: x%.2f%s; typical miss before correction %s, recent miss with it %s." % (
+        n, " plus %d shared" % shared if shared else "", learned["factor"], " (still uncertain)" if n < cfg["min_jobs"] else "",
         fmt_miss(median([r["miss_raw"] for r in rows])), fmt_miss(median([r["miss_corrected"] for r in rows[-5:]])))
 
 
@@ -1213,6 +1237,22 @@ def export():
         }) + "\n")
 
 
+def cmd_share(args):
+    """Add your finished jobs, numbers only, to a shared file (for the people who maintain Quotient)."""
+    path = args.into
+    have = read_jsonl(path)
+    keys = {(r.get("date"), r.get("raw_estimate"), r.get("actual")) for r in have}
+    added = 0
+    for j in finished_jobs():
+        row = {"date": (j.get("finished") or "")[:10], "raw_estimate": j["raw_estimate"], "actual": j["actual"],
+               "ratio": round(j["actual"] / j["raw_estimate"], 4), "turns": j.get("turns"), "version": VERSION}
+        if (row["date"], row["raw_estimate"], row["actual"]) not in keys:
+            append_jsonl(path, row)
+            keys.add((row["date"], row["raw_estimate"], row["actual"]))
+            added += 1
+    out("%d job(s) added to %s (numbers only); %d in all.\n" % (added, path, len(have) + added))
+
+
 def cmd_config(args):
     path = os.path.join(home(), "config.json")
     user = load_json(path, {})
@@ -1733,6 +1773,8 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="cmd")
     for name in ("hook-session", "hook-prompt", "hook-stop", "hook-pretool", "report", "export", "statusline", "commands"):
         sub.add_parser(name)
+    p = sub.add_parser("share", help="add your finished jobs, numbers only, to a shared file")
+    p.add_argument("--into", required=True)
     p = sub.add_parser("setup", help="set Quotient up: threshold, weekly reserve, language, what the PC does after installments")
     p.add_argument("--threshold", type=int)
     p.add_argument("--reserve", type=int)
@@ -1809,6 +1851,8 @@ def main(argv=None):
         setup_statusline(args)
     elif args.cmd == "setup":
         cmd_setup(args)
+    elif args.cmd == "share":
+        cmd_share(args)
     elif args.cmd == "commands":
         cmd_commands()
     elif args.cmd == "report":

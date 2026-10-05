@@ -13,7 +13,7 @@ The name holds both halves: it starts like *quote*, the price agreed before a jo
 - **A quote before a big job**, in a choice window: *essential*, *good* or *max*, each with what it includes and its estimated cost.
 - **The pace is yours**: all today, or in installments, one a day, with the amount per day. Or any pace you write yourself.
 - **The real cost after**, read from Claude Code's own records, next to the estimate.
-- **It learns from its errors**: each quote is corrected by how far off the earlier ones were.
+- **It learns from its errors**: each quote is corrected by how far off the earlier ones were. You do not start from zero: until you have 5 jobs of your own, it starts from the average of real jobs shipped with it (numbers only).
 - **Installments that work while you are away**: the PC wakes up, does the day's piece, and goes back to sleep (see below).
 - **The week as a whole**: several jobs together never eat the share of the week you keep for yourself.
 - **Your limits at a glance**: how much of the 5-hour and weekly limits you have used, and what is left.

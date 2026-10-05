@@ -320,6 +320,38 @@ class TestWakeChoice(Base):
         self.assertIn("never touch the PC", pv.setup_instructions(pv.config()))
 
 
+class TestShared(Base):
+    """0.8: new users start from the shared numbers until they have 5 jobs of their own."""
+
+    def shared(self, rows):
+        path = os.path.join(self.dir, "shared.jsonl")
+        for r in rows:
+            pv.append_jsonl(path, r)
+        return mock.patch.object(pv, "shared_path", return_value=path)
+
+    def test_start_from_shared_then_own(self):
+        with self.shared([{"date": "2026-10-05", "raw_estimate": 100000, "actual": 150000}] * 3):
+            learned = pv.learning(pv.config())
+            self.assertAlmostEqual(learned["factor"], 1.5)
+            self.assertIn("3 shared", pv.calibration(pv.config(), learned))
+            for _ in range(5):
+                pv.append_jsonl(os.path.join(pv.home(), "jobs.jsonl"), {"raw_estimate": 100000, "actual": 100000})
+            learned = pv.learning(pv.config())
+            self.assertEqual((learned["factor"], learned["shared"]), (1.0, 0))
+
+    def test_share_writes_numbers_only_once(self):
+        pv.append_jsonl(os.path.join(pv.home(), "jobs.jsonl"),
+                        {"finished": "2026-10-05T20:55", "raw_estimate": 225000, "actual": 259311, "turns": 3,
+                         "options": {"good": 225000}, "session": "secret"})
+        target = os.path.join(self.dir, "out.jsonl")
+        self.run_hook(lambda: pv.cmd_share(mock.Mock(into=target)), {})
+        self.run_hook(lambda: pv.cmd_share(mock.Mock(into=target)), {})
+        rows = pv.read_jsonl(target)
+        self.assertEqual(len(rows), 1)
+        self.assertNotIn("session", rows[0])
+        self.assertNotIn("options", rows[0])
+
+
 class TestWeek(Base):
     """0.6: all installment jobs together against what is left of the week."""
 

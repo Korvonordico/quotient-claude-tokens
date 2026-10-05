@@ -13,7 +13,7 @@ Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol d
 - **Il preventivo prima di un lavoro grande**, in una finestra di scelta: *essenziale*, *buono* o *massimo*, ognuno con quello che comprende e il suo costo stimato.
 - **Il ritmo lo scegli tu**: tutto oggi, oppure a rate, una al giorno, con la quantità al giorno. Oppure il ritmo che scrivi tu.
 - **Il costo vero, dopo**, letto dai file di Claude Code e messo accanto alla stima.
-- **Impara dai suoi errori**: ogni preventivo viene corretto in base a quanto hanno sbagliato quelli di prima.
+- **Impara dai suoi errori**: ogni preventivo viene corretto in base a quanto hanno sbagliato quelli di prima. Non parti da zero: finché non hai 5 lavori tuoi, parte dalla media di lavori veri che arriva con il programma (solo numeri).
 - **Le rate lavorano mentre non ci sei**: il PC si sveglia, fa il pezzo del giorno e torna a dormire (vedi sotto).
 - **La settimana tutta insieme**: più lavori insieme non mangiano mai la parte di settimana che tieni per te.
 - **I tuoi limiti sotto gli occhi**: quanto hai usato del limite delle 5 ore e di quello settimanale, e quanto resta.
