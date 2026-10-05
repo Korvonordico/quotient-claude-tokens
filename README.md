@@ -25,7 +25,7 @@ The name holds both halves: it starts like *quote*, the price you agree before a
 In Claude Code:
 
 ```
-/plugin marketplace add Korvonordico/quotient
+/plugin marketplace add Korvonordico/quotient-claude-tokens
 /plugin install quotient@quotient
 ```
 

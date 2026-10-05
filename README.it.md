@@ -25,7 +25,7 @@ Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol d
 In Claude Code:
 
 ```
-/plugin marketplace add Korvonordico/quotient
+/plugin marketplace add Korvonordico/quotient-claude-tokens
 /plugin install quotient@quotient
 ```
 
