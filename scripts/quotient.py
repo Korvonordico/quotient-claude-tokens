@@ -31,7 +31,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.7.2"
+VERSION = "0.7.3"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /quotient:setup, or Claude Code's plugin settings).
@@ -89,7 +89,9 @@ TODAY_RE = re.compile(r"\b(?:today|oggi|all|tutto)\b", re.I)
 OPTION_RE = re.compile(r"([^\W\d][\w-]*)\s*=\s*~?\s*(\d[\d.,_]*)\s*([kKmM])?(?![\w])")
 DECLINE = {"none", "nessuna", "nessuno", "no", "annulla", "cancel"}
 INSTALLMENT_RE = re.compile(r"^(?:split|rata|rate|installments?)\d*$", re.I)
-DONE_RE = re.compile(r"\b(?:JOB DONE|LAVORO FINITO)\b")
+# the installment writes JOB DONE as the first line of the handoff; a sentence that only names it
+# ("after line 3: write JOB DONE") is not the end of the job (05/10/2026: that closed a job at 1 line of 3)
+DONE_RE = re.compile(r"\A[﻿#*_>\s-]*(?:JOB DONE|LAVORO FINITO)\b")
 
 
 # ---------------------------------------------------------------- storage

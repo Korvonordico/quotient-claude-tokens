@@ -434,6 +434,13 @@ class TestInstallments(Base):
         self.assertIn("<DeleteExpiredTaskAfter>PT1H</DeleteExpiredTaskAfter>", xml)
         self.assertNotIn("DeleteExpiredTaskAfter", pv.task_xml("prova", times[0], False, "a"))
 
+    def test_only_a_first_line_job_done_ends_the_job(self):
+        # 05/10/2026: "After line 3: write JOB DONE at the top" closed a job with 1 line of 3
+        notes = "Installment 4: done. Wrote line 1.\nRemains: lines 2 and 3.\nAfter line 3: write JOB DONE at the top of this file.\n"
+        self.assertIsNone(pv.DONE_RE.search(notes))
+        for done in ("JOB DONE\n" + notes, "# JOB DONE\n", "**LAVORO FINITO**\n", "﻿\n  JOB DONE: all 3 lines\n"):
+            self.assertIsNotNone(pv.DONE_RE.search(done), done)
+
     def test_a_past_time_means_tomorrow(self):
         past = pv.datetime.now().replace(second=0, microsecond=0)
         moment = pv.next_time(past.strftime("%H:%M"))
