@@ -100,20 +100,35 @@ The report lists the weeks: the highest share of the weekly limit used in each, 
 
 ## Commands
 
-```
-/quotient:report          estimates against real costs, and the trend of the error
-/quotient:rate <job>      set up a job in daily installments
-```
+In the chat:
 
-From a terminal (`scripts/quotient.py`, or `sh scripts/run.sh`):
+| Command | What it does |
+|---|---|
+| `/quotient:setup` | set Quotient up, or change its four settings |
+| `/quotient:report` | estimates against real costs, plan limits, the weeks |
+| `/quotient:rate <job>` | split a big job into installments, with the choice window |
+| `/quotient:help` | this list |
 
-```
-python scripts/quotient.py report
-python scripts/quotient.py config                     # show the settings
-python scripts/quotient.py config threshold 500000    # change one
-python scripts/quotient.py config lang it             # report in Italian
-python scripts/quotient.py export                     # only the numbers, to share
-```
+From a terminal, with `python scripts/quotient.py <command>` (or `sh scripts/run.sh <command>`):
+
+| Command | What it does |
+|---|---|
+| `report` | the report, from a terminal |
+| `setup --threshold N --reserve N --lang it\|en --after sleep\|hibernate\|nothing` | save the four settings |
+| `config [key [value]]` | show every setting, or change one |
+| `export` | only the numbers of finished jobs, to share |
+| `setup-statusline [--write]` | show the plan limits in the status line |
+| `rate new <job> --dir <folder> --task-file <file> --quote N (--days N \| --daily N)` | create a job in installments |
+| `rate run <job> [--force]` | run one installment now (--force: even if one already ran today) |
+| `rate once <job> --time HH:MM` | one installment at that time (tomorrow if it has passed); wakes the PC |
+| `rate schedule <job> --time HH:MM [--force]` | one installment every day at that time; wakes the PC |
+| `rate after <job> sleep\|hibernate\|nothing` | what the PC does after each installment, if nobody uses it |
+| `rate week` | all open jobs against what is left of the week |
+| `rate set <job> --daily N --per-day N --days N` | change a job: size of each installment, how many a day, how many in all |
+| `rate pause <job> / rate resume <job>` | pause a job, or start it again |
+| `rate stop <job>` | stop a job and remove its scheduled runs |
+| `rate status [job]` | installments done and weighted tokens spent |
+| `rate check` | can a scheduled installment wake this PC, and is Claude Code logged in |
 
 ## Installments
 

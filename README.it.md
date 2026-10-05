@@ -100,20 +100,35 @@ Il resoconto elenca le settimane: la quota più alta del limite settimanale usat
 
 ## Comandi
 
-```
-/quotient:report          stime contro costi veri, e come cambia l'errore
-/quotient:rate <lavoro>   prepara un lavoro a rate giornaliere
-```
+Nella chat:
 
-Dal terminale:
+| Comando | Cosa fa |
+|---|---|
+| `/quotient:setup` | configura Quotient, o cambia le sue quattro impostazioni |
+| `/quotient:report` | stime contro costi veri, limiti del piano, le settimane |
+| `/quotient:rate <job>` | dividi un lavoro grande in rate, con la finestra di scelta |
+| `/quotient:help` | questa lista |
 
-```
-python scripts/quotient.py report
-python scripts/quotient.py config                     # mostra le impostazioni
-python scripts/quotient.py config threshold 500000    # ne cambia una
-python scripts/quotient.py config lang it             # resoconto in italiano
-python scripts/quotient.py export                     # solo i numeri, da condividere
-```
+Dal terminale, con `python scripts/quotient.py <comando>` (o `sh scripts/run.sh <comando>`):
+
+| Comando | Cosa fa |
+|---|---|
+| `report` | il resoconto, dal terminale |
+| `setup --threshold N --reserve N --lang it\|en --after sleep\|hibernate\|nothing` | salva le quattro impostazioni |
+| `config [key [value]]` | mostra tutte le impostazioni, o ne cambia una |
+| `export` | solo i numeri dei lavori finiti, da condividere |
+| `setup-statusline [--write]` | mostra i limiti del piano nella riga di stato |
+| `rate new <job> --dir <folder> --task-file <file> --quote N (--days N \| --daily N)` | crea un lavoro a rate |
+| `rate run <job> [--force]` | fa una rata adesso (--force: anche se oggi ne ha già fatta una) |
+| `rate once <job> --time HH:MM` | una rata a quell'ora (domani se è passata); sveglia il PC |
+| `rate schedule <job> --time HH:MM [--force]` | una rata ogni giorno a quell'ora; sveglia il PC |
+| `rate after <job> sleep\|hibernate\|nothing` | cosa fa il PC dopo ogni rata, se nessuno lo usa |
+| `rate week` | tutti i lavori attivi contro quello che resta della settimana |
+| `rate set <job> --daily N --per-day N --days N` | cambia un lavoro: quanto vale ogni rata, quante al giorno, quante in tutto |
+| `rate pause <job> / rate resume <job>` | mette in pausa un lavoro, o lo fa ripartire |
+| `rate stop <job>` | ferma un lavoro e toglie i suoi orari |
+| `rate status [job]` | rate fatte e token pesati spesi |
+| `rate check` | una rata programmata può svegliare il PC, e Claude Code è collegato |
 
 ## Le rate
 

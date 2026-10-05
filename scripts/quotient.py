@@ -9,6 +9,7 @@ Commands:
   hook-prompt          UserPromptSubmit hook (reads the hook JSON on stdin)
   hook-stop            Stop hook
   hook-pretool         PreToolUse hook, used only inside installment runs
+  commands             the list of commands, with what each one does
   report               estimates, real costs, plan limits, and how the error is changing
   statusline           status line command: records and shows the plan limits
   setup-statusline     sets that status line up (--write to put it in settings.json)
@@ -29,7 +30,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /quotient:setup, or Claude Code's plugin settings).
@@ -1038,6 +1039,51 @@ def rate_set(args):
         args.name, fmt(job["daily_cap"]), job.get("per_day") or 1, job.get("days") or "?"))
 
 
+COMMANDS = [
+    # (command, English, Italian)
+    ("/quotient:setup", "set Quotient up, or change its four settings", "configura Quotient, o cambia le sue quattro impostazioni"),
+    ("/quotient:report", "estimates against real costs, plan limits, the weeks", "stime contro costi veri, limiti del piano, le settimane"),
+    ("/quotient:rate <job>", "split a big job into installments, with the choice window", "dividi un lavoro grande in rate, con la finestra di scelta"),
+    ("/quotient:help", "this list", "questa lista"),
+    ("report", "the report, from a terminal", "il resoconto, dal terminale"),
+    ("setup --threshold N --reserve N --lang it|en --after sleep|hibernate|nothing", "save the four settings", "salva le quattro impostazioni"),
+    ("config [key [value]]", "show every setting, or change one", "mostra tutte le impostazioni, o ne cambia una"),
+    ("export", "only the numbers of finished jobs, to share", "solo i numeri dei lavori finiti, da condividere"),
+    ("setup-statusline [--write]", "show the plan limits in the status line", "mostra i limiti del piano nella riga di stato"),
+    ("rate new <job> --dir <folder> --task-file <file> --quote N (--days N | --daily N)", "create a job in installments", "crea un lavoro a rate"),
+    ("rate run <job> [--force]", "run one installment now (--force: even if one already ran today)", "fa una rata adesso (--force: anche se oggi ne ha gia' fatta una)"),
+    ("rate once <job> --time HH:MM", "one installment at that time (tomorrow if it has passed); wakes the PC", "una rata a quell'ora (domani se e' passata); sveglia il PC"),
+    ("rate schedule <job> --time HH:MM [--force]", "one installment every day at that time; wakes the PC", "una rata ogni giorno a quell'ora; sveglia il PC"),
+    ("rate after <job> sleep|hibernate|nothing", "what the PC does after each installment, if nobody uses it", "cosa fa il PC dopo ogni rata, se nessuno lo usa"),
+    ("rate week", "all open jobs against what is left of the week", "tutti i lavori attivi contro quello che resta della settimana"),
+    ("rate set <job> --daily N --per-day N --days N", "change a job: size of each installment, how many a day, how many in all", "cambia un lavoro: quanto vale ogni rata, quante al giorno, quante in tutto"),
+    ("rate pause <job> / rate resume <job>", "pause a job, or start it again", "mette in pausa un lavoro, o lo fa ripartire"),
+    ("rate stop <job>", "stop a job and remove its scheduled runs", "ferma un lavoro e toglie i suoi orari"),
+    ("rate status [job]", "installments done and weighted tokens spent", "rate fatte e token pesati spesi"),
+    ("rate check", "can a scheduled installment wake this PC, and is Claude Code logged in", "una rata programmata puo' svegliare il PC, e Claude Code e' collegato"),
+]
+
+
+def cmd_commands(args=None):
+    it = config().get("lang") == "it"
+    lines = ["Quotient " + VERSION + ": " + (
+        "il preventivo prima di un lavoro grande dell'IA, il costo vero dopo, la correzione imparata dagli errori, "
+        "le rate giornaliere e i limiti del piano." if it else
+        "a quote before a big AI job, the real cost after, a correction learned from its errors, "
+        "daily installments and the plan limits."), ""]
+    lines.append("Comandi nella chat:" if it else "Commands in the chat:")
+    for command, en, ita in COMMANDS:
+        if command.startswith("/"):
+            lines.append("  %-24s %s" % (command, ita if it else en))
+    lines += ["", ("Comandi dal terminale (python scripts/quotient.py ...):" if it else
+                   "Commands from a terminal (python scripts/quotient.py ...):")]
+    for command, en, ita in COMMANDS:
+        if not command.startswith("/"):
+            lines.append("  " + command)
+            lines.append("      " + (ita if it else en))
+    out("\n".join(lines) + "\n")
+
+
 # ---------------------------------------------------------------- report
 
 TEXT = {
@@ -1635,7 +1681,7 @@ def main(argv=None):
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=VERSION)
     sub = parser.add_subparsers(dest="cmd")
-    for name in ("hook-session", "hook-prompt", "hook-stop", "hook-pretool", "report", "export", "statusline"):
+    for name in ("hook-session", "hook-prompt", "hook-stop", "hook-pretool", "report", "export", "statusline", "commands"):
         sub.add_parser(name)
     p = sub.add_parser("setup", help="set Quotient up: threshold, weekly reserve, language, what the PC does after installments")
     p.add_argument("--threshold", type=int)
@@ -1712,6 +1758,8 @@ def main(argv=None):
         setup_statusline(args)
     elif args.cmd == "setup":
         cmd_setup(args)
+    elif args.cmd == "commands":
+        cmd_commands()
     elif args.cmd == "report":
         report()
     elif args.cmd == "export":
