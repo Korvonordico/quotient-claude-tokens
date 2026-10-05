@@ -29,7 +29,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 DEFAULTS = {
     # Below this many weighted tokens no quote is asked for.
@@ -969,14 +969,20 @@ def find_claude(cfg):
     found = shutil.which("claude")
     if found:
         return found
-    # The Claude desktop app keeps its own copy of Claude Code.
-    pattern = os.path.join(os.environ.get("APPDATA", ""), "Claude", "claude-code", "*", "*", "claude.exe")
+    # The Claude desktop app keeps its own copy of Claude Code. Installed from the Microsoft
+    # Store, the app's AppData is private: outside the app (a scheduled task) it lives under
+    # Packages\Claude_*\LocalCache, so both places are searched.
+    patterns = [
+        os.path.join(os.environ.get("APPDATA", ""), "Claude", "claude-code", "*", "*", "claude.exe"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Packages", "Claude_*", "LocalCache", "Roaming",
+                     "Claude", "claude-code", "*", "*", "claude.exe"),
+    ]
 
     def version(path):
         parts = os.path.basename(os.path.dirname(os.path.dirname(path))).split(".")
         return tuple(int(p) if p.isdigit() else 0 for p in parts)
 
-    candidates = sorted(glob.glob(pattern), key=version)
+    candidates = sorted((c for pattern in patterns for c in glob.glob(pattern)), key=version)
     return candidates[-1] if candidates else None
 
 
@@ -1119,9 +1125,13 @@ def run_installment(args):
         job["usd_per_wt"] = usd / wt
     with open(os.path.join(folder, "HANDOFF.md"), encoding="utf-8") as f:
         done = bool(DONE_RE.search(f.read()))
+    error = None
+    if result.get("is_error") or not result:
+        said = str(result.get("result") or "") + stderr
+        error = ("Claude Code is not logged in for runs outside the app: run `claude auth login` once in a terminal"
+                 if "logged in" in said.lower() or "/login" in said else (said.strip()[-300:] or "error"))
     run = {"started": started, "finished": now_iso(), "session": sid, "wt": wt, "calls": calls,
-           "usd": usd, "error": result.get("is_error") or (not result and stderr[-300:]) or None,
-           "done": done}
+           "usd": usd, "error": error, "done": done}
     append_jsonl(os.path.join(folder, "runs.jsonl"), run)
     if done:
         job["status"] = "done"
@@ -1329,6 +1339,19 @@ def rate_check(args):
     else:
         out("Could not read the wake-timer setting.\n")
     out("Waking works from sleep and from hibernation, not from a full shutdown.\n")
+    claude = find_claude(config())
+    if not claude:
+        out("Claude Code not found: set it with `config claude_path <path to claude.exe>`.\n")
+        return
+    out("Claude Code: %s\n" % claude)
+    proc = subprocess.run([claude, "auth", "status"], capture_output=True)
+    try:
+        logged = json.loads(proc.stdout.decode("utf-8", "replace")).get("loggedIn")
+    except ValueError:
+        logged = None
+    out("Logged in for runs outside the app: %s\n" % {True: "yes", False: "NO", None: "unknown"}[logged])
+    if logged is False:
+        out('Log in once, in a terminal (it opens the browser; paste the code it gives you):\n"%s" auth login\n' % claude)
 
 
 def rate_schedule(args):
