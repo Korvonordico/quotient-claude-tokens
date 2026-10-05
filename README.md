@@ -52,6 +52,17 @@ The share of your subscription limit is not in Claude Code's files, so Quotient 
 
 One thing the numbers show quickly: every model call re-reads the whole conversation. In a 400,000-token conversation that is about 40,000 wt per call before Claude writes a word. Long conversations cost more than they look.
 
+## The PC works while you are away
+
+On Windows, a scheduled installment **wakes the PC from sleep or hibernation**, works, and if you chose so **puts it back to sleep**, but only if nobody has used the keyboard or mouse in the last 10 minutes: if you are using the PC, it stays on. While an installment works, Windows is kept from going back to sleep halfway. If the PC was off at the scheduled time, the installment runs as soon as it is back on.
+
+```
+python scripts/quotient.py rate check                  # can this PC be woken by a timer?
+python scripts/quotient.py rate after book sleep       # after each installment: sleep | hibernate | nothing
+```
+
+Limits: a timer can wake a PC from sleep or hibernation, not from a full shutdown. Windows must allow wake timers (Power Options > Sleep > Allow wake timers); `rate check` reads the setting and says how to turn it on, but Quotient never changes it for you. Scheduled tasks call a small launcher in `~/.quotient`, so they keep working after the plugin updates. Two installments of the same job never run at the same time.
+
 ## Plan limits: used, left, and how much 1% holds
 
 With a Pro or Max subscription Claude Code passes the status line the share used of the 5-hour and weekly limits, and when they reset. Quotient records these readings and shows them in the status line:

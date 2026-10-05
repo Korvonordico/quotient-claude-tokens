@@ -52,6 +52,17 @@ La percentuale del limite dell'abbonamento non c'è nei file di Claude Code, qui
 
 Una cosa che i numeri mostrano subito: a ogni chiamata il modello rilegge tutta la conversazione. In una conversazione da 400.000 token sono circa 40.000 token pesati a chiamata, prima ancora che Claude scriva una parola. Le conversazioni lunghe costano più di quanto sembra.
 
+## Il PC lavora mentre non ci sei
+
+Su Windows, una rata programmata **sveglia il PC dalla sospensione o dall'ibernazione**, lavora e, se l'hai scelto, **lo rimette a dormire**, ma solo se nessuno ha usato tastiera o mouse negli ultimi 10 minuti: se stai usando il PC, resta acceso. Mentre la rata lavora, Windows non può rimettersi a dormire a metà. Se all'ora prevista il PC era spento, la rata parte appena si riaccende.
+
+```
+python scripts/quotient.py rate check                   # questo PC si può svegliare con un timer?
+python scripts/quotient.py rate after libro sleep       # dopo ogni rata: sleep (sospensione) | hibernate | nothing
+```
+
+Limiti: un timer sveglia il PC dalla sospensione o dall'ibernazione, non da spento del tutto. Windows deve permettere i timer di riattivazione (Opzioni risparmio energia > Sospensione > Consenti timer di riattivazione); `rate check` legge l'impostazione e dice come attivarla, ma Quotient non la cambia mai al posto tuo. Le attività programmate chiamano un piccolo lanciatore in `~/.quotient`, così continuano a funzionare dopo gli aggiornamenti del plugin. Due rate dello stesso lavoro non partono mai insieme.
+
 ## I limiti del piano: quanto hai usato, quanto resta, quanto vale l'1%
 
 Con un abbonamento Pro o Max, Claude Code passa alla riga di stato la percentuale usata del limite delle 5 ore e di quello settimanale, e quando si azzerano. Quotient registra queste letture e le mostra nella riga di stato:

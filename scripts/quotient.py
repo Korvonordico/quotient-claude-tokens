@@ -29,7 +29,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 DEFAULTS = {
     # Below this many weighted tokens no quote is asked for.
@@ -62,6 +62,8 @@ DEFAULTS = {
         # Hard cap in dollars = daily cap x learned dollars per weighted token x this margin.
         "usd_cap_margin": 1.5,
         "timeout_minutes": 240,
+        # After an installment, put the PC back to sleep only if nobody used it for this long.
+        "idle_minutes": 10,
         "extra_args": [],
     },
 }
@@ -407,7 +409,7 @@ def protocol(cfg, factor):
         "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate. 'Ritmo'/'Pace': all today, plus two installment plans that fit the job. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
         "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
         "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: days=<n>`, `PACE: daily=<n>`. If today: do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. If the user declines: `CHOICE: none`.",
-        "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with two questions: 'Prima rata'/'First installment' (now; today at a time they write; tonight at 03:00) and 'Ogni giorno'/'Every day' (the daily time; free field). Then: now = run `%s rate run <name>` in the background; a time today = `rate once <name> --time HH:MM`; every day = `rate schedule <name> --time HH:MM`. The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely." % (cmd, cmd),
+        "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at 03:00), 'Ogni giorno'/'Every day' (the daily time; free field) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: it sleeps only if nobody is using it). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely." % (cmd, cmd),
         "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them, and how many wt 1% holds when it can estimate it. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
         "In the window, for each level add what share of the 5-hour and weekly limits it would take and what would be left, when Quotient gives the size of 1%; if a level does not fit in what is left of the 5-hour window, say so and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left.",
         "Every decision Quotient needs from the user goes through the choice window, with a free field.",
@@ -1015,6 +1017,7 @@ def rate_new(args):
         "name": args.name, "dir": os.path.abspath(args.dir), "daily_cap": int(daily),
         "days": days, "quote": args.quote, "factor_at_quote": round(factor, 4), "created": now_iso(),
         "status": "open", "model": args.model, "usd_per_wt": None, "told": 0,
+        "after": args.after,
     }
     save_json(os.path.join(folder, "job.json"), job)
     out("Job '%s' ready: %s wt per installment%s, working in %s\nJob files: %s\n"
@@ -1025,6 +1028,36 @@ def rate_new(args):
 
 
 def rate_run(args):
+    """One installment, kept awake while it works; afterwards the PC sleeps if the job says so."""
+    folder = rate_dir(args.name)
+    lock = os.path.join(folder, "run.lock")
+    if os.path.exists(lock) and time.time() - os.path.getmtime(lock) < config()["rate"]["timeout_minutes"] * 60:
+        out("An installment of '%s' is already running.\n" % args.name)
+        return
+    os.makedirs(folder, exist_ok=True)
+    with open(lock, "w") as f:
+        f.write(str(os.getpid()))
+    keep_awake(True)
+    try:
+        run_installment(args)
+    finally:
+        keep_awake(False)
+        try:
+            os.remove(lock)
+        except OSError:
+            pass
+    job = load_json(os.path.join(folder, "job.json"), {}) or {}
+    after = job.get("after") or "nothing"
+    if after != "nothing":
+        idle = idle_seconds()
+        if idle is not None and idle >= config()["rate"]["idle_minutes"] * 60:
+            out("Nobody is using the PC: %s.\n" % after)
+            go_to_sleep(after)
+        else:
+            out("The PC is in use: it stays on.\n")
+
+
+def run_installment(args):
     cfg = config()
     folder = rate_dir(args.name)
     job = load_json(os.path.join(folder, "job.json"), None)
@@ -1134,22 +1167,96 @@ def check_time(value):
     return "%02d:%s" % (int(hh), mm)
 
 
-def schedule(name, at, once):
-    at = check_time(at)
-    run = '"%s" "%s" rate run %s%s' % (sys.executable, os.path.abspath(__file__), name, " --force" if once else "")
+def launcher():
+    """A small script outside the plugin folder that runs the newest installed Quotient.
+
+    Scheduled tasks call it, so they keep working after the plugin updates and old
+    version folders are removed.
+    """
+    path = os.path.join(home(), "launcher.py")
+    fallback = os.path.abspath(__file__)
+    code = (
+        "# Runs the newest installed Quotient (written by Quotient; scheduled tasks call it).\n"
+        "import glob, os, re, runpy, sys\n"
+        "def version(p):\n"
+        "    v = os.path.basename(os.path.dirname(os.path.dirname(p)))\n"
+        "    return tuple(int(x) if x.isdigit() else 0 for x in re.split(r'[.-]', v))\n"
+        "found = sorted(glob.glob(os.path.join(os.path.expanduser('~'), '.claude', 'plugins', 'cache', '*', 'quotient', '*', 'scripts', 'quotient.py')), key=version)\n"
+        "script = found[-1] if found else %r\n"
+        "sys.argv = [script] + sys.argv[1:]\n"
+        "runpy.run_path(script, run_name='__main__')\n" % fallback)
+    if load_text(path) != code:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(code)
+    return path
+
+
+def load_text(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def next_time(at):
+    """Today at HH:MM, or tomorrow if that time has already passed."""
+    hh, mm = (int(x) for x in check_time(at).split(":"))
+    moment = datetime.now().replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if moment <= datetime.now():
+        moment = moment.fromtimestamp(moment.timestamp() + 86400)
+    return moment
+
+
+def task_xml(name, start, once, arguments, wake=True):
+    """A Task Scheduler task that wakes the PC from sleep or hibernation, and runs late if it missed its time."""
+    def esc(text):
+        return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
+    trigger = ("<TimeTrigger><StartBoundary>%s</StartBoundary><Enabled>true</Enabled></TimeTrigger>" if once else
+               "<CalendarTrigger><StartBoundary>%s</StartBoundary><Enabled>true</Enabled>"
+               "<ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>") % start.strftime("%Y-%m-%dT%H:%M:%S")
+    return """<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>Quotient: installment of %s</Description></RegistrationInfo>
+  <Triggers>%s</Triggers>
+  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <WakeToRun>%s</WakeToRun>
+    <ExecutionTimeLimit>PT6H</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>%s</Command><Arguments>%s</Arguments><WorkingDirectory>%s</WorkingDirectory></Exec></Actions>
+</Task>
+""" % (esc(name), trigger, "true" if wake else "false", esc(sys.executable), esc(arguments), esc(home()))
+
+
+def schedule(name, at, once, force=False, wake=True):
+    start = next_time(at)
+    arguments = '"%s" rate run %s%s' % (launcher(), name, " --force" if once or force else "")
     if os.name == "nt":
-        cmd = ["schtasks", "/Create", "/F", "/SC", "ONCE" if once else "DAILY",
-               "/TN", task_name(name, once), "/TR", run, "/ST", at]
-        proc = subprocess.run(cmd, capture_output=True)
-        out((proc.stdout or proc.stderr).decode("utf-8", "replace") or "")
-        out("%s '%s' at %s. Remove it with: rate stop %s\n" % (
-            "Scheduled once, today," if once else "Scheduled every day", name, at, name))
+        xml = os.path.join(rate_dir(name), "task-once.xml" if once else "task-daily.xml")
+        os.makedirs(os.path.dirname(xml), exist_ok=True)
+        with open(xml, "w", encoding="utf-16") as f:
+            f.write(task_xml(name, start, once, arguments, wake))
+        proc = subprocess.run(["schtasks", "/Create", "/F", "/TN", task_name(name, once), "/XML", xml], capture_output=True)
+        if proc.returncode != 0:
+            sys.exit("quotient: the task was not created: %s" % (proc.stderr or proc.stdout).decode("utf-8", "replace").strip())
+        out("%s '%s' at %s%s. It runs even if the PC is asleep or hibernated%s. Remove it with: rate stop %s\n" % (
+            "Scheduled once" if once else "Scheduled every day from", name, start.strftime("%d/%m %H:%M"),
+            " (with --force: also after another installment the same day)" if force and not once else "",
+            "" if wake else " (no: --no-wake)", name))
     else:
-        hh, mm = at.split(":")
+        run = '"%s" %s' % (sys.executable, arguments)
+        hh, mm = start.strftime("%H"), start.strftime("%M")
         if once:
-            out("Run this once (needs `at`):\necho '%s' | at %s\n" % (run, at))
+            out("Run this once (needs `at`):\necho '%s' | at %s\n" % (run, start.strftime("%H:%M")))
         else:
             out("Add this line with `crontab -e`:\n%d %d * * * %s\n" % (int(mm), int(hh), run))
+        out("To wake the computer first: macOS `sudo pmset repeat wake MTWRFSU %s:00`; Linux `sudo rtcwake -m no -t <time>`.\n" % start.strftime("%H:%M"))
 
 
 def unschedule(name):
@@ -1158,20 +1265,97 @@ def unschedule(name):
             subprocess.run(["schtasks", "/Delete", "/F", "/TN", task_name(name, once)], capture_output=True)
 
 
+# ---------------------------------------------------------------- the PC: awake, idle, asleep
+
+def keep_awake(on):
+    """While an installment works, Windows must not put the PC back to sleep."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        flags = 0x80000000 | (0x00000001 if on else 0)  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+        ctypes.windll.kernel32.SetThreadExecutionState(flags)
+    except Exception:
+        pass
+
+
+def idle_seconds():
+    """Seconds since the last keyboard or mouse input, or None where it cannot be read."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+
+        class LastInput(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
+
+        info = LastInput()
+        info.cbSize = ctypes.sizeof(info)
+        if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+            return None
+        return ((ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
+    except Exception:
+        return None
+
+
+def go_to_sleep(how):
+    """Sleep or hibernate; never shut down, because a timer cannot wake a PC that is off."""
+    state = "Hibernate" if how == "hibernate" else "Suspend"
+    if os.name == "nt":
+        subprocess.run(["powershell", "-NoProfile", "-Command",
+                        "Add-Type -AssemblyName System.Windows.Forms; "
+                        "[System.Windows.Forms.Application]::SetSuspendState('%s', $false, $false)" % state])
+    elif sys.platform == "darwin":
+        subprocess.run(["pmset", "sleepnow"])
+    else:
+        subprocess.run(["systemctl", "hibernate" if how == "hibernate" else "suspend"])
+
+
+def rate_check(args):
+    """Read-only: can a scheduled installment wake this PC?"""
+    if os.name != "nt":
+        out("On macOS use `pmset -g sched`, on Linux `rtcwake`: waking by timer needs administrator rights there.\n")
+        return
+    proc = subprocess.run(["powercfg", "/query", "SCHEME_CURRENT", "SUB_SLEEP", "RTCWAKE"], capture_output=True)
+    text = proc.stdout.decode("utf-8", "replace") + proc.stdout.decode("cp850", "replace")
+    values = re.findall(r":\s*0x0*([0-9a-fA-F]+)\s*$", proc.stdout.decode("cp850", "replace"), re.M)
+    names = {"0": "disabled", "1": "enabled", "2": "important timers only"}
+    if len(values) >= 2:
+        ac, dc = values[-2], values[-1]
+        out("Wake timers: on mains %s, on battery %s.\n" % (names.get(ac, ac), names.get(dc, dc)))
+        if ac != "1":
+            out("To let Quotient wake the PC: Control Panel > Power Options > Change plan settings > "
+                "Change advanced power settings > Sleep > Allow wake timers > Enable.\n")
+    else:
+        out("Could not read the wake-timer setting.\n")
+    out("Waking works from sleep and from hibernation, not from a full shutdown.\n")
+
+
 def rate_schedule(args):
-    schedule(args.name, args.time, once=False)
+    schedule(args.name, args.time, once=False, force=args.force, wake=not args.no_wake)
 
 
 def rate_once(args):
-    schedule(args.name, args.time, once=True)
+    schedule(args.name, args.time, once=True, wake=not args.no_wake)
+
+
+def rate_after(args):
+    folder = rate_dir(args.name)
+    job = load_json(os.path.join(folder, "job.json"), None)
+    if not job:
+        sys.exit("quotient: no job named '%s'" % args.name)
+    job["after"] = args.what
+    save_json(os.path.join(folder, "job.json"), job)
+    out("After each installment of '%s': %s%s.\n" % (args.name, args.what,
+        " (only if nobody used the PC in the last %d minutes)" % config()["rate"]["idle_minutes"] if args.what != "nothing" else ""))
 
 
 def rate_stop(args):
     folder = rate_dir(args.name)
     job = load_json(os.path.join(folder, "job.json"), None)
-    if not job:
-        sys.exit("quotient: no job named '%s'" % args.name)
     unschedule(args.name)
+    if not job:
+        sys.exit("quotient: no job named '%s' (its scheduled tasks, if any, are removed)" % args.name)
     if job["status"] == "open":
         job["status"] = "stopped"
         save_json(os.path.join(folder, "job.json"), job)
@@ -1206,17 +1390,26 @@ def main(argv=None):
     p.add_argument("--daily", type=int, help="cap per installment, in weighted tokens")
     p.add_argument("--quote", type=int, help="raw estimate of the whole job, in weighted tokens")
     p.add_argument("--model")
+    p.add_argument("--after", choices=("nothing", "sleep", "hibernate"), default="nothing",
+                   help="what the PC does after each installment, if nobody is using it")
     p = rsub.add_parser("run", help="run one installment now")
     p.add_argument("name")
     p.add_argument("--force", action="store_true", help="run even if one already ran today")
     p = rsub.add_parser("status")
     p.add_argument("name", nargs="?")
-    p = rsub.add_parser("schedule", help="run an installment every day at a time")
+    p = rsub.add_parser("schedule", help="run an installment every day at a time (wakes the PC)")
     p.add_argument("name")
     p.add_argument("--time", default="03:00")
-    p = rsub.add_parser("once", help="run one more installment today at a time")
+    p.add_argument("--force", action="store_true", help="run even if another installment ran the same day")
+    p.add_argument("--no-wake", action="store_true", help="do not wake the PC")
+    p = rsub.add_parser("once", help="run one installment at a time (today, or tomorrow if past)")
     p.add_argument("name")
     p.add_argument("--time", required=True)
+    p.add_argument("--no-wake", action="store_true", help="do not wake the PC")
+    p = rsub.add_parser("after", help="what the PC does after each installment")
+    p.add_argument("name")
+    p.add_argument("what", choices=("nothing", "sleep", "hibernate"))
+    rsub.add_parser("check", help="can a scheduled installment wake this PC?")
     p = rsub.add_parser("stop", help="stop a job and remove its scheduled runs")
     p.add_argument("name")
 
@@ -1245,7 +1438,7 @@ def main(argv=None):
         cmd_config(args)
     elif args.cmd == "rate":
         actions = {"new": rate_new, "run": rate_run, "status": rate_status, "schedule": rate_schedule,
-                   "once": rate_once, "stop": rate_stop}
+                   "once": rate_once, "stop": rate_stop, "after": rate_after, "check": rate_check}
         if args.rate_cmd not in actions:
             rate.print_help()
             return

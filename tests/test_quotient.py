@@ -283,7 +283,8 @@ class TestLimits(Base):
 
 class TestInstallments(Base):
     def new_job(self, **kw):
-        args = mock.Mock(dir=self.dir, task="job", task_file=None, days=None, daily=None, quote=None, model=None)
+        args = mock.Mock(dir=self.dir, task="job", task_file=None, days=None, daily=None, quote=None, model=None,
+                         after="nothing")
         args.name = "book"
         for k, v in kw.items():
             setattr(args, k, v)
@@ -313,7 +314,7 @@ class TestInstallments(Base):
 
     def test_cap_allows_only_the_handoff(self):
         args = mock.Mock(name="x", dir=self.dir, task="job", task_file=None, days=3, daily=1000,
-                         quote=None, model=None)
+                         quote=None, model=None, after="nothing")
         args.name = "book"
         self.run_hook(lambda: pv.rate_new(args), {})
         handoff = os.path.join(pv.rate_dir("book"), "HANDOFF.md")
@@ -326,6 +327,51 @@ class TestInstallments(Base):
                                                       "tool_input": {"file_path": handoff}})
         self.assertEqual(json.loads(denied)["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertEqual(allowed, "")
+
+    def test_task_wakes_the_pc_and_runs_late(self):
+        start = pv.datetime(2026, 10, 6, 3, 0)
+        xml = pv.task_xml("book", start, True, '"C:/x y/launcher.py" rate run book --force')
+        self.assertIn("<WakeToRun>true</WakeToRun>", xml)
+        self.assertIn("<StartWhenAvailable>true</StartWhenAvailable>", xml)
+        self.assertIn("<TimeTrigger><StartBoundary>2026-10-06T03:00:00</StartBoundary>", xml)
+        self.assertIn("&quot;C:/x y/launcher.py&quot; rate run book --force", xml)
+        daily = pv.task_xml("book", start, False, "a", wake=False)
+        self.assertIn("<DaysInterval>1</DaysInterval>", daily)
+        self.assertIn("<WakeToRun>false</WakeToRun>", daily)
+
+    def test_a_past_time_means_tomorrow(self):
+        past = pv.datetime.now().replace(second=0, microsecond=0)
+        moment = pv.next_time(past.strftime("%H:%M"))
+        self.assertGreater(moment, pv.datetime.now())
+        self.assertLess((moment - pv.datetime.now()).total_seconds(), 86400 + 60)
+
+    def test_launcher_finds_the_newest_version(self):
+        text = open(pv.launcher(), encoding="utf-8").read()
+        self.assertIn("runpy.run_path", text)
+        self.assertIn("quotient.py", text)
+
+    def test_after_the_installment_the_pc_sleeps_only_if_idle(self):
+        self.new_job(quote=500000, days=2, after="sleep")
+        with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"),                 mock.patch.object(pv, "go_to_sleep") as sleep,                 mock.patch.object(pv, "idle_seconds", return_value=60):
+            args = mock.Mock(force=False)
+            args.name = "book"
+            self.run_hook(lambda: pv.rate_run(args), {})
+            sleep.assert_not_called()
+        with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"),                 mock.patch.object(pv, "go_to_sleep") as sleep,                 mock.patch.object(pv, "idle_seconds", return_value=3600):
+            args = mock.Mock(force=False)
+            args.name = "book"
+            self.run_hook(lambda: pv.rate_run(args), {})
+            sleep.assert_called_once_with("sleep")
+
+    def test_two_installments_never_run_together(self):
+        self.new_job(quote=500000, days=2)
+        open(os.path.join(pv.rate_dir("book"), "run.lock"), "w").close()
+        args = mock.Mock(force=True)
+        args.name = "book"
+        with mock.patch.object(pv, "run_installment") as run:
+            said = self.run_hook(lambda: pv.rate_run(args), {})
+        run.assert_not_called()
+        self.assertIn("already running", said)
 
     def test_outside_installments_nothing_happens(self):
         os.environ.pop("QUOTIENT_JOB", None)
