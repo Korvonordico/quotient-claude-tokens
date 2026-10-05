@@ -27,7 +27,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 DEFAULTS = {
     # Below this many weighted tokens no quote is asked for.
@@ -401,7 +401,8 @@ def protocol(cfg, factor):
         "HOW:",
         "1) Estimate the job at three levels sized to it: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f)." % (fmt(big), factor),
         "2) Write one machine line with your RAW estimates, always in English: QUOTE: essential=<n> good=<n> max=<n>",
-        "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate. 'Ritmo'/'Pace': all today, plus two installment plans that fit the job (e.g. '2 days, ~X a day', '5 days, ~Y a day'). The window always has a free field: the user can write any pace there (e.g. '50k a day'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
+        "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate. 'Ritmo'/'Pace': all today, plus two installment plans that fit the job. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
+        "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
         "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: days=<n>`, `PACE: daily=<n>`. If today: do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. If the user declines: `CHOICE: none`.",
         "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with two questions: 'Prima rata'/'First installment' (now; today at a time they write; tonight at 03:00) and 'Ogni giorno'/'Every day' (the daily time; free field). Then: now = run `%s rate run <name>` in the background; a time today = `rate once <name> --time HH:MM`; every day = `rate schedule <name> --time HH:MM`. The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely." % (cmd, cmd),
         "Every decision Quotient needs from the user goes through the choice window, with a free field.",

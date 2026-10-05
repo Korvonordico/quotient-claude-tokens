@@ -231,6 +231,8 @@ class TestWindow(Base):
         protocol = self.run_hook(pv.hook_session, {})
         self.assertIn("AskUserQuestion", protocol)
         self.assertIn("free field", protocol)
+        self.assertIn("ONE DAY of work", protocol)
+        self.assertIn("never bare numbers in parentheses", protocol)
         line = self.run_hook(pv.hook_prompt, {"session_id": "s1", "transcript_path": self.t.path})
         self.assertLess(len(line), 600)
         with mock.patch.dict(os.environ, {"QUOTIENT_JOB": "book"}):
