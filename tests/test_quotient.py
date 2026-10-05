@@ -304,6 +304,22 @@ class TestSetup(Base):
                          (500000, 25, "hibernate", True))
 
 
+class TestWakeChoice(Base):
+    """0.7.5: the user decides whether Quotient may wake the PC."""
+
+    def test_never_touch_the_pc(self):
+        self.run_hook(lambda: pv.cmd_setup(mock.Mock(threshold=None, reserve=None, lang=None, after="sleep", wake="no")), {})
+        cfg = pv.config()
+        self.assertEqual((cfg["rate"]["wake"], cfg["rate"]["after"]), (False, "nothing"))
+        self.assertFalse(pv.wake_allowed(mock.Mock(no_wake=False)))
+
+    def test_plugin_dialog_switch(self):
+        with mock.patch.dict(os.environ, {"CLAUDE_PLUGIN_OPTION_WAKE": "false"}):
+            self.run_hook(pv.hook_session, {})
+        self.assertFalse(pv.config()["rate"]["wake"])
+        self.assertIn("never touch the PC", pv.setup_instructions(pv.config()))
+
+
 class TestWeek(Base):
     """0.6: all installment jobs together against what is left of the week."""
 

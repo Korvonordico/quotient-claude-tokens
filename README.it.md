@@ -30,7 +30,7 @@ In Claude Code:
 
 Serve Python 3.8 o più recente e `sh` (su Windows arriva con Git for Windows, che Claude Code usa già).
 
-La prima volta una finestra chiede quattro impostazioni: da che grandezza un lavoro riceve il preventivo, quanta parte della settimana tenere per te, la lingua, e cosa fa il PC dopo una rata. Le cambi quando vuoi con `/quotient:setup`.
+La prima volta una finestra chiede quattro impostazioni: da che grandezza un lavoro riceve il preventivo, quanta parte della settimana tenere per te, la lingua, e se Quotient può svegliare il PC per le rate e rimetterlo a dormire. Le cambi quando vuoi con `/quotient:setup`.
 
 ## Come va un lavoro grande
 
@@ -54,6 +54,7 @@ Lasci il PC **in sospensione o in ibernazione**, come fai sempre. Ogni rata poi 
 5. **Il giorno dopo, alla stessa ora, ricomincia**, finché il lavoro è finito. Poi l'orario si cancella da solo.
 
 Da sapere:
+- Se preferisci che Quotient non tocchi mai il PC, lo scegli nella configurazione: le rate allora partono solo con il PC già acceso.
 - Un timer può svegliare un PC **in sospensione o in ibernazione, non uno spento del tutto**. Se il PC era spento, la rata parte appena lo accendi.
 - Windows deve permettere i timer di riattivazione. `rate check` ti dice se è così, e come attivarli.
 - Se usi l'app desktop di Claude, fai una volta il login di Claude Code in un terminale (`claude auth login`): le rate girano fuori dall'app.

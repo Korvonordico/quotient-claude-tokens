@@ -30,7 +30,7 @@ In Claude Code:
 
 Needs Python 3.8 or newer and `sh` (on Windows it comes with Git for Windows, which Claude Code already uses).
 
-The first time, a window asks for four settings: from what size a job gets a quote, how much of the week to keep for yourself, the language, and what the PC does after an installment. You can change them later with `/quotient:setup`.
+The first time, a window asks for four settings: from what size a job gets a quote, how much of the week to keep for yourself, the language, and whether Quotient may wake the PC for installments and put it back to sleep. You can change them later with `/quotient:setup`.
 
 ## How a big job goes
 
@@ -54,6 +54,7 @@ You leave the PC **in sleep or hibernation**, as you always do. Every installmen
 5. **The next day, at the same time, it starts again**, until the job is finished. Then the schedule removes itself.
 
 Good to know:
+- If you prefer that Quotient never touches the PC, choose so in the setup: installments then run only when the PC is already on.
 - A timer can wake a PC that is **asleep or hibernated, not one that is shut down**. If the PC was off, the installment runs as soon as you turn it on.
 - Windows must allow wake timers. `rate check` tells you whether it does, and how to turn them on.
 - If you use the Claude desktop app, log in Claude Code once in a terminal (`claude auth login`): installments run outside the app.

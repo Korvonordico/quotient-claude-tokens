@@ -31,7 +31,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.7.4"
+VERSION = "0.7.5"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /quotient:setup, or Claude Code's plugin settings).
@@ -74,6 +74,8 @@ DEFAULTS = {
         "idle_minutes": 10,
         # What the PC does after an installment unless a job says otherwise: nothing, sleep or hibernate.
         "after": "nothing",
+        # Whether scheduled installments may wake the PC from sleep or hibernation (the user's choice).
+        "wake": True,
         "extra_args": [],
     },
 }
@@ -165,7 +167,12 @@ OPTIONS = {  # plugin setting -> (config key path, type)
     "RESERVE_PERCENT": (("week", "reserve_percent"), int),
     "LANG": (("lang",), str),
     "AFTER": (("rate", "after"), str),
+    "WAKE": (("rate", "wake"), "bool"),
 }
+
+
+def to_bool(value):
+    return str(value).strip().lower() in ("1", "true", "yes", "si", "sì", "on")
 
 
 def config():
@@ -193,7 +200,7 @@ def sync_plugin_options():
         raw = os.environ.get("CLAUDE_PLUGIN_OPTION_" + key)
         if raw not in (None, ""):
             try:
-                values[keys] = kind(float(raw)) if kind is int else kind(raw)
+                values[keys] = to_bool(raw) if kind == "bool" else kind(float(raw)) if kind is int else kind(raw)
             except ValueError:
                 pass
     if not values:
@@ -513,11 +520,13 @@ def setup_instructions(cfg):
             "open the choice window (AskUserQuestion) in the user's language with four questions, each with a free field: "
             "'Soglia'/'Threshold' (from how many weighted tokens a job gets a quote: 100.000 = often, 300.000 = the default, "
             "1.000.000 = only huge jobs); 'Riserva'/'Reserve' (share of the weekly limit kept for normal use: 10%%, 20%%, 30%%); "
-            "'Lingua'/'Language' of the report (italiano, English); 'Dopo le rate'/'After installments' (put the PC to sleep, "
-            "hibernate, leave it on). Current values: threshold %s, reserve %d%%, language %s, after %s. Then save them with: "
-            "%s setup --threshold <n> --reserve <n> --lang it|en --after sleep|hibernate|nothing  and tell the user that "
-            "/quotient:setup opens this window again whenever they want to change it.\n" % (
-                fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"], cfg["rate"]["after"], run_cmd()))
+            "'Lingua'/'Language' of the report (italiano, English); 'Il PC'/'The PC' for scheduled installments: wake it and put it "
+            "back to sleep / wake it and hibernate it / wake it and leave it on / never touch the PC (installments run only if it "
+            "is already on). Current values: threshold %s, reserve %d%%, language %s, wake %s, after %s. Then save them with: "
+            "%s setup --threshold <n> --reserve <n> --lang it|en --wake yes|no --after sleep|hibernate|nothing  and tell the "
+            "user that /quotient:setup opens this window again whenever they want to change it.\n" % (
+                fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"],
+                "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], run_cmd()))
 
 
 def cmd_setup(args):
@@ -530,11 +539,16 @@ def cmd_setup(args):
         values[("lang",)] = args.lang
     if args.after:
         values[("rate", "after")] = args.after
+    if getattr(args, "wake", None) in ("yes", "no"):
+        values[("rate", "wake")] = to_bool(args.wake)
+        if not values[("rate", "wake")]:
+            values[("rate", "after")] = "nothing"  # a PC that is never woken is never put to sleep either
     save_settings(values)
     cfg = config()
-    out("Quotient is set up: threshold %s wt, reserve %d%% of the week, report in %s, after installments: %s.\n"
-        "Change it any time with /quotient:setup.\n" % (
-            fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"], cfg["rate"]["after"]))
+    out("Quotient is set up: threshold %s wt, reserve %d%% of the week, report in %s, wake the PC for installments: %s, "
+        "after installments: %s.\nChange it any time with /quotient:setup.\n" % (
+            fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"],
+            "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"]))
 
 
 def hook_session():
@@ -1564,10 +1578,11 @@ def schedule(name, at, once, force=False, wake=True):
                               capture_output=True)
         if proc.returncode != 0:
             sys.exit("quotient: the task was not created: %s" % (proc.stderr or proc.stdout).decode("utf-8", "replace").strip())
-        out("%s '%s' at %s%s. It runs even if the PC is asleep or hibernated%s. Remove it with: rate stop %s\n" % (
+        out("%s '%s' at %s%s. %s Remove it with: rate stop %s\n" % (
             "Scheduled once" if once else "Scheduled every day from", name, start.strftime("%d/%m %H:%M"),
             " (with --force: also after another installment the same day)" if force and not once else "",
-            "" if wake else " (no: --no-wake)", name))
+            "It wakes the PC from sleep or hibernation." if wake else
+            "It does not wake the PC: it runs only if the PC is on (or as soon as it is turned on).", name))
     else:
         run = '"%s" %s' % (sys.executable, arguments)
         hh, mm = start.strftime("%H"), start.strftime("%M")
@@ -1673,12 +1688,16 @@ def rate_check(args):
         out('Log in once, in a terminal (it opens the browser; paste the code it gives you):\n"%s" auth login\n' % claude)
 
 
+def wake_allowed(args):
+    return config()["rate"]["wake"] and not args.no_wake
+
+
 def rate_schedule(args):
-    schedule(args.name, args.time, once=False, force=args.force, wake=not args.no_wake)
+    schedule(args.name, args.time, once=False, force=args.force, wake=wake_allowed(args))
 
 
 def rate_once(args):
-    schedule(args.name, args.time, once=True, wake=not args.no_wake)
+    schedule(args.name, args.time, once=True, wake=wake_allowed(args))
 
 
 def rate_after(args):
@@ -1719,6 +1738,7 @@ def main(argv=None):
     p.add_argument("--reserve", type=int)
     p.add_argument("--lang", choices=("it", "en"))
     p.add_argument("--after", choices=("nothing", "sleep", "hibernate"))
+    p.add_argument("--wake", choices=("yes", "no"), help="may scheduled installments wake the PC")
     p = sub.add_parser("setup-statusline", help="show the plan limits in the status line and record them")
     p.add_argument("--write", action="store_true", help="write the setting in ~/.claude/settings.json")
     p.add_argument("--force", action="store_true", help="replace a status line that is already set")
