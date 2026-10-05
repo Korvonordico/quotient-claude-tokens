@@ -1,0 +1,13 @@
+{
+ "schema": 1,
+ "updated": "2026-10-06",
+ "method": "Starting value shipped with the plugin: one real job. From now on this file is written by the shared-average service (server/), after at least 5 new jobs at a time.",
+ "all": {
+  "jobs": 1,
+  "used": 1,
+  "factor": 1.1525,
+  "p25": 1.1525,
+  "p75": 1.1525
+ },
+ "families": {}
+}

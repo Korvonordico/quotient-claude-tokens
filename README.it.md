@@ -13,11 +13,11 @@ Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol d
 - **Il preventivo prima di un lavoro grande**, in una finestra di scelta: *essenziale*, *buono* o *massimo*, ognuno con quello che comprende e il suo costo stimato.
 - **Il ritmo lo scegli tu**: tutto oggi, oppure a rate, una al giorno, con la quantità al giorno. Oppure il ritmo che scrivi tu.
 - **Il costo vero, dopo**, letto dai file di Claude Code e messo accanto alla stima.
-- **Impara dai suoi errori**: ogni preventivo viene corretto in base a quanto hanno sbagliato quelli di prima. Non parti da zero: finché non hai 5 lavori tuoi, parte dalla media di lavori veri che arriva con il programma (solo numeri).
+- **Impara dai suoi errori**: ogni preventivo viene corretto in base a quanto hanno sbagliato quelli di prima. Non parti da zero: finché non hai 5 lavori tuoi, parte dalla media condivisa dei lavori veri di tutti (solo numeri, vedi sotto).
 - **Le rate lavorano mentre non ci sei**: il PC si sveglia, fa il pezzo del giorno e torna a dormire (vedi sotto).
 - **La settimana tutta insieme**: più lavori insieme non mangiano mai la parte di settimana che tieni per te.
 - **I tuoi limiti sotto gli occhi**: quanto hai usato del limite delle 5 ore e di quello settimanale, e quanto resta.
-- **Privato**: tutto resta sul tuo computer. Quotient non si collega mai a internet.
+- **Privato**: tutto resta sul tuo computer, tranne una riga di numeri per ogni lavoro finito, per la media condivisa, che puoi spegnere (vedi [Cosa viene condiviso](#cosa-viene-condiviso)).
 
 ## Installazione
 
@@ -30,7 +30,7 @@ In Claude Code:
 
 Serve Python 3.8 o più recente e `sh` (su Windows arriva con Git for Windows, che Claude Code usa già).
 
-La prima volta una finestra chiede quattro impostazioni: da che grandezza un lavoro riceve il preventivo, quanta parte della settimana tenere per te, la lingua, e se Quotient può svegliare il PC per le rate e rimetterlo a dormire. Le cambi quando vuoi con `/quotient:setup`.
+La prima volta una finestra chiede quattro impostazioni: da che grandezza un lavoro riceve il preventivo, quanta parte della settimana tenere per te, la lingua, e se Quotient può svegliare il PC per le rate e rimetterlo a dormire. Le cambi quando vuoi con `/quotient:setup`. Poi una seconda finestra ti chiede se vuoi partecipare alla media condivisa, che aiuta il programma (sì, no, o quello che scrivi tu).
 
 ## Come va un lavoro grande
 
@@ -75,6 +75,23 @@ Quotient · 5 ore: usato 31%, resta 69%, si azzera 19:30 · settimana: usato 6%,
 
 Col tempo stima anche quanti token vale l'1% di ogni limite, così un preventivo può dire «questo prende circa l'8% della tua settimana». Anthropic non pubblica i limiti in token, quindi è una stima, con il suo margine.
 
+## Cosa viene condiviso
+
+Ogni copia di Quotient impara dai suoi errori, ma chi comincia non ne ha ancora. Allora le copie mettono insieme i loro numeri: dopo ogni lavoro finito, Quotient manda **una riga di numeri, esattamente questa e nient'altro**:
+
+```json
+{"v":1,"q":"0.9.0","family":"opus","estimate":225000,"actual":259000}
+```
+
+Il formato, la versione di Quotient, la famiglia del modello (opus, sonnet, haiku, fable o altro), la stima grezza e il costo vero in token pesati, arrotondati a 3 cifre. **Niente date, nomi, testi, percorsi, codici di sessione o di persona.** La riga parte all'inizio della chat successiva, mai a metà di una risposta, e niente parte prima che Claude Code ti abbia mostrato un messaggio che lo dice.
+
+- Un piccolo servizio ([codice in `server/`](server/)) raccoglie le righe. Non tiene gli indirizzi IP: il suo codice non li legge e il registro delle richieste è spento.
+- Al massimo una volta a settimana, dopo almeno 20 lavori nuovi e mai sotto i 30 in tutto, pubblica la media in un progetto tutto suo, [quotient-data](https://github.com/Korvonordico/quotient-data) (la chiave del servizio può scrivere solo lì, mai in questo programma). Ogni copia di Quotient scarica quel file una volta al giorno e lo usa solo fra x0,25 e x4: chiunque può mandare numeri, quindi è una media «al meglio».
+- **Scegli tu**: la finestra del primo uso ti chiede se partecipi (di serie sì). Puoi cambiarlo quando vuoi: `/quotient:share off`, l'impostazione del plugin *Condividi numeri anonimi*, oppure `QUOTIENT_SHARE=0`. **Anche da spento ricevi la media condivisa.**
+- `/quotient:share` ti mostra esattamente cosa parte e quante righe aspettano di partire.
+
+Tutto nel dettaglio: [PRIVACY.md](PRIVACY.md).
+
 ## Comandi
 
 Nella chat:
@@ -84,6 +101,7 @@ Nella chat:
 | `/quotient:setup` | configura Quotient, o cambia le sue impostazioni |
 | `/quotient:report` | stime contro costi veri, i tuoi limiti, le settimane |
 | `/quotient:rate <lavoro>` | dividi un lavoro grande in rate |
+| `/quotient:share [on\|off]` | la media condivisa: cosa parte esattamente, e accenderla o spegnerla |
 | `/quotient:help` | tutti i comandi, con quello che fanno |
 
 Gli altri comandi li usa Claude per te quando scegli nelle finestre. `/quotient:help` li elenca tutti (`rate week`, `rate pause`, `rate check` e gli altri).
@@ -103,9 +121,11 @@ Gli altri comandi li usa Claude per te quando scegli nelle finestre. `/quotient:
 
 **Le rate.** Ognuna è un'esecuzione senza finestra (`claude -p`) nella cartella del lavoro, avviata dall'Utilità di pianificazione di Windows tramite un piccolo lanciatore in `~/.quotient`, così continua a funzionare dopo gli aggiornamenti del plugin. Quando il tetto del giorno è speso, un hook rifiuta ogni strumento tranne l'aggiornamento della consegna. Due rate dello stesso lavoro non partono mai insieme.
 
-**I tuoi dati.** Tutto sta in `~/.quotient/` (o in `QUOTIENT_HOME`). `export` scrive solo numeri (niente testi, niente percorsi, niente codici delle sessioni), per una futura stima comune fatta con i numeri di tante persone.
+**I tuoi dati.** Tutto sta in `~/.quotient/` (o in `QUOTIENT_HOME`). `export` scrive le righe esatte che la condivisione manda. Le righe in attesa sono in `share-outbox.jsonl`; la media scaricata è `average.json`.
 
-**Prove.** `python -m unittest discover -s tests`
+**La media condivisa.** Finché non hai 5 lavori tuoi, la media condivisa conta come 5 lavori al suo fattore (quello della tua famiglia di modello se ne ha almeno 5, se no quello di tutti), accanto ai tuoi. Dal quinto lavoro tuo in poi contano solo i tuoi.
+
+**Prove.** `python -m unittest discover -s tests` (Quotient, senza internet) e `node --test server/test/stats.test.mjs` (i numeri del servizio).
 
 </details>
 

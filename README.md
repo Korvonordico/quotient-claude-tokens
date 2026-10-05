@@ -13,11 +13,11 @@ The name holds both halves: it starts like *quote*, the price agreed before a jo
 - **A quote before a big job**, in a choice window: *essential*, *good* or *max*, each with what it includes and its estimated cost.
 - **The pace is yours**: all today, or in installments, one a day, with the amount per day. Or any pace you write yourself.
 - **The real cost after**, read from Claude Code's own records, next to the estimate.
-- **It learns from its errors**: each quote is corrected by how far off the earlier ones were. You do not start from zero: until you have 5 jobs of your own, it starts from the average of real jobs shipped with it (numbers only).
+- **It learns from its errors**: each quote is corrected by how far off the earlier ones were. You do not start from zero: until you have 5 jobs of your own, it starts from the shared average of everyone's real jobs (numbers only, see below).
 - **Installments that work while you are away**: the PC wakes up, does the day's piece, and goes back to sleep (see below).
 - **The week as a whole**: several jobs together never eat the share of the week you keep for yourself.
 - **Your limits at a glance**: how much of the 5-hour and weekly limits you have used, and what is left.
-- **Private**: everything stays on your computer. Quotient never connects to the internet.
+- **Private**: everything stays on your computer, except one line of numbers per finished job for the shared average, which you can turn off (see [What is shared](#what-is-shared)).
 
 ## Install
 
@@ -30,7 +30,7 @@ In Claude Code:
 
 Needs Python 3.8 or newer and `sh` (on Windows it comes with Git for Windows, which Claude Code already uses).
 
-The first time, a window asks for four settings: from what size a job gets a quote, how much of the week to keep for yourself, the language, and whether Quotient may wake the PC for installments and put it back to sleep. You can change them later with `/quotient:setup`.
+The first time, a window asks for four settings: from what size a job gets a quote, how much of the week to keep for yourself, the language, and whether Quotient may wake the PC for installments and put it back to sleep. You can change them later with `/quotient:setup`. Then a second window asks whether you want to take part in the shared average, which helps the program (yes, no, or anything else you write).
 
 ## How a big job goes
 
@@ -75,6 +75,23 @@ Quotient · 5-hour: 31% used, 69% left, resets 19:30 · week: 6% used, 94% left,
 
 Over time it also estimates how many tokens 1% of each limit holds, so a quote can say "this takes about 8% of your week". Anthropic does not publish the limits in tokens, so this is an estimate, with its margin.
 
+## What is shared
+
+Each copy of Quotient learns from its own errors, but a new user has no errors yet. So the copies pool their numbers: after each finished job, Quotient sends **one line of numbers, exactly this and nothing else**:
+
+```json
+{"v":1,"q":"0.9.0","family":"opus","estimate":225000,"actual":259000}
+```
+
+The format, the Quotient version, the model family (opus, sonnet, haiku, fable or other), the raw estimate and the real cost in weighted tokens, rounded to 3 significant digits. **No dates, no names, no text, no paths, no session or user ids.** The line leaves at the start of your next session, never in the middle of a reply, and nothing is queued before Claude Code has shown you a message about it.
+
+- A small service ([code in `server/`](server/)) collects the lines. It does not keep IP addresses: its code never reads them and request logs are off.
+- At most once a week, after at least 20 new jobs and never below 30 jobs in all, it publishes the average in its own repository, [quotient-data](https://github.com/Korvonordico/quotient-data) (the service's key can write only there, never in this code). Every copy of Quotient downloads that file once a day and uses it only between x0.25 and x4: anyone can send numbers, so it is a best-effort average.
+- **You choose**: the first-use window asks whether you take part (yes by default). You can change it any time: `/quotient:share off`, the plugin setting *Share anonymous numbers*, or `QUOTIENT_SHARE=0`. **With sharing off you still get the shared average.**
+- `/quotient:share` shows exactly what is sent and how many lines are waiting.
+
+Everything in detail: [PRIVACY.md](PRIVACY.md).
+
 ## Commands
 
 In the chat:
@@ -84,6 +101,7 @@ In the chat:
 | `/quotient:setup` | set Quotient up, or change its settings |
 | `/quotient:report` | estimates against real costs, your limits, the weeks |
 | `/quotient:rate <job>` | split a big job into installments |
+| `/quotient:share [on\|off]` | the shared average: exactly what is sent, and turning it on or off |
 | `/quotient:help` | every command, with what it does |
 
 Claude runs the other commands for you when you choose in the windows. `/quotient:help` lists them all (`rate week`, `rate pause`, `rate check` and the others).
@@ -103,9 +121,11 @@ Claude runs the other commands for you when you choose in the windows. `/quotien
 
 **Installments.** Each one is a non-interactive run (`claude -p`) in the job's folder, started by Windows Task Scheduler through a small launcher in `~/.quotient`, so it keeps working after plugin updates. A hook refuses every tool except the handoff update once the day's cap is spent. Two installments of the same job never run at the same time.
 
-**Your data.** Everything is in `~/.quotient/` (or `QUOTIENT_HOME`). `export` prints only numbers (no text, no paths, no session ids), for a future shared estimate built from many people's numbers.
+**Your data.** Everything is in `~/.quotient/` (or `QUOTIENT_HOME`). `export` prints the exact lines sharing sends. The outbox is `share-outbox.jsonl`; the downloaded average is `average.json`.
 
-**Tests.** `python -m unittest discover -s tests`
+**The shared average.** Until you have 5 jobs of your own, the shared average counts as 5 jobs at its factor (the one of your model family when it has at least 5 jobs, else of all jobs), next to your own. From your fifth job on, only your jobs count.
+
+**Tests.** `python -m unittest discover -s tests` (Quotient, offline) and `node --test server/test/stats.test.mjs` (the service's numbers).
 
 </details>
 

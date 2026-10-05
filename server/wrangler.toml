@@ -1,0 +1,26 @@
+name = "quotient-share"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Request logs off: Cloudflare turns them on by default for new Workers, and they would
+# keep request details (with the sender's address) for 3 days.
+[observability]
+enabled = false
+
+# Once a day at 03:17 UTC: forget old counters and, after at least 5 new jobs, publish the average.
+[triggers]
+crons = ["17 3 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "quotient-share"
+database_id = "c22a1c6b-b8be-4557-843d-2eae710e9f29"
+
+# The average is published in a separate repository that holds only that file, so the
+# service's key can never write Quotient's code. Where it writes, and the rules for publishing
+# (30 jobs, 20 new, 7 days), are written in src/, not here, so no setting can loosen them.
+# Optional: PER_MINUTE and PER_DAY (defaults 20 and 300, for everybody together).
+
+# Secret, set with `npx wrangler secret put GITHUB_TOKEN` (never written in this file):
+# a fine-grained GitHub token limited to the quotient-data repository, Contents: read and write.

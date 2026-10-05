@@ -14,7 +14,8 @@ Commands:
   statusline           status line command: records and shows the plan limits
   setup-statusline     sets that status line up (--write to put it in settings.json)
   config [KEY [VALUE]] show or change the settings
-  export               only the numbers of the finished jobs, to share
+  export               the exact lines that sharing sends (numbers only)
+  share [status|on|off] the shared average: what is sent, and turning it on or off
   rate ...             the work in installments (see `rate --help`)
 """
 
@@ -29,9 +30,11 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /quotient:setup, or Claude Code's plugin settings).
@@ -77,6 +80,20 @@ DEFAULTS = {
         # Whether scheduled installments may wake the PC from sleep or hibernation (the user's choice).
         "wake": True,
         "extra_args": [],
+    },
+    "share": {
+        # On by default and declared (first-use window, README, PRIVACY.md): after each finished job, one line
+        # of numbers (format, version, model family, raw estimate, real cost) goes to the shared average.
+        # Off: nothing is sent, and the shared average is still downloaded and used.
+        "enabled": True,
+        # The service that collects the lines (server/ in the repository). Empty: lines wait in the outbox.
+        "endpoint": "https://quotient-share.korvonordico.workers.dev",
+        # The published average, read once a day.
+        "average_url": "https://raw.githubusercontent.com/Korvonordico/quotient-data/main/average.json",
+        "timeout": 3,
+        # True once the user has been shown what is shared (a message at session start, the setup
+        # window, or /quotient:share). Nothing is queued before that.
+        "notice_shown": False,
     },
 }
 
@@ -168,6 +185,7 @@ OPTIONS = {  # plugin setting -> (config key path, type)
     "LANG": (("lang",), str),
     "AFTER": (("rate", "after"), str),
     "WAKE": (("rate", "wake"), "bool"),
+    "SHARE": (("share", "enabled"), "bool"),
 }
 
 
@@ -194,26 +212,27 @@ def save_settings(values):
 
 def sync_plugin_options():
     """Claude Code passes the plugin's settings to hooks as CLAUDE_PLUGIN_OPTION_<KEY>; scheduled runs
-    do not get them, so they are copied into config.json, where every part of Quotient reads."""
-    values = {}
+    do not get them, so they are copied into config.json, where every part of Quotient reads.
+    A plugin setting is copied only when it changes, so a choice made elsewhere (for example
+    `share off`) is not undone by a plugin setting the user never touched."""
+    path = os.path.join(home(), "config.json")
+    seen = load_json(path, {}).get("plugin_seen") or {}
+    values, now_seen = {}, dict(seen)
     for key, (keys, kind) in OPTIONS.items():
         raw = os.environ.get("CLAUDE_PLUGIN_OPTION_" + key)
-        if raw not in (None, ""):
-            try:
-                values[keys] = to_bool(raw) if kind == "bool" else kind(float(raw)) if kind is int else kind(raw)
-            except ValueError:
-                pass
-    if not values:
-        return
-    cfg = config()
-    current = {}
-    for keys in values:
-        node = cfg
-        for k in keys:
-            node = node.get(k) if isinstance(node, dict) else None
-        current[keys] = node
-    if current != values or not cfg.get("configured"):
+        if raw in (None, "") or seen.get(key) == raw:
+            continue
+        try:
+            values[keys] = to_bool(raw) if kind == "bool" else kind(float(raw)) if kind is int else kind(raw)
+            now_seen[key] = raw
+        except ValueError:
+            pass
+    if values:
         save_settings(values)
+    if now_seen != seen:
+        user = load_json(path, {})
+        user["plugin_seen"] = now_seen
+        save_json(path, user)
 
 
 def session_path(session_id):
@@ -324,6 +343,48 @@ def cost_of(entries, weights):
     return round(sum(weigh(u, weights) for u in calls.values())), len(calls)
 
 
+FAMILY_NAMES = ("opus", "sonnet", "haiku", "fable")
+
+
+def family_of(model):
+    """opus, sonnet, haiku, fable or other, from a model id such as claude-opus-5-5."""
+    model = (model or "").lower()
+    for name in FAMILY_NAMES:
+        if name in model:
+            return name
+    return "other"
+
+
+def families_of(entries, weights):
+    """Weighted tokens per model family, each API call counted once."""
+    calls = {}
+    for e in entries:
+        if e.get("type") != "assistant":
+            continue
+        msg = e.get("message") or {}
+        key = e.get("requestId") or msg.get("id") or e.get("uuid")
+        usage = msg.get("usage") or {}
+        old = calls.get(key)
+        if old is None or (usage.get("output_tokens") or 0) > (old[1].get("output_tokens") or 0):
+            calls[key] = (msg.get("model"), usage)
+    totals = {}
+    for model, usage in calls.values():
+        family = family_of(model)
+        totals[family] = round(totals.get(family, 0) + weigh(usage, weights))
+    return {k: v for k, v in totals.items() if v}
+
+
+def add_families(job, families):
+    totals = job.setdefault("families", {})
+    for k, v in families.items():
+        totals[k] = totals.get(k, 0) + v
+
+
+def main_family(families):
+    """The family that did most of the work."""
+    return max(families, key=families.get) if families else "other"
+
+
 def context_size(transcript_path):
     """Tokens the model re-reads at each call: the size of the last call's prompt."""
     size = 0
@@ -385,9 +446,98 @@ def finished_jobs():
             if j.get("raw_estimate") and j.get("actual")]
 
 
+def plugin_root():
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def shared_path():
-    """Numbers only (estimate, real cost, date) of real jobs, shipped with the plugin in data/shared.jsonl."""
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "shared.jsonl")
+    """Numbers only (estimate, real cost) of real jobs, shipped with the plugin in data/shared.jsonl:
+    used only when no shared average (downloaded, or data/average.json shipped with the plugin) is available."""
+    return os.path.join(plugin_root(), "data", "shared.jsonl")
+
+
+def average_path():
+    """The shared average downloaded once a day."""
+    return os.path.join(home(), "average.json")
+
+
+def bundled_average_path():
+    """The copy of the shared average shipped with this version of the plugin."""
+    return os.path.join(plugin_root(), "data", "average.json")
+
+
+FACTOR_MIN, FACTOR_MAX = 0.25, 4.0
+DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def clean_stats(stats):
+    """Only the numbers of one summary, or None if they are missing or implausible."""
+    if not isinstance(stats, dict):
+        return None
+    try:
+        clean = {"jobs": int(stats.get("jobs") or 0), "factor": float(stats.get("factor") or 0)}
+        for k in ("p25", "p75"):
+            if stats.get(k) is not None:
+                clean[k] = float(stats[k])
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not 1 <= clean["jobs"] <= 10 ** 9:
+        return None
+    if not all(math.isfinite(v) and 0.02 <= v <= 50 for k, v in clean.items() if k != "jobs"):
+        return None
+    return clean
+
+
+def check_average(data):
+    """A clean copy of the average file: the schema, the day it was published, and numbers only.
+    Anything else in the file (text, unknown keys, unknown families) is dropped, so nothing but
+    numbers from it ever reaches Claude. None if the shape or the numbers are wrong."""
+    if not isinstance(data, dict) or data.get("schema") != 1:
+        return None
+    day = data.get("updated")
+    clean = {"schema": 1, "updated": day if isinstance(day, str) and DAY_RE.match(day) else None, "all": None,
+             "families": {}}
+    if data.get("all") is not None:
+        clean["all"] = clean_stats(data["all"])
+        if clean["all"] is None:
+            return None
+    families = data.get("families") or {}
+    if not isinstance(families, dict):
+        return None
+    for name, stats in families.items():
+        if name in FAMILY_NAMES or name == "other":
+            s = clean_stats(stats)
+            if s is None:
+                return None
+            clean["families"][name] = s
+    return clean
+
+
+def shared_average():
+    """The downloaded shared average, or else the copy shipped with the plugin."""
+    for path in (average_path(), bundled_average_path()):
+        avg = check_average(load_json(path, None))
+        if avg and avg.get("all"):
+            return avg
+    return None
+
+
+def shared_prior(cfg, jobs):
+    """What stands for other people's jobs until you have enough of your own: rows for the
+    factor, and how many real jobs are behind them. The shared average counts as at most
+    min_jobs jobs at its factor (the one of your model family if it has one, else of all jobs),
+    and its factor is held between x0.25 and x4: anyone can send numbers, so it is not trusted further."""
+    avg = shared_average()
+    if avg:
+        family = jobs[-1].get("family") if jobs else None
+        stats = (avg.get("families") or {}).get(family) or avg["all"]
+        n = int(stats["jobs"])
+        factor = min(max(float(stats["factor"]), FACTOR_MIN), FACTOR_MAX)
+        row = {"raw_estimate": 1000000, "actual": round(1000000 * factor), "finished": "",
+               "choice": "shared", "shared": True}
+        return [dict(row) for _ in range(min(n, cfg["min_jobs"]))], n
+    rows = shared_jobs(jobs)
+    return rows, len(rows)
 
 
 def shared_jobs(own=()):
@@ -428,7 +578,7 @@ def learning(cfg):
     """The correction factor: from your own jobs, or, until you have enough of them, together with the shared ones."""
     jobs = finished_jobs()
     window = cfg["history_window"]
-    shared = shared_jobs(jobs)
+    shared, shared_n = shared_prior(cfg, jobs)
     rows = []
     for i, job in enumerate(jobs):
         before = factor_from((shared if i < cfg["min_jobs"] else []) + jobs[:i], window)
@@ -443,7 +593,207 @@ def learning(cfg):
     use_shared = len(jobs) < cfg["min_jobs"]
     basis = (shared if use_shared else []) + jobs
     return {"jobs": jobs, "rows": rows, "factor": factor_from(basis, window),
-            "shared": len(shared) if use_shared else 0}
+            "shared": shared_n if use_shared and shared else 0}
+
+
+# ---------------------------------------------------------------- sharing
+
+SHARE_FIELDS = ("v", "q", "family", "estimate", "actual")
+OUTBOX_MAX = 200
+NOTICE = ("Quotient shares anonymous numbers of each finished job (raw estimate and real cost, rounded; model "
+          "family; Quotient version: no dates, no text, no ids) to build a shared average that helps everyone "
+          "start from real data. Turn it off any time with /quotient:share off or in the plugin settings: you "
+          "keep using the shared average. Details: "
+          "https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md")
+
+
+def store(keys, value):
+    """Write one setting into config.json without marking Quotient as set up."""
+    path = os.path.join(home(), "config.json")
+    user = load_json(path, {})
+    node = user
+    for k in keys[:-1]:
+        node = node.setdefault(k, {})
+    node[keys[-1]] = value
+    save_json(path, user)
+
+
+def round3(n):
+    """3 significant digits: enough for a ratio, and an exact count is not a fingerprint."""
+    n = int(round(n))
+    step = 10 ** max(0, len(str(abs(n))) - 3)
+    return int(round(n / step) * step)
+
+
+def share_row(job):
+    """The exact line sent for a finished job: format, Quotient version, model family, raw estimate and
+    real cost (rounded to 3 significant digits). Nothing else: no date, no text, no path, no session or
+    user id. None if implausible."""
+    try:
+        estimate, actual = round3(float(job["raw_estimate"])), round3(float(job["actual"]))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if not (1000 <= estimate <= 100000000 and 1000 <= actual <= 100000000 and 0.1 <= actual / estimate <= 10):
+        return None
+    family = job.get("family") if job.get("family") in FAMILY_NAMES else "other"
+    return {"v": 1, "q": VERSION, "family": family, "estimate": estimate, "actual": actual}
+
+
+def share_enabled(cfg):
+    if os.environ.get("QUOTIENT_SHARE", "").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    return bool(cfg["share"].get("enabled"))
+
+
+def share_active(cfg):
+    """Lines are queued only when sharing is on AND the user has been told (the notice was shown)."""
+    return share_enabled(cfg) and bool(cfg["share"].get("notice_shown"))
+
+
+def outbox_path():
+    return os.path.join(home(), "share-outbox.jsonl")
+
+
+def write_outbox(rows):
+    path = outbox_path()
+    if not rows:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        for row in rows[-OUTBOX_MAX:]:
+            f.write(json.dumps(row) + "\n")
+    os.replace(tmp, path)
+
+
+def queue_share(job, cfg):
+    """Put the finished job's line in the outbox. It leaves at the next session start, never in the
+    middle of a reply. With sharing off, or before the notice was shown, nothing is queued."""
+    row = share_row(job)
+    if row and share_active(cfg):
+        append_jsonl(outbox_path(), row)
+    return row
+
+
+def allowed_url(url):
+    """Only HTTPS (plain HTTP only to this computer, for tests)."""
+    url = (url or "").lower()
+    return url.startswith("https://") or url.startswith("http://127.0.0.1")
+
+
+def http(method, url, body=None, timeout=3):
+    """A plain HTTPS request: no cookies, no identifying headers, at most 256 KB read within a time
+    limit. Returns (status, body) or (None, b"")."""
+    if not allowed_url(url):
+        return None, b""
+    data = json.dumps(body, separators=(",", ":")).encode("utf-8") if body is not None else None
+    headers = {"User-Agent": "quotient"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    end = time.time() + 3 * timeout
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            chunks, size = [], 0
+            while size < 262144 and time.time() < end:
+                chunk = resp.read(16384)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+            return resp.status, b"".join(chunks)
+    except urllib.error.HTTPError as e:
+        e.close()
+        return e.code, b""
+    except Exception:  # no network, a slow or broken answer: never an error for the user
+        return None, b""
+
+
+def flush_share(cfg, deadline):
+    """Send the waiting lines; returns how many were accepted. With sharing off the waiting lines are
+    deleted, never sent. Without an endpoint, or when the service does not answer, they wait."""
+    rows = read_jsonl(outbox_path())
+    if not rows:
+        return 0
+    if not share_enabled(cfg):
+        write_outbox([])
+        return 0
+    endpoint = (cfg["share"].get("endpoint") or "").rstrip("/")
+    if not endpoint or not allowed_url(endpoint):
+        return 0
+    sent, left = 0, []
+    for i, row in enumerate(rows):
+        if time.time() > deadline:
+            left = rows[i:]
+            break
+        line = {k: row.get(k) for k in SHARE_FIELDS}
+        status, _ = http("POST", endpoint + "/v1/jobs", line, cfg["share"].get("timeout", 3))
+        if status is None or status == 429 or status >= 500:
+            left = rows[i:]
+            break
+        if status < 300:
+            sent += 1
+        # any other answer (400: not acceptable) drops the line: sending it again would not change it
+    write_outbox(left)
+    state = load_json(os.path.join(home(), "share-state.json"), {})
+    state["sent"] = state.get("sent", 0) + sent
+    save_json(os.path.join(home(), "share-state.json"), state)
+    return sent
+
+
+def fetch_average(cfg, deadline):
+    """Once a day, download the shared average: from GitHub, or from the service if GitHub does not
+    answer. Done whether sharing is on or off: people who do not share still get everyone's average.
+    Only a clean copy (numbers only) is kept."""
+    state_path = os.path.join(home(), "share-state.json")
+    state = load_json(state_path, {})
+    today = datetime.now().strftime("%Y-%m-%d")
+    if state.get("checked") == today:
+        return False
+    state["checked"] = today
+    save_json(state_path, state)
+    endpoint = (cfg["share"].get("endpoint") or "").rstrip("/")
+    for url in (cfg["share"].get("average_url"), endpoint + "/v1/average" if endpoint else None):
+        if not url or time.time() > deadline:
+            continue
+        status, body = http("GET", url, timeout=cfg["share"].get("timeout", 3))
+        if status != 200:
+            continue
+        try:
+            avg = check_average(json.loads(body.decode("utf-8")))
+        except Exception:  # broken or hostile file: ignored
+            avg = None
+        if avg and avg.get("all"):
+            save_json(average_path(), avg)
+            return True
+    return False
+
+
+def share_status(cfg):
+    on = share_enabled(cfg)
+    active = share_active(cfg)
+    state = load_json(os.path.join(home(), "share-state.json"), {})
+    waiting = len(read_jsonl(outbox_path()))
+    avg = shared_average()
+    example = share_row({"raw_estimate": 225000, "actual": 259311, "family": "opus"})
+    lines = [
+        "Sharing: %s." % ("ON (the default)" if active else "ON, it starts after the notice is shown" if on else "OFF"),
+        "What is sent after each finished job, and nothing else (no date, no text, no path, no id):",
+        "  " + json.dumps(example, separators=(",", ":")),
+        "Lines sent so far: %d. Lines waiting to be sent: %d." % (state.get("sent", 0), waiting),
+        ("Shared average: x%.2f from %d real jobs%s; used until you have %d jobs of your own, and held between "
+         "x0.25 and x4." % (avg["all"]["factor"], avg["all"]["jobs"],
+                            " (published %s)" % avg["updated"] if avg.get("updated") else "", cfg["min_jobs"])
+         if avg else "Shared average: not available yet."),
+        "Turn sharing %s with: share %s (or /quotient:share %s). Either way the shared average is downloaded "
+        "once a day; to stop that too: config share.average_url \"\" and config share.endpoint \"\"." % (
+            ("off", "off", "off") if on else ("on", "on", "on")),
+        "Details: https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------- formatting
@@ -474,7 +824,7 @@ def calibration(cfg, learned):
     n = len(learned["jobs"])
     shared = learned.get("shared", 0)
     if n == 0 and shared:
-        return ("No finished jobs of your own yet: the correction factor x%.2f comes from %d shared real jobs "
+        return ("No finished jobs of your own yet: the correction factor x%.2f comes from the shared average of %d real jobs "
                 "(numbers only); your own jobs take over after %d." % (learned["factor"], shared, cfg["min_jobs"]))
     if n == 0:
         return "No finished jobs yet, so the correction factor is x1 and the first estimates will be rough."
@@ -548,9 +898,16 @@ def setup_instructions(cfg):
             "back to sleep / wake it and hibernate it / wake it and leave it on / never touch the PC (installments run only if it "
             "is already on). Current values: threshold %s, reserve %d%%, language %s, wake %s, after %s. Then save them with: "
             "%s setup --threshold <n> --reserve <n> --lang it|en --wake yes|no --after sleep|hibernate|nothing  and tell the "
-            "user that /quotient:setup opens this window again whenever they want to change it.\n" % (
+            "user that /quotient:setup opens this window again whenever they want to change it.\n"
+            "Then open a second choice window with one question, 'Media condivisa'/'Shared average': does the user "
+            "take part in the shared average, which helps the program give everyone better first quotes? Say what it "
+            "shares: only the raw estimate and the real cost (rounded), the model family and the Quotient version of "
+            "each finished job; no dates, no text, no ids; and that people who do not take part still get the average. "
+            "Options: take part (recommended, the default) / do not take part; the free field lets them write anything "
+            "else (do what it asks if Quotient can, else explain the two options). Save with: %s setup --share yes|no "
+            "and say that /quotient:share on|off changes it any time.\n" % (
                 fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"],
-                "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], run_cmd()))
+                "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], run_cmd(), run_cmd()))
 
 
 def cmd_setup(args):
@@ -567,12 +924,16 @@ def cmd_setup(args):
         values[("rate", "wake")] = to_bool(args.wake)
         if not values[("rate", "wake")]:
             values[("rate", "after")] = "nothing"  # a PC that is never woken is never put to sleep either
+    if getattr(args, "share", None) in ("yes", "no"):
+        values[("share", "enabled")] = to_bool(args.share)
+    values[("share", "notice_shown")] = True  # the setup window declares sharing
     save_settings(values)
     cfg = config()
     out("Quotient is set up: threshold %s wt, reserve %d%% of the week, report in %s, wake the PC for installments: %s, "
-        "after installments: %s.\nChange it any time with /quotient:setup.\n" % (
+        "after installments: %s, sharing anonymous numbers: %s.\nChange it any time with /quotient:setup "
+        "(sharing: /quotient:share).\n" % (
             fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"],
-            "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"]))
+            "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], "on" if share_enabled(cfg) else "off"))
 
 
 def hook_session():
@@ -582,9 +943,22 @@ def hook_session():
         return
     sync_plugin_options()
     cfg = config()
+    # The shared average (once a day) and the waiting lines, within a few seconds at most.
+    deadline = time.time() + 8
+    try:
+        fetch_average(cfg, deadline)
+        flush_share(cfg, deadline)
+    except Exception:  # sharing must never stop a session from starting
+        pass
     text = protocol(cfg, learning(cfg)["factor"])
     if not cfg.get("configured"):
         text += setup_instructions(cfg)
+    if share_enabled(cfg) and not cfg["share"].get("notice_shown"):
+        # Shown to the user by Claude Code itself, not left to the model: sharing starts only after it.
+        store(("share", "notice_shown"), True)
+        out(json.dumps({"systemMessage": NOTICE,
+                        "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
+        return
     out(text)
 
 
@@ -631,10 +1005,12 @@ def hook_prompt():
     out("\n".join(lines) + "\n")
 
 
-def close_job(job):
+def close_job(job, cfg=None):
     job["finished"] = now_iso()
     job["ratio"] = round(job["actual"] / job["raw_estimate"], 4) if job.get("raw_estimate") else None
+    job["family"] = main_family(job.get("families") or {})
     append_jsonl(os.path.join(home(), "jobs.jsonl"), job)
+    queue_share(job, cfg or config())
 
 
 def hook_stop():
@@ -654,6 +1030,7 @@ def hook_stop():
         text += "\n" + last
     entries = turn + subagent_entries(path, start_ts)
     total, calls = cost_of(entries, cfg["weights"])
+    families = families_of(entries, cfg["weights"])
 
     state = load_json(session_path(sid), {})
     # Another Stop hook can send Claude back to work: then this hook runs again
@@ -680,8 +1057,10 @@ def hook_stop():
     if job:
         job["actual"] += cost
         job["turns"] += 0 if repeat else 1
+        if not repeat:
+            add_families(job, families)
         if quote or not continues:
-            close_job(job)
+            close_job(job, cfg)
             state["job"] = None
     elif choice and (same_turn or pending):
         source = {"options": quote, "factor": learning(cfg)["factor"], "quote_cost": 0} if same_turn else pending
@@ -693,11 +1072,12 @@ def hook_stop():
                 "started": now_iso(), "session": sid, "options": source["options"],
                 "choice": choice, "raw_estimate": raw, "factor_used": source.get("factor", 1.0),
                 "quote_cost": source.get("quote_cost", 0), "actual": cost, "turns": 1,
+                "families": dict(families),
             }
             if continues:
                 state["job"] = job
             else:
-                close_job(job)
+                close_job(job, cfg)
     elif pending and not repeat:
         pending["age"] = pending.get("age", 0) + 1
         if pending["age"] > cfg["pending_ttl_turns"]:
@@ -1089,7 +1469,9 @@ COMMANDS = [
     ("report", "the report, from a terminal", "il resoconto, dal terminale"),
     ("setup --threshold N --reserve N --lang it|en --after sleep|hibernate|nothing", "save the four settings", "salva le quattro impostazioni"),
     ("config [key [value]]", "show every setting, or change one", "mostra tutte le impostazioni, o ne cambia una"),
-    ("export", "only the numbers of finished jobs, to share", "solo i numeri dei lavori finiti, da condividere"),
+    ("/quotient:share [on|off]", "the shared average: exactly what is sent, and turning it on or off", "la media condivisa: cosa parte esattamente, e accenderla o spegnerla"),
+    ("share status|on|off|send", "the same, from a terminal (send: send the waiting lines now)", "lo stesso, dal terminale (send: manda adesso le righe in attesa)"),
+    ("export", "the exact line sharing sends for each finished job", "la riga esatta che la condivisione manda per ogni lavoro finito"),
     ("setup-statusline [--write]", "show the plan limits in the status line", "mostra i limiti del piano nella riga di stato"),
     ("rate new <job> --dir <folder> --task-file <file> --quote N (--days N | --daily N)", "create a job in installments", "crea un lavoro a rate"),
     ("rate run <job> [--force]", "run one installment now (--force: even if one already ran today)", "fa una rata adesso (--force: anche se oggi ne ha gia' fatta una)"),
@@ -1223,34 +1605,42 @@ def report():
 
 
 def export():
-    """Only numbers: no text, no paths, no session ids."""
+    """The exact line sharing sends for each finished job: numbers only, no date, no text, no ids."""
     for j in finished_jobs():
-        names = list(j.get("options", {}))
-        out(json.dumps({
-            "date": (j.get("finished") or "")[:10],
-            "options": len(names),
-            "level": names.index(j["choice"]) if j.get("choice") in names else None,
-            "raw_estimate": j["raw_estimate"],
-            "actual": j["actual"],
-            "turns": j.get("turns"),
-            "version": VERSION,
-        }) + "\n")
+        row = share_row(j)
+        if row:
+            out(json.dumps(row, separators=(",", ":")) + "\n")
 
 
 def cmd_share(args):
-    """Add your finished jobs, numbers only, to a shared file (for the people who maintain Quotient)."""
-    path = args.into
-    have = read_jsonl(path)
-    keys = {(r.get("date"), r.get("raw_estimate"), r.get("actual")) for r in have}
-    added = 0
-    for j in finished_jobs():
-        row = {"date": (j.get("finished") or "")[:10], "raw_estimate": j["raw_estimate"], "actual": j["actual"],
-               "ratio": round(j["actual"] / j["raw_estimate"], 4), "turns": j.get("turns"), "version": VERSION}
-        if (row["date"], row["raw_estimate"], row["actual"]) not in keys:
-            append_jsonl(path, row)
-            keys.add((row["date"], row["raw_estimate"], row["actual"]))
-            added += 1
-    out("%d job(s) added to %s (numbers only); %d in all.\n" % (added, path, len(have) + added))
+    """status: what is sent and what is waiting; on/off: turn sharing on or off; send: send the waiting
+    lines now. --into (for maintainers): add your finished jobs, numbers only, to a JSON-lines file."""
+    cfg = config()
+    if args.into:
+        path = args.into
+        have = read_jsonl(path)
+        keys = {(r.get("raw_estimate"), r.get("actual")) for r in have}
+        added = 0
+        for j in finished_jobs():
+            row = {"raw_estimate": j["raw_estimate"], "actual": j["actual"],
+                   "ratio": round(j["actual"] / j["raw_estimate"], 4),
+                   "family": j.get("family") if j.get("family") in FAMILY_NAMES else "other", "version": VERSION}
+            if (row["raw_estimate"], row["actual"]) not in keys:
+                append_jsonl(path, row)
+                keys.add((row["raw_estimate"], row["actual"]))
+                added += 1
+        out("%d job(s) added to %s (numbers only); %d in all.\n" % (added, path, len(have) + added))
+        return
+    store(("share", "notice_shown"), True)  # the user is looking at what is shared
+    if args.what in ("on", "off"):
+        save_settings({("share", "enabled"): args.what == "on"})
+        cfg = config()
+        if args.what == "off":
+            write_outbox([])  # what was waiting is deleted, never sent
+    elif args.what == "send":
+        sent = flush_share(cfg, time.time() + 20)
+        out("%d line(s) sent.\n" % sent)
+    out(share_status(cfg))
 
 
 def cmd_config(args):
@@ -1469,11 +1859,16 @@ def run_installment(args):
             continue
     sid = result.get("session_id")
     transcript = find_transcript(sid) if sid else None
+    families = {}
     if transcript:
         entries = read_jsonl(transcript) + subagent_entries(transcript, None)
         wt, calls = cost_of(entries, cfg["weights"])
+        families = families_of(entries, cfg["weights"])
     else:
         wt, calls = round(weigh(result.get("usage"), cfg["weights"])), result.get("num_turns")
+        if job.get("model"):
+            families = {family_of(job["model"]): wt}
+    add_families(job, families)
     usd = result.get("total_cost_usd")
     if usd and wt:
         job["usd_per_wt"] = usd / wt
@@ -1493,11 +1888,19 @@ def run_installment(args):
         total = sum(r.get("wt") or 0 for r in runs) + wt
         job["actual"] = total
         if job.get("quote"):
-            append_jsonl(os.path.join(home(), "jobs.jsonl"), {
+            finished = {
                 "started": job["created"], "finished": job["finished"], "session": "rate:" + job["name"],
                 "options": {"rate": job["quote"]}, "choice": "rate", "raw_estimate": job["quote"],
                 "factor_used": job.get("factor_at_quote", 1.0), "quote_cost": 0, "actual": total,
-                "turns": len(runs) + 1, "ratio": round(total / job["quote"], 4)})
+                "turns": len(runs) + 1, "ratio": round(total / job["quote"], 4),
+                "family": main_family(job.get("families") or {})}
+            append_jsonl(os.path.join(home(), "jobs.jsonl"), finished)
+            now_cfg = config()  # read again: sharing may have been turned off during the installment
+            queue_share(finished, now_cfg)
+            try:
+                flush_share(now_cfg, time.time() + 10)  # an installment runs in the background: no one waits
+            except Exception:
+                pass
         unschedule(args.name)
     save_json(os.path.join(folder, "job.json"), job)
     out("Installment %d of '%s': %s wt (cap %s)%s%s\n" % (
@@ -1773,14 +2176,16 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="cmd")
     for name in ("hook-session", "hook-prompt", "hook-stop", "hook-pretool", "report", "export", "statusline", "commands"):
         sub.add_parser(name)
-    p = sub.add_parser("share", help="add your finished jobs, numbers only, to a shared file")
-    p.add_argument("--into", required=True)
+    p = sub.add_parser("share", help="the shared average: what is sent, and turning sharing on or off")
+    p.add_argument("what", nargs="?", choices=("", "status", "on", "off", "send"), default="status")
+    p.add_argument("--into", help="(maintainers) add your finished jobs, numbers only, to a JSON-lines file")
     p = sub.add_parser("setup", help="set Quotient up: threshold, weekly reserve, language, what the PC does after installments")
     p.add_argument("--threshold", type=int)
     p.add_argument("--reserve", type=int)
     p.add_argument("--lang", choices=("it", "en"))
     p.add_argument("--after", choices=("nothing", "sleep", "hibernate"))
     p.add_argument("--wake", choices=("yes", "no"), help="may scheduled installments wake the PC")
+    p.add_argument("--share", choices=("yes", "no"), help="share anonymous numbers of finished jobs")
     p = sub.add_parser("setup-statusline", help="show the plan limits in the status line and record them")
     p.add_argument("--write", action="store_true", help="write the setting in ~/.claude/settings.json")
     p.add_argument("--force", action="store_true", help="replace a status line that is already set")
