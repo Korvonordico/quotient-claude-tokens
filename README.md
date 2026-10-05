@@ -1,4 +1,4 @@
-# Quotient
+# Quotient: token cost quotes and usage limits for Claude Code
 
 *[Leggi in italiano](README.it.md)*
 

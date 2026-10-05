@@ -1,8 +1,8 @@
 {
   "name": "quotient",
-  "displayName": "Quotient",
-  "version": "0.7.3",
-  "description": "A quote before big AI jobs, with options to choose from; the real cost after; a correction learned from its own errors; big jobs divided into daily installments.",
+  "displayName": "Quotient: token cost quotes",
+  "version": "0.7.4",
+  "description": "Token cost quotes for Claude Code: see what an AI job will cost before it starts, choose a level, get the real cost after, and split big jobs into daily installments that respect your 5-hour and weekly usage limits.",
   "author": {
     "name": "Francesco Candela (Korvonordico)"
   },
@@ -10,13 +10,16 @@
   "repository": "https://github.com/Korvonordico/quotient",
   "license": "MIT",
   "keywords": [
-    "cost",
     "tokens",
+    "token-usage",
+    "cost",
     "quote",
     "estimate",
     "budget",
     "usage-limits",
-    "installments"
+    "rate-limits",
+    "installments",
+    "claude-code"
   ],
   "userConfig": {
     "threshold": {

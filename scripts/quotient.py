@@ -31,7 +31,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.7.3"
+VERSION = "0.7.4"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /quotient:setup, or Claude Code's plugin settings).
