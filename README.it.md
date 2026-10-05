@@ -2,17 +2,23 @@
 
 *[Read in English](README.md)*
 
-**Sapere quanto costa un lavoro dell'IA prima di cominciarlo.** Un plugin per [Claude Code](https://code.claude.com).
+**Sapere quanto costa un lavoro dell'IA prima di cominciarlo, e non perdere più una settimana per il limite di utilizzo.** Un plugin per [Claude Code](https://code.claude.com).
 
-Oggi un lavoro con l'IA funziona come un meccanico che ti ripara la macchina senza dirti il prezzo: lo scopri alla cassa. Con un abbonamento la cassa è il limite di utilizzo, e un solo lavoro grande può consumare una settimana intera.
+Oggi un lavoro con l'IA funziona come un meccanico che ti ripara la macchina senza dirti il prezzo: lo scopri alla cassa. Con un abbonamento la cassa è il limite di utilizzo, e un solo lavoro grande può consumare una settimana intera. Quotient ti dà prima il prezzo, ti fa scegliere, misura quanto è costato davvero e impara dalla differenza.
 
-Quotient aggiunge tre passi. Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol dire preventivo, e in matematica il *quotient* è il quoziente, il risultato di una divisione, come un lavoro grande diviso in rate.
+Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol dire preventivo, e in matematica il *quotient* è il quoziente, il risultato di una divisione, come un lavoro grande diviso in rate.
 
-1. **Prima di un lavoro grande**, Claude si ferma e propone delle scelte con il loro costo stimato: *essential* (essenziale), *good* (buono), *max* (massimo). Le stime **non sono garantite**: diventano più precise con l'uso.
-2. **Dopo il lavoro**, Quotient legge il costo vero dai file di Claude Code e lo mette accanto alla stima.
-3. **Impara dai suoi errori**: se le stime passate erano la metà del vero, le prossime vengono raddoppiate. Il resoconto mostra quanto sbagliava all'inizio e quanto sbaglia adesso.
+## Cosa sa fare
 
-La soglia la decidi tu: sotto la soglia niente preventivo, il lavoro parte e basta. Per i lavori molto grandi le scelte aumentano (cinque invece di tre) e comprendono **le rate**: lo stesso lavoro diviso in pezzi giornalieri, ognuno con un tetto di spesa, così il resto della giornata resta libero per altro.
+- **Il preventivo prima di un lavoro grande.** Quando un lavoro costerà probabilmente più della tua soglia, o ogni volta che dici che è un lavoro grosso, Claude si ferma e apre una finestra di scelta: *essenziale*, *buono* o *massimo*, ognuno con quello che comprende e il suo costo stimato, proporzionati al lavoro. Le stime non sono garantite: diventano più precise con l'uso.
+- **Il ritmo, lo scegli tu.** Nella stessa finestra: tutto oggi, oppure a rate, scritte in giorni e quantità al giorno («5 giorni, circa 100.000 al giorno»). Nel campo libero scrivi il ritmo che vuoi.
+- **Il costo vero, dopo.** Quotient legge i file di Claude Code e somma quanto è costato davvero il lavoro, contando ogni chiamata una volta sola, in token pesati (token di ingresso equivalenti, con le proporzioni dei prezzi delle API).
+- **Impara dai suoi errori.** Il rapporto fra costo vero e stima diventa un fattore di correzione per i preventivi dopo; il resoconto mostra quanto sbagliava all'inizio e quanto sbaglia adesso.
+- **Le rate lavorano mentre non ci sei.** Un lavoro grande si divide in pezzi: una rata al giorno (o più, se vuoi), ognuna con un tetto di spesa e un file di consegna che dice cosa è fatto e da dove riprendere. Su Windows una rata sveglia il PC dalla sospensione o dall'ibernazione, lavora e lo rimette a dormire se nessuno lo usa. Quando arriva al tetto si ferma in ordine invece di essere tagliata a metà, e due rate dello stesso lavoro non partono mai insieme. Puoi farne partire una in più lo stesso giorno, a tuo rischio.
+- **La settimana tutta insieme.** Due o tre lavori possono stare ognuno nella settimana e non starci insieme. Quotient somma tutte le rate previste fino all'azzeramento del limite settimanale, tiene una riserva per il tuo uso normale e, quando il piano non ci sta, ti chiede quali lavori tenere, rallentare o mettere in pausa. Una rata non entra mai nella riserva: si accorcia, o aspetta.
+- **I tuoi limiti sotto gli occhi.** Registra la parte usata del limite delle 5 ore e di quello settimanale e quando si azzerano, mostra quanto resta nella riga di stato, e stima quanti token vale l'1% di ogni limite, così un preventivo può dire «questo prende circa l'8% della tua settimana».
+- **Si configura una volta.** Al primo uso si apre una finestra con quattro impostazioni: soglia, riserva della settimana, lingua, cosa fa il PC dopo le rate. `/quotient:setup` le cambia, `/quotient:help` elenca tutti i comandi.
+- **Privato.** Tutto resta sul tuo computer. Quotient non si collega mai a internet; `export` dà solo numeri, da condividere se vuoi.
 
 ## Installazione
 

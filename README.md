@@ -2,17 +2,23 @@
 
 *[Leggi in italiano](README.it.md)*
 
-**Know what an AI job will cost before it starts.** A plugin for [Claude Code](https://code.claude.com).
+**Know what an AI job will cost before it starts, and never lose a week to the usage limit again.** A plugin for [Claude Code](https://code.claude.com).
 
-Today an AI job works like a mechanic who fixes your car without telling you the price: you find out at the till. With a subscription the till is the usage limit, and a single big job can use up a whole week.
+Today an AI job works like a mechanic who fixes your car without telling you the price: you find out at the till. With a subscription the till is the usage limit, and a single big job can use up a whole week. Quotient gives you the price first, lets you choose, measures what it really cost, and learns from the difference.
 
-Quotient adds three steps. The name holds both halves: it starts like *quote*, the price you agree before a job, and in mathematics the quotient is the result of a division, like a big job divided into installments.
+The name holds both halves: it starts like *quote*, the price you agree before a job, and in mathematics the quotient is the result of a division, like a big job divided into installments.
 
-1. **Before a big job**, Claude stops and offers options with their estimated cost: *essential*, *good*, *max*. The estimates are **not guaranteed**: they get more precise with use.
-2. **After the job**, Quotient reads the real cost from Claude Code's own records and puts it next to the estimate.
-3. **It learns from its errors**: if past estimates were half the real cost, the next ones are doubled. The report shows how far off it was at the start and how far off it is now.
+## What it can do
 
-You choose the threshold: under it, no quote, the work just starts. For very big jobs the options grow (five instead of three) and include **installments**: the same job split into daily pieces, each with a spending cap, so the rest of your day stays free for other work.
+- **A quote before a big job.** When a job will likely cost more than your threshold, or whenever you say it is a big job, Claude stops and opens a choice window: *essential*, *good* or *max*, each with what it includes and its estimated cost, sized to the job. Estimates are not guaranteed: they get more precise with use.
+- **The pace, chosen by you.** In the same window: all today, or in installments, written in days and amount per day ("5 days, about 100,000 a day"). The free field takes any pace you like.
+- **The real cost after.** Quotient reads Claude Code's own records and adds up what the job really cost, each API call counted once, in weighted tokens (input-token equivalents at the API price ratios).
+- **It learns from its errors.** The ratio between real cost and estimate becomes a correction factor for the next quotes; the report shows how far off it was at the start and how far off it is now.
+- **Installments that run while you are away.** A big job is split into pieces: one installment a day (or more, if you choose), each with a spending cap and a handoff file that says what is done and where to resume. On Windows an installment wakes the PC from sleep or hibernation, works, and puts it back to sleep if nobody is using it. When the cap is reached it stops cleanly instead of being cut off, and two installments of the same job never run together. You can start an extra one the same day, at your own risk.
+- **The week as a whole.** Two or three jobs can each fit in the week and still not fit together. Quotient adds up every planned installment until the weekly limit resets, keeps a reserve for your normal use, and when the plan does not fit it asks which jobs to keep, slow down or pause. An installment never eats into the reserve: it gets smaller, or waits.
+- **Your limits at a glance.** It records the share used of the 5-hour and weekly limits and when they reset, shows what is left in the status line, and estimates how many tokens 1% of each limit holds, so a quote can say "this takes about 8% of your week".
+- **Set up once.** The first use opens a window for four settings: threshold, weekly reserve, language, what the PC does after installments. `/quotient:setup` changes them, `/quotient:help` lists every command.
+- **Private.** Everything stays on your computer. Quotient never connects to the internet; `export` gives only numbers, to share if you want.
 
 ## Install
 
