@@ -1,0 +1,236 @@
+"""Tests with fake transcripts. Run: python -m unittest discover tests"""
+
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SCRIPTS = os.path.join(HERE, "..", "scripts")
+sys.path.insert(0, SCRIPTS)
+import quotient as pv  # noqa: E402
+
+
+def usage(inp=0, write=0, read=0, output=0, write_1h=None):
+    u = {"input_tokens": inp, "cache_creation_input_tokens": write,
+         "cache_read_input_tokens": read, "output_tokens": output}
+    if write_1h is not None:
+        u["cache_creation"] = {"ephemeral_1h_input_tokens": write_1h,
+                               "ephemeral_5m_input_tokens": write - write_1h}
+    return u
+
+
+class Transcript:
+    """Writes a transcript in Claude Code's format: one line per content block."""
+
+    def __init__(self, path):
+        self.path = path
+        self.n = 0
+        open(path, "w").close()
+
+    def _write(self, row):
+        self.n += 1
+        row.setdefault("timestamp", "2026-10-05T10:%02d:%02d.000Z" % (self.n // 60, self.n % 60))
+        with open(self.path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
+
+    def user(self, text):
+        self._write({"type": "user", "message": {"role": "user", "content": text}})
+
+    def tool_result(self):
+        self._write({"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "t", "content": "ok"}]}})
+
+    def call(self, request_id, u, texts=(), tools=0):
+        """One API call, written as several lines that repeat the same usage."""
+        blocks = [{"type": "thinking", "thinking": ""}] + \
+                 [{"type": "text", "text": t} for t in texts] + \
+                 [{"type": "tool_use", "id": "t", "name": "Read", "input": {}}] * tools
+        for block in blocks:
+            self._write({"type": "assistant", "requestId": request_id,
+                         "message": {"id": "msg_" + request_id, "content": [block], "usage": u}})
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.env = mock.patch.dict(os.environ, {"QUOTIENT_HOME": os.path.join(self.dir, "home")})
+        self.env.start()
+        self.t = Transcript(os.path.join(self.dir, "session.jsonl"))
+        self.w = pv.config()["weights"]
+
+    def tearDown(self):
+        self.env.stop()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def run_hook(self, func, payload):
+        stdin = io.TextIOWrapper(io.BytesIO(json.dumps(payload).encode("utf-8")), encoding="utf-8")
+        stdout = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+        with mock.patch.object(sys, "stdin", stdin), mock.patch.object(sys, "stdout", stdout):
+            func()
+            stdout.flush()
+            return stdout.buffer.getvalue().decode("utf-8")
+
+    def stop(self, last=""):
+        return self.run_hook(pv.hook_stop, {"session_id": "s1", "transcript_path": self.t.path,
+                                            "last_assistant_message": last})
+
+
+class TestCost(Base):
+    def test_weights(self):
+        self.assertEqual(pv.weigh(usage(inp=10, write=100, read=1000, output=20), self.w),
+                         10 + 125 + 100 + 100)
+        # a one-hour cache write costs 2x, a five-minute one 1.25x
+        self.assertEqual(pv.weigh(usage(write=100, write_1h=60), self.w), 60 * 2 + 40 * 1.25)
+
+    def test_each_call_counted_once(self):
+        self.t.user("hello")
+        self.t.call("r1", usage(read=1000, output=10), texts=["a"], tools=2)
+        self.t.tool_result()
+        self.t.call("r2", usage(read=2000, output=10), texts=["b"])
+        turn, _, text = pv.turn_of(self.t.path)
+        cost, calls = pv.cost_of(turn, self.w)
+        self.assertEqual(calls, 2)
+        self.assertEqual(cost, 100 + 50 + 200 + 50)
+        self.assertEqual(text, "a\nb")
+
+    def test_only_last_turn(self):
+        self.t.user("first")
+        self.t.call("r1", usage(read=999999))
+        self.t.user("second")
+        self.t.call("r2", usage(output=1))
+        turn, _, _ = pv.turn_of(self.t.path)
+        self.assertEqual(pv.cost_of(turn, self.w), (5, 1))
+
+
+class TestParsing(Base):
+    def test_quote_forms(self):
+        self.assertEqual(pv.parse_quote("text\nPREVENTIVO: essenziale=120k buono=300k massimo=1.2M"),
+                         {"essenziale": 120000, "buono": 300000, "massimo": 1200000})
+        self.assertEqual(pv.parse_quote("**PREVENTIVO:** minimo=1.200.000 | rata3=400k"),
+                         {"minimo": 1200000, "rata3": 400000})
+        self.assertEqual(pv.parse_quote("ESTIMATE: basic=~50k, good=1,5M"),
+                         {"basic": 50000, "good": 1500000})
+        self.assertIsNone(pv.parse_quote("Il preventivo: niente"))
+        self.assertEqual(pv.parse_quote("QUOTE: essential=80k good=250k max=2M split3=700k"),
+                         {"essential": 80000, "good": 250000, "max": 2000000, "split3": 700000})
+
+    def test_choice_and_continues(self):
+        self.assertEqual(pv.parse_choice("SCELTA: buono\nok"), "buono")
+        self.assertEqual(pv.parse_choice("**CHOICE:** `massimo`."), "massimo")
+        self.assertTrue(pv.CONTINUES_RE.search("...\nLAVORO: CONTINUA"))
+        self.assertFalse(pv.CONTINUES_RE.search("il lavoro continua domani"))
+        self.assertEqual(pv.parse_choice("CHOICE: good"), "good")
+        self.assertTrue(pv.CONTINUES_RE.search("JOB: CONTINUES"))
+        self.assertTrue(pv.INSTALLMENT_RE.match("split7"))
+
+
+class TestFlow(Base):
+    def quote_turn(self):
+        self.t.user("write the whole thing")
+        self.t.call("q", usage(read=10000, output=200),
+                    texts=["Three options.\nPREVENTIVO: essenziale=100k buono=200k massimo=400k"])
+        self.stop()
+
+    def test_quote_choice_job_and_learning(self):
+        self.quote_turn()
+        state = pv.load_json(pv.session_path("s1"), {})
+        self.assertEqual(state["pending"]["options"]["buono"], 200000)
+        context = self.run_hook(pv.hook_prompt, {"session_id": "s1", "transcript_path": self.t.path})
+        self.assertIn("CHOICE", context)
+        self.t.user("buono")
+        self.t.call("w1", usage(write=100000, read=500000, output=10000), texts=["SCELTA: buono"], tools=1)
+        self.t.tool_result()
+        self.t.call("w2", usage(read=600000, output=4000), texts=["Done."])
+        self.stop("Done.")
+        jobs = pv.finished_jobs()
+        self.assertEqual(len(jobs), 1)
+        actual = 125000 + 50000 + 50000 + 60000 + 20000
+        self.assertEqual(jobs[0]["actual"], actual)
+        self.assertAlmostEqual(pv.learning(pv.config())["factor"], actual / 200000)
+        self.assertIsNone(pv.load_json(pv.session_path("s1"), {})["pending"])
+
+    def test_job_over_several_turns(self):
+        self.quote_turn()
+        self.t.user("massimo")
+        self.t.call("w1", usage(output=1000), texts=["SCELTA: massimo", "part one\nLAVORO: CONTINUA"])
+        self.stop()
+        self.assertEqual(pv.finished_jobs(), [])
+        self.t.user("go on")
+        self.t.call("w2", usage(output=1000), texts=["finished"])
+        self.stop()
+        jobs = pv.finished_jobs()
+        self.assertEqual((jobs[0]["actual"], jobs[0]["turns"]), (10000, 2))
+
+    def test_stop_sent_back_counts_only_the_rest(self):
+        self.quote_turn()
+        self.t.user("buono")
+        self.t.call("w1", usage(output=1000), texts=["SCELTA: buono", "first answer\nLAVORO: CONTINUA"])
+        self.stop()
+        # another hook sends Claude back: same turn, one more call
+        self.t.call("w2", usage(output=400), texts=["added line"])
+        self.stop()
+        job = pv.load_json(pv.session_path("s1"), {})["job"]
+        self.assertEqual((job["actual"], job["turns"]), (7000, 1))
+
+    def test_declined_and_expired(self):
+        self.quote_turn()
+        self.t.user("no thanks")
+        self.t.call("d", usage(output=10), texts=["SCELTA: nessuna"])
+        self.stop()
+        self.assertIsNone(pv.load_json(pv.session_path("s1"), {})["pending"])
+        self.assertEqual(pv.finished_jobs(), [])
+        self.quote_turn()
+        for i in range(4):
+            self.t.user("something else %d" % i)
+            self.t.call("x%d" % i, usage(output=10), texts=["ok"])
+            self.stop()
+        self.assertIsNone(pv.load_json(pv.session_path("s1"), {})["pending"])
+
+    def test_report_and_export(self):
+        self.test_quote_choice_job_and_learning()
+        report = self.run_hook(pv.report, {})
+        self.assertIn("x1.5", report)
+        exported = json.loads(self.run_hook(pv.export, {}))
+        self.assertEqual(set(exported), {"date", "options", "level", "raw_estimate", "actual", "turns", "version"})
+
+
+class TestInstallments(Base):
+    def test_cap_allows_only_the_handoff(self):
+        args = mock.Mock(name="x", dir=self.dir, task="job", task_file=None, days=3, daily=1000,
+                         quote=None, model=None)
+        args.name = "book"
+        self.run_hook(lambda: pv.rate_new(args), {})
+        handoff = os.path.join(pv.rate_dir("book"), "HANDOFF.md")
+        self.t.user("installment")
+        self.t.call("r", usage(output=300))  # 1500 wt, over the cap
+        with mock.patch.dict(os.environ, {"QUOTIENT_JOB": "book"}):
+            denied = self.run_hook(pv.hook_pretool, {"transcript_path": self.t.path, "tool_name": "Bash",
+                                                     "tool_input": {"command": "ls"}})
+            allowed = self.run_hook(pv.hook_pretool, {"transcript_path": self.t.path, "tool_name": "Edit",
+                                                      "tool_input": {"file_path": handoff}})
+        self.assertEqual(json.loads(denied)["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(allowed, "")
+
+    def test_outside_installments_nothing_happens(self):
+        os.environ.pop("QUOTIENT_JOB", None)
+        self.assertEqual(self.run_hook(pv.hook_pretool, {"tool_name": "Bash"}), "")
+
+
+class TestLauncher(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("sh"), "needs sh")
+    def test_run_sh_passes_stdin(self):
+        with tempfile.TemporaryDirectory() as home:
+            proc = subprocess.run(["sh", os.path.join(SCRIPTS, "run.sh"), "hook-prompt"],
+                                  input=json.dumps({"session_id": "z"}).encode("utf-8"),
+                                  capture_output=True, env=dict(os.environ, QUOTIENT_HOME=home))
+        self.assertIn("[Quotient", proc.stdout.decode("utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()

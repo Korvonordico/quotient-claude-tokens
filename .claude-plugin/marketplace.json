@@ -1,0 +1,14 @@
+{
+  "name": "quotient",
+  "description": "Quotient: know what an AI job will cost before it starts, and divide the big ones into daily installments.",
+  "owner": {
+    "name": "Francesco Candela (Korvonordico)"
+  },
+  "plugins": [
+    {
+      "name": "quotient",
+      "source": "./",
+      "description": "A quote before big AI jobs, the real cost after, a correction learned from its own errors, and daily installments."
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+# Quotient
+
+*[Read in English](README.md)*
+
+**Sapere quanto costa un lavoro dell'IA prima di cominciarlo.** Un plugin per [Claude Code](https://code.claude.com).
+
+Oggi un lavoro con l'IA funziona come un meccanico che ti ripara la macchina senza dirti il prezzo: lo scopri alla cassa. Con un abbonamento la cassa è il limite di utilizzo, e un solo lavoro grande può consumare una settimana intera.
+
+Quotient aggiunge tre passi. Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol dire preventivo, e in matematica il *quotient* è il quoziente, il risultato di una divisione, come un lavoro grande diviso in rate.
+
+1. **Prima di un lavoro grande**, Claude si ferma e propone delle scelte con il loro costo stimato: *essential* (essenziale), *good* (buono), *max* (massimo). Le stime **non sono garantite**: diventano più precise con l'uso.
+2. **Dopo il lavoro**, Quotient legge il costo vero dai file di Claude Code e lo mette accanto alla stima.
+3. **Impara dai suoi errori**: se le stime passate erano la metà del vero, le prossime vengono raddoppiate. Il resoconto mostra quanto sbagliava all'inizio e quanto sbaglia adesso.
+
+La soglia la decidi tu: sotto la soglia niente preventivo, il lavoro parte e basta. Per i lavori molto grandi le scelte aumentano (cinque invece di tre) e comprendono **le rate**: lo stesso lavoro diviso in pezzi giornalieri, ognuno con un tetto di spesa, così il resto della giornata resta libero per altro.
+
+## Installazione
+
+In Claude Code:
+
+```
+/plugin marketplace add Korvonordico/quotient
+/plugin install quotient@quotient
+```
+
+Serve Python 3.8 o più recente (solo la libreria standard) e `sh` (su Windows arriva con Git for Windows, che Claude Code usa già).
+
+## Come funziona
+
+- **Quando mandi un messaggio** (hook `UserPromptSubmit`), Quotient dà a Claude poche righe: la soglia, il fattore di correzione imparato fin lì, quanto è grande la conversazione e il formato del preventivo. Circa 270 token a messaggio.
+- **Sopra la soglia**, Claude risponde con le scelte e chiude con una riga per la macchina, con le sue stime grezze:
+  `QUOTE: essential=120k good=300k max=800k` (la riga per la macchina è sempre in inglese; la spiegazione Claude te la dà nella tua lingua)
+- **Quando scegli**, Claude comincia la risposta con `CHOICE: good` e fa il lavoro. Se il lavoro dura più di una risposta, chiude ogni risposta non finita con `JOB: CONTINUES`, e il costo delle risposte dopo si somma.
+- **Alla fine di ogni risposta** (hook `Stop`), Quotient legge il file della conversazione e somma il costo di quella risposta. Ogni chiamata si conta **una volta sola**: il file ripete la stessa chiamata una volta per ogni pezzo, e contando tutte le righe il risultato verrebbe doppio.
+
+### L'unità: i token pesati
+
+Il costo è in **token pesati**: token di ingresso equivalenti, con le proporzioni dei prezzi delle API di Anthropic.
+
+| Parte della chiamata | Peso |
+|---|---|
+| ingresso | 1 |
+| scrittura in cache, 5 minuti | 1,25 |
+| scrittura in cache, 1 ora | 2 |
+| lettura dalla cache | 0,1 |
+| uscita | 5 |
+
+La percentuale del limite dell'abbonamento non c'è nei file di Claude Code, quindi Quotient non dice di saperla. I token pesati si muovono insieme a lei, e permettono di confrontare un lavoro con un altro.
+
+Una cosa che i numeri mostrano subito: a ogni chiamata il modello rilegge tutta la conversazione. In una conversazione da 400.000 token sono circa 40.000 token pesati a chiamata, prima ancora che Claude scriva una parola. Le conversazioni lunghe costano più di quanto sembra.
+
+## Comandi
+
+```
+/quotient:report          stime contro costi veri, e come cambia l'errore
+/quotient:rate <lavoro>   prepara un lavoro a rate giornaliere
+```
+
+Dal terminale:
+
+```
+python scripts/quotient.py report
+python scripts/quotient.py config                     # mostra le impostazioni
+python scripts/quotient.py config threshold 500000    # ne cambia una
+python scripts/quotient.py config lang it             # resoconto in italiano
+python scripts/quotient.py export                     # solo i numeri, da condividere
+```
+
+## Le rate
+
+Un lavoro troppo grande per un giorno può andare a pezzi:
+
+```
+python scripts/quotient.py rate new libro --dir ~/libro --task-file lavoro.md --days 7 --quote 2100000
+python scripts/quotient.py rate run libro                     # una rata adesso
+python scripts/quotient.py rate schedule libro --time 03:00   # una ogni giorno
+python scripts/quotient.py rate status
+```
+
+Ogni rata è un'esecuzione nuova di Claude Code senza finestra (`claude -p`) nella cartella del lavoro. Legge la descrizione del lavoro e un file di consegna (cosa è fatto, cosa resta, da dove si riprende), lavora, e aggiorna la consegna dopo ogni passo. Quando il tetto del giorno è speso, un hook rifiuta ogni strumento tranne l'aggiornamento della consegna, così la rata si ferma in ordine invece di essere tagliata a metà. Dopo la prima rata Quotient impara anche quanti dollari Claude Code segna per ogni token pesato, e aggiunge `--max-budget-usd` come freno di sicurezza.
+
+Una rata nuova con una consegna corta rilegge molto meno di una conversazione lunga, quindi le rate potrebbero costare **meno in totale**, non solo meno al giorno. È un'ipotesi: lo dirà il resoconto.
+
+Limiti: il lavoro deve essere divisibile (un romanzo a capitoli sì; una revisione che deve vedere tutto il testo insieme, meno). Le rate partono con `--permission-mode acceptEdits` e non possono rispondere alle richieste di permesso: i comandi che servono vanno permessi nelle impostazioni. Su Windows `rate schedule` crea un'attività nell'Utilità di pianificazione; su macOS e Linux scrive la riga da aggiungere a `crontab`.
+
+## I tuoi dati
+
+Tutto resta in `~/.quotient/` (o in `QUOTIENT_HOME`): le impostazioni, i preventivi, i costi misurati. Quotient non manda niente a nessuno. `export` scrive solo numeri (data, numero di scelte, livello scelto, stima, costo vero, turni): niente testi, niente percorsi, niente codici delle sessioni.
+
+## Imparare tutti insieme (non ancora attivo)
+
+Con i dati di una persona sola il fattore di correzione ha bisogno di qualche lavoro prima di voler dire qualcosa (circa cinque, una stima da controllare con l'uso). I numeri di tante persone messi insieme aiuterebbero chi comincia a partire dalla media di tutti. Il piano: chi vuole manda a questo progetto quello che scrive `export`, e il plugin propone il fattore comune come punto di partenza. Finché nessuno manda numeri, non c'è niente da mettere insieme.
+
+## Limiti, detti chiari
+
+- Le prime stime saranno poco precise. Uno studio del 2026 ha chiesto a dei modelli di IA di prevedere il proprio costo prima di lavori di programmazione: otto modelli, correlazione con il costo vero al massimo 0,39, e stime sistematicamente troppo basse ([Bai e altri, arXiv:2604.22750](https://arxiv.org/abs/2604.22750)). Quotient non rende il modello più bravo a indovinare: misura l'errore e corregge la stima successiva.
+- La correzione è un fattore solo: la mediana del rapporto fra costo vero e stima negli ultimi 20 lavori. Se i tuoi lavori sono molto diversi fra loro, l'errore resta grande.
+- Dipende dal fatto che Claude scriva le righe `QUOTE:` e `CHOICE:`. Se se ne dimentica, quel lavoro non viene misurato.
+- Anthropic potrebbe aggiungere una funzione simile dentro Claude Code. Andrebbe bene così.
+
+## Prove
+
+```
+python -m unittest discover -s tests
+```
+
+## Autore
+
+Francesco Candela (Korvonordico). L'idea, la soglia, l'imparare dagli errori e le rate sono sue; il codice è scritto insieme a Claude.
+
+## Licenza
+
+MIT
