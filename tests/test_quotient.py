@@ -240,6 +240,47 @@ class TestWindow(Base):
             self.assertEqual(self.run_hook(pv.hook_session, {}), "")
 
 
+class TestLimits(Base):
+    """0.4: the plan limits, from the status line or from Claude, and the size of 1%."""
+
+    def test_statusline_records_and_shows(self):
+        future = int(pv.time.time()) + 3600
+        shown = self.run_hook(pv.statusline, {"rate_limits": {
+            "five_hour": {"used_percentage": 23.5, "resets_at": future},
+            "seven_day": {"used_percentage": 41.2, "resets_at": future + 86400}}})
+        self.assertIn("24% used, 76% left", shown)
+        self.assertIn("41% used, 59% left", shown)
+        # the same reading within 5 minutes is not written twice
+        self.run_hook(pv.statusline, {"rate_limits": {"five_hour": {"used_percentage": 23.5, "resets_at": future},
+                                                      "seven_day": {"used_percentage": 41.2, "resets_at": future + 86400}}})
+        self.assertEqual(len(pv.read_jsonl(pv.limits_path())), 1)
+
+    def test_limits_line_from_claude(self):
+        snap = pv.parse_limits("text\nLIMITS: five_hour=31 seven_day=6% five_hour_resets=2099-10-05T19:30:00.262Z seven_day_resets=2099-10-12T05:00:00Z")
+        self.assertEqual((snap["five_hour"], snap["seven_day"]), (31.0, 6.0))
+        self.assertEqual(snap["five_hour_resets"], pv.to_epoch("2099-10-05T19:30:00+00:00"))
+        self.t.user("hi")
+        self.t.call("a", usage(output=10), texts=["LIMITS: five_hour=31 seven_day=6 seven_day_resets=2099-10-12T05:00:00Z"])
+        self.stop()
+        self.assertEqual(pv.latest_limits()["seven_day"]["used"], 6.0)
+
+    def test_capacity_and_weeks(self):
+        now = int(pv.time.time())
+        resets = now + 86400
+        pv.append_jsonl(pv.limits_path(), {"ts": "x", "epoch": now - 3000, "seven_day": 10, "seven_day_resets": resets})
+        pv.append_jsonl(pv.limits_path(), {"ts": "x", "epoch": now - 10, "seven_day": 15, "seven_day_resets": resets})
+        moment = pv.datetime.fromtimestamp(now - 1000).astimezone().isoformat()
+        pv.append_jsonl(os.path.join(pv.home(), "turns.jsonl"), {"ts": moment, "wt": 500000})
+        c = pv.capacity("seven_day")
+        self.assertEqual((c["per_point"], c["points"]), (100000, 5))
+        self.assertEqual((round(c["low"]), round(c["high"])), (round(50000000 / 6 * 100 / 100), 12500000))
+        rows = pv.weeks()
+        self.assertEqual((rows[0]["used"], rows[0]["wt"], rows[0]["complete"]), (15, 500000, False))
+        report = self.run_hook(pv.report, {})
+        self.assertIn("10.00M", report)
+        self.assertIn("Too early", report)
+
+
 class TestInstallments(Base):
     def new_job(self, **kw):
         args = mock.Mock(dir=self.dir, task="job", task_file=None, days=None, daily=None, quote=None, model=None)

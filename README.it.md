@@ -52,6 +52,20 @@ La percentuale del limite dell'abbonamento non c'è nei file di Claude Code, qui
 
 Una cosa che i numeri mostrano subito: a ogni chiamata il modello rilegge tutta la conversazione. In una conversazione da 400.000 token sono circa 40.000 token pesati a chiamata, prima ancora che Claude scriva una parola. Le conversazioni lunghe costano più di quanto sembra.
 
+## I limiti del piano: quanto hai usato, quanto resta, quanto vale l'1%
+
+Con un abbonamento Pro o Max, Claude Code passa alla riga di stato la percentuale usata del limite delle 5 ore e di quello settimanale, e quando si azzerano. Quotient registra queste letture e le mostra nella riga di stato:
+
+```
+Quotient · 5 ore: usato 31%, resta 69%, si azzera 19:30 · settimana: usato 6%, resta 94%, si azzera lun 12 07:00
+```
+
+Per attivarla: `python scripts/quotient.py setup-statusline` mostra l'impostazione da aggiungere, e con `--write` la aggiunge a `~/.claude/settings.json` (solo se non hai già una riga di stato). Dove la riga di stato non c'è, Claude può leggere i limiti da solo (nell'app desktop di Claude ha uno strumento apposta) e scrivere una riga `LIMITS:`, che Quotient registra allo stesso modo.
+
+Dalle letture e dai costi che misura, Quotient stima **quanti token pesati vale l'1% di ogni limite**, così un preventivo può dire «questo livello prende circa l'8% della tua settimana, resterebbe l'86%». Anthropic non pubblica i limiti in token: è una stima, con il suo margine (in alcune fonti le percentuali sono numeri interi, quindi ogni finestra aggiunge fino a un punto di errore), e l'uso fuori dalle sessioni di Quotient (per esempio le chat su claude.ai) fa sembrare i limiti più piccoli di quanto sono.
+
+Il resoconto elenca le settimane: la quota più alta del limite settimanale usata in ognuna, e i token pesati misurati. Se le settimane si stanno alleggerendo lo dice solo dopo 4 settimane complete: con meno sarebbe rumore.
+
 ## Comandi
 
 ```

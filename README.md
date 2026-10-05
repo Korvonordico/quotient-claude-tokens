@@ -52,6 +52,20 @@ The share of your subscription limit is not in Claude Code's files, so Quotient 
 
 One thing the numbers show quickly: every model call re-reads the whole conversation. In a 400,000-token conversation that is about 40,000 wt per call before Claude writes a word. Long conversations cost more than they look.
 
+## Plan limits: used, left, and how much 1% holds
+
+With a Pro or Max subscription Claude Code passes the status line the share used of the 5-hour and weekly limits, and when they reset. Quotient records these readings and shows them in the status line:
+
+```
+Quotient · 5-hour: 31% used, 69% left, resets 19:30 · week: 6% used, 94% left, resets Mon 12 07:00
+```
+
+To set it up: `python scripts/quotient.py setup-statusline` shows the setting to add, and `--write` adds it to `~/.claude/settings.json` (only if you have no status line yet). Where there is no status line, Claude can read the limits itself (in the Claude desktop app it has a tool for it) and write a `LIMITS:` line, which Quotient records the same way.
+
+From the readings and the costs it measures, Quotient estimates **how many weighted tokens 1% of each limit holds**, so a quote can say "this level takes about 8% of your week, 86% would be left". Anthropic does not publish the limits in tokens: this is an estimate, with its margin (percentages are whole numbers in some sources, so each window adds up to one point of error), and use outside Quotient's sessions (for example chats on claude.ai) makes the limits look smaller than they are.
+
+The report lists the weeks: the highest share of the weekly limit used in each, and the weighted tokens measured. Whether the weeks are getting lighter it says only after 4 complete weeks: fewer than that would be noise.
+
 ## Commands
 
 ```

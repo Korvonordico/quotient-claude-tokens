@@ -9,7 +9,9 @@ Commands:
   hook-prompt          UserPromptSubmit hook (reads the hook JSON on stdin)
   hook-stop            Stop hook
   hook-pretool         PreToolUse hook, used only inside installment runs
-  report               estimates, real costs and how the error is changing
+  report               estimates, real costs, plan limits, and how the error is changing
+  statusline           status line command: records and shows the plan limits
+  setup-statusline     sets that status line up (--write to put it in settings.json)
   config [KEY [VALUE]] show or change the settings
   export               only the numbers of the finished jobs, to share
   rate ...             the work in installments (see `rate --help`)
@@ -27,7 +29,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 
 DEFAULTS = {
     # Below this many weighted tokens no quote is asked for.
@@ -70,6 +72,7 @@ QUOTE_RE = re.compile(r"^[\s>*_`#-]*" + QUOTE_KEYS + r"[*_`]*\s*:\s*(.+)$", re.M
 CHOICE_RE = re.compile(r"^[\s>*_`#-]*" + CHOICE_KEYS + r"[*_`]*\s*:[\s*_`]*([^\s*_`,.;:]+)", re.M)
 CONTINUES_RE = re.compile(r"(?:JOB|LAVORO)[*_`]*\s*:\s*[*_`]*(?:CONTINUES|CONTINUA)", re.I)
 PACE_RE = re.compile(r"^[\s>*_`#-]*(?:PACE|RITMO)[*_`]*\s*:[\s*_`]*([^\n]+)", re.M)
+LIMITS_RE = re.compile(r"^[\s>*_`#-]*LIMITS[*_`]*\s*:\s*(.+)$", re.M)
 TODAY_RE = re.compile(r"\b(?:today|oggi|all|tutto)\b", re.I)
 OPTION_RE = re.compile(r"([^\W\d][\w-]*)\s*=\s*~?\s*(\d[\d.,_]*)\s*([kKmM])?(?![\w])")
 DECLINE = {"none", "nessuna", "nessuno", "no", "annulla", "cancel"}
@@ -405,6 +408,8 @@ def protocol(cfg, factor):
         "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
         "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: days=<n>`, `PACE: daily=<n>`. If today: do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. If the user declines: `CHOICE: none`.",
         "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with two questions: 'Prima rata'/'First installment' (now; today at a time they write; tonight at 03:00) and 'Ogni giorno'/'Every day' (the daily time; free field). Then: now = run `%s rate run <name>` in the background; a time today = `rate once <name> --time HH:MM`; every day = `rate schedule <name> --time HH:MM`. The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely." % (cmd, cmd),
+        "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them, and how many wt 1% holds when it can estimate it. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
+        "In the window, for each level add what share of the 5-hour and weekly limits it would take and what would be left, when Quotient gives the size of 1%; if a level does not fit in what is left of the 5-hour window, say so and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left.",
         "Every decision Quotient needs from the user goes through the choice window, with a free field.",
     ]) + "\n"
 
@@ -467,6 +472,16 @@ def hook_prompt():
     if ctx:
         hints.append("The conversation is ~%s tokens: each model call re-reads it, at least ~%s wt per call." % (
             fmt(ctx), fmt(ctx * cfg["weights"]["cache_read"])))
+    current = limits_line("en")
+    hints.append("Plan limits: %s." % current if current else "Plan limits: not read yet (see LIMITS in the protocol).")
+    sizes = []
+    for window, label in (("seven_day", "the week"), ("five_hour", "the 5 hours")):
+        c = capacity(window)
+        if c:
+            sizes.append("1%% of %s ~ %s wt, so 100%% ~ %s wt (between %s and %s; rough, from %d points)" % (
+                label, fmt(c["per_point"]), fmt(c["per_point"] * 100), fmt(c["low"]), fmt(c["high"]), c["points"]))
+    if sizes:
+        hints.append("Estimate: " + "; ".join(sizes) + ".")
     lines = ["[Quotient %s] Threshold %s wt. %s %s Quote rules: see the Quotient protocol at the start of the session." % (
         VERSION, fmt(cfg["threshold"]), calibration(cfg, learned), " ".join(hints))]
     lines += rate_events()
@@ -515,6 +530,9 @@ def hook_stop():
     append_jsonl(os.path.join(home(), "turns.jsonl"),
                  {"ts": now_iso(), "session": sid, "wt": cost, "calls": calls, "repeat": repeat})
 
+    readings = parse_limits(text)
+    if readings:
+        record_limits(readings, "claude")
     quote = parse_quote(text)
     choice = parse_choice(text)
     pace = parse_pace(text)
@@ -588,6 +606,205 @@ def hook_pretool():
                                            "permissionDecisionReason": reason}}))
 
 
+# ---------------------------------------------------------------- plan limits
+
+WINDOWS = ("five_hour", "seven_day")
+
+
+def to_epoch(value):
+    """Unix seconds from a number or an ISO time (with Z or an offset)."""
+    if value is None:
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        pass
+    try:
+        text = str(value).strip().replace("Z", "+00:00")
+        return int(datetime.fromisoformat(text).timestamp())
+    except ValueError:
+        return None
+
+
+def ts_epoch(iso):
+    try:
+        return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0
+
+
+def parse_limits(text):
+    """The last machine line LIMITS: five_hour=<%> seven_day=<%> [five_hour_resets=<time>] [seven_day_resets=<time>]."""
+    found = None
+    for match in LIMITS_RE.finditer(text or ""):
+        found = match
+    if not found:
+        return None
+    values = dict(re.findall(r"(five_hour_resets|seven_day_resets|five_hour|seven_day)\s*=\s*([^\s,;|]+)", found.group(1)))
+    snap = {}
+    for window in WINDOWS:
+        if window in values:
+            try:
+                snap[window] = float(values[window].rstrip("%").replace(",", "."))
+            except ValueError:
+                pass
+        if values.get(window + "_resets"):
+            snap[window + "_resets"] = to_epoch(values[window + "_resets"])
+    return snap or None
+
+
+def limits_path():
+    return os.path.join(home(), "limits.jsonl")
+
+
+def record_limits(snap, source):
+    """Keep a reading of the plan limits; the same reading is not repeated within 5 minutes."""
+    now = time.time()
+    rows = read_jsonl(limits_path(), tail_bytes=4096)
+    if rows:
+        last = rows[-1]
+        same = all(last.get(k) == snap.get(k) for k in ("five_hour", "seven_day"))
+        if same and now - (last.get("epoch") or 0) < 300:
+            return
+    row = {"ts": now_iso(), "epoch": round(now), "source": source}
+    row.update(snap)
+    append_jsonl(limits_path(), row)
+
+
+def latest_limits():
+    """The newest reading of each window that has not reset yet."""
+    now = time.time()
+    latest = {}
+    for row in read_jsonl(limits_path(), tail_bytes=512 * 1024):
+        for window in WINDOWS:
+            if row.get(window) is None:
+                continue
+            resets = row.get(window + "_resets")
+            if resets and resets < now:
+                continue
+            if window not in latest or row["epoch"] >= latest[window]["epoch"]:
+                latest[window] = {"used": row[window], "resets": resets, "epoch": row["epoch"]}
+    return latest
+
+
+def when(epoch, lang):
+    if not epoch:
+        return "?"
+    moment = datetime.fromtimestamp(epoch)
+    if moment.date() == datetime.now().date():
+        return moment.strftime("%H:%M")
+    days = {"it": ["lun", "mar", "mer", "gio", "ven", "sab", "dom"],
+            "en": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]}[lang if lang == "it" else "en"]
+    return "%s %d %s" % (days[moment.weekday()], moment.day, moment.strftime("%H:%M"))
+
+
+def limits_line(lang):
+    latest = latest_limits()
+    if not latest:
+        return None
+    names = {"it": {"five_hour": "5 ore", "seven_day": "settimana"},
+             "en": {"five_hour": "5-hour", "seven_day": "week"}}["it" if lang == "it" else "en"]
+    words = ("usato %s%%, resta %s%%, si azzera %s" if lang == "it" else "%s%% used, %s%% left, resets %s")
+    parts = []
+    for window in WINDOWS:
+        if window in latest:
+            w = latest[window]
+            parts.append("%s: %s" % (names[window], words % (
+                round(w["used"]), max(0, 100 - round(w["used"])), when(w["resets"], lang))))
+    newest = max(w["epoch"] for w in latest.values())
+    age = (time.time() - newest) / 60
+    stale = (" (letto alle %s)" if lang == "it" else " (read at %s)") % datetime.fromtimestamp(newest).strftime("%H:%M") \
+        if age > 30 else ""
+    return " · ".join(parts) + stale
+
+
+def capacity(window):
+    """How many weighted tokens 1% of a window holds, from readings and measured turns.
+
+    Within one window (same reset time) the rise of the percentage is set against the
+    weighted tokens Quotient measured in between. Percentages are whole numbers in some
+    sources, so each window carries an error of up to one point: that is the margin.
+    """
+    groups = {}
+    for row in read_jsonl(limits_path()):
+        if row.get(window) is None or not row.get(window + "_resets"):
+            continue
+        groups.setdefault(round(row[window + "_resets"] / 300), []).append(row)
+    turns = [(ts_epoch(t.get("ts")), t["wt"]) for t in read_jsonl(os.path.join(home(), "turns.jsonl")) if t.get("wt")]
+    total_wt, total_points, count = 0.0, 0.0, 0
+    for rows in groups.values():
+        rows.sort(key=lambda r: r["epoch"])
+        first, last = rows[0], rows[-1]
+        points = last[window] - first[window]
+        if points <= 0:
+            continue
+        total_wt += sum(w for t, w in turns if first["epoch"] < t <= last["epoch"])
+        total_points += points
+        count += 1
+    if total_points < 3 or total_wt <= 0:
+        return None
+    return {"per_point": total_wt / total_points, "points": total_points, "windows": count,
+            "low": total_wt / (total_points + count) * 100,
+            "high": total_wt / max(total_points - count, 0.5) * 100}
+
+
+def weeks():
+    """One row per weekly window: the highest percentage seen and the weighted tokens measured in it."""
+    groups = {}
+    for row in read_jsonl(limits_path()):
+        if row.get("seven_day") is not None and row.get("seven_day_resets"):
+            key = round(row["seven_day_resets"] / 300)
+            g = groups.setdefault(key, {"resets": row["seven_day_resets"], "used": 0})
+            g["used"] = max(g["used"], row["seven_day"])
+    turns = [(ts_epoch(t.get("ts")), t["wt"]) for t in read_jsonl(os.path.join(home(), "turns.jsonl")) if t.get("wt")]
+    rows = []
+    for g in sorted(groups.values(), key=lambda g: g["resets"]):
+        start = g["resets"] - 7 * 86400
+        rows.append({"resets": g["resets"], "used": g["used"], "complete": g["resets"] < time.time(),
+                     "wt": sum(w for t, w in turns if start < t <= g["resets"])})
+    return rows
+
+
+def statusline():
+    """Status line command: records the plan limits Claude Code passes in, and shows them."""
+    data = read_stdin_json()
+    limits = data.get("rate_limits") or {}
+    snap = {}
+    for window in WINDOWS:
+        w = limits.get(window) or {}
+        if w.get("used_percentage") is not None:
+            snap[window] = float(w["used_percentage"])
+            snap[window + "_resets"] = to_epoch(w.get("resets_at"))
+    if snap:
+        record_limits(snap, "statusline")
+    line = limits_line(config().get("lang"))
+    out("Quotient · " + (line or ("limiti non ancora letti" if config().get("lang") == "it" else "limits not read yet")) + "\n")
+
+
+def setup_statusline(args):
+    """Writes a small launcher that always finds the installed version, and shows (or writes) the setting."""
+    launcher = os.path.join(home(), "statusline.sh")
+    with open(launcher, "w", encoding="utf-8", newline="\n") as f:
+        f.write('#!/bin/sh\n# Runs the status line of the newest installed Quotient.\n'
+                'dir=$(ls -d "$HOME"/.claude/plugins/cache/*/quotient/*/scripts 2>/dev/null | sort -V | tail -n 1)\n'
+                '[ -n "$dir" ] || dir="%s"\nexec sh "$dir/run.sh" statusline\n' % os.path.dirname(os.path.abspath(__file__)).replace("\\", "/"))
+    setting = {"type": "command", "command": 'sh "%s"' % launcher.replace("\\", "/")}
+    path = os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
+    if args.write:
+        settings = load_json(path, None)
+        if settings is None:
+            sys.exit("quotient: cannot read %s" % path)
+        if settings.get("statusLine") and not args.force:
+            sys.exit("quotient: a status line is already set; it was left as it is (use --force to replace it)")
+        settings["statusLine"] = setting
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        out("Status line set in %s. It starts with the next session.\n" % path)
+    else:
+        out('Add this to %s:\n"statusLine": %s\n' % (path, json.dumps(setting)))
+
+
 # ---------------------------------------------------------------- report
 
 TEXT = {
@@ -601,6 +818,16 @@ TEXT = {
         "trend": "Typical miss with the learned correction: first half %s, second half %s",
         "turns": "Turns measured: %d, median %s wt per turn",
         "note": "Estimates are not guaranteed: they get more precise with use.",
+        "limits": "Plan limits now: %s",
+        "no_limits": "not read yet (they come from the status line, or from Claude in the desktop app)",
+        "capacity_seven_day": "The whole week holds about %s wt (between %s and %s; rough estimate from %d percentage points). Usage outside Quotient's sessions makes it look smaller.",
+        "capacity_five_hour": "The 5 hours hold about %s wt (between %s and %s; rough estimate from %d percentage points).",
+        "no_capacity_seven_day": "The size of the week is not estimated yet: it needs a few percentage points measured.",
+        "no_capacity_five_hour": "The size of the 5 hours is not estimated yet.",
+        "weeks_head": "Week (resets)          used    measured",
+        "running": "(in progress)",
+        "too_early": "Too early to say whether the weeks are getting lighter: %d complete week(s), at least 4 are needed.",
+        "trend_weeks": "Last 2 weeks: %.0f%% of the limit on average; the 2 before: %.0f%%.",
     },
     "it": {
         "title": "Quotient: stime contro costi veri (unità: token pesati)",
@@ -612,6 +839,16 @@ TEXT = {
         "trend": "Errore tipico con la correzione imparata: prima metà %s, seconda metà %s",
         "turns": "Turni misurati: %d, mediana %s token pesati a turno",
         "note": "Le stime non sono garantite: diventano più precise con l'uso.",
+        "limits": "Limiti del piano adesso: %s",
+        "no_limits": "non ancora letti (arrivano dalla riga di stato, o da Claude nell'app desktop)",
+        "capacity_seven_day": "La settimana intera vale circa %s token pesati (fra %s e %s: stima grezza da %d punti percentuali). L'uso fuori dalle sessioni di Quotient la fa sembrare più piccola.",
+        "capacity_five_hour": "Le 5 ore valgono circa %s token pesati (fra %s e %s: stima grezza da %d punti percentuali).",
+        "no_capacity_seven_day": "Quanto vale la settimana non è ancora stimato: servono alcuni punti percentuali misurati.",
+        "no_capacity_five_hour": "Quanto valgono le 5 ore non è ancora stimato.",
+        "weeks_head": "Settimana (si azzera)   usato   misurato",
+        "running": "(in corso)",
+        "too_early": "Troppo presto per dire se le settimane si alleggeriscono: %d settimane complete, ne servono almeno 4.",
+        "trend_weeks": "Ultime 2 settimane: in media %.0f%% del limite; le 2 prima: %.0f%%.",
     },
 }
 
@@ -643,6 +880,24 @@ def report():
     turns = [x["wt"] for x in read_jsonl(os.path.join(home(), "turns.jsonl")) if x.get("wt")]
     if turns:
         lines.append(t["turns"] % (len(turns), fmt(median(turns))))
+    lang = cfg.get("lang")
+    current = limits_line(lang)
+    lines += ["", t["limits"] % (current or t["no_limits"])]
+    for window in ("seven_day", "five_hour"):
+        c = capacity(window)
+        lines.append(t["capacity_" + window] % (fmt(c["per_point"] * 100), fmt(c["low"]), fmt(c["high"]), c["points"])
+                     if c else t["no_capacity_" + window])
+    rows = weeks()
+    if rows:
+        lines += ["", t["weeks_head"]]
+        for r in rows[-8:]:
+            lines.append("%-22s %5s%%   %s" % (when(r["resets"], lang), round(r["used"]), fmt(r["wt"])) + ("" if r["complete"] else "   " + t["running"]))
+        done = [r for r in rows if r["complete"]]
+        if len(done) < 4:
+            lines.append(t["too_early"] % len(done))
+        else:
+            recent, before = [r["used"] for r in done[-2:]], [r["used"] for r in done[-4:-2]]
+            lines.append(t["trend_weeks"] % (sum(recent) / 2, sum(before) / 2))
     lines += ["", t["note"]]
     out("\n".join(lines) + "\n")
 
@@ -931,8 +1186,11 @@ def main(argv=None):
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=VERSION)
     sub = parser.add_subparsers(dest="cmd")
-    for name in ("hook-session", "hook-prompt", "hook-stop", "hook-pretool", "report", "export"):
+    for name in ("hook-session", "hook-prompt", "hook-stop", "hook-pretool", "report", "export", "statusline"):
         sub.add_parser(name)
+    p = sub.add_parser("setup-statusline", help="show the plan limits in the status line and record them")
+    p.add_argument("--write", action="store_true", help="write the setting in ~/.claude/settings.json")
+    p.add_argument("--force", action="store_true", help="replace a status line that is already set")
     p = sub.add_parser("config")
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
@@ -971,7 +1229,15 @@ def main(argv=None):
         except Exception as exc:  # a broken hook must never block the user's work
             sys.stderr.write("quotient: %s\n" % exc)
         return
-    if args.cmd == "report":
+    if args.cmd == "statusline":
+        try:
+            statusline()
+        except Exception as exc:  # the status line must never break
+            out("Quotient\n")
+            sys.stderr.write("quotient: %s\n" % exc)
+    elif args.cmd == "setup-statusline":
+        setup_statusline(args)
+    elif args.cmd == "report":
         report()
     elif args.cmd == "export":
         export()
