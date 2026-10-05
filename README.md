@@ -27,10 +27,13 @@ Needs Python 3.8 or newer (standard library only) and `sh` (on Windows it comes 
 
 ## How it works
 
-- **When you send a message** (`UserPromptSubmit` hook), Quotient gives Claude a few lines: the threshold, the correction factor learned so far, the size of the conversation, and the quote format. About 270 tokens per message.
-- **Above the threshold**, Claude replies with the options and ends with one machine line holding its raw estimates:
-  `QUOTE: essential=120k good=300k max=800k`
-- **When you choose**, Claude starts its reply with `CHOICE: good` and does the work. If the job takes more than one reply, it ends each unfinished reply with `JOB: CONTINUES`, and the cost of the following replies is added.
+- **At the start of a session** (`SessionStart` hook), Quotient gives Claude the quote rules once: about 650 tokens. **At each message** (`UserPromptSubmit` hook) only one short line: the threshold, the correction factor, the size of the conversation, and news about your installments. About 70 tokens.
+- **When it steps in:** when a job will likely cost more than the threshold, and whenever you say it's a big job or ask for a quote.
+- **A choice window opens** (Claude Code's own question window) with two questions:
+  - **Level**: *essential*, *good*, *max*, sized to the job. For a 500k job: max 500k, good 250k, essential 100k.
+  - **Pace**: all today, or installments that fit the job, for example 250k a day for 2 days, or 100k a day for 5 days.
+  - The window always has a free field: write your own pace there, for example "50k a day".
+- Claude writes a machine line with its raw estimates, `QUOTE: essential=100k good=250k max=500k`, and after your answer `CHOICE: good` and `PACE: today` (or `PACE: daily=100k`). If a job takes more than one reply, each unfinished reply ends with `JOB: CONTINUES`, and the cost of the following replies is added.
 - **At the end of each reply** (`Stop` hook), Quotient reads the conversation file and adds up the cost of that reply. Each API call is counted **once**: the file repeats a call once per content block, and counting every line would double the result.
 
 ### The unit: weighted tokens
@@ -71,10 +74,18 @@ python scripts/quotient.py export                     # only the numbers, to sha
 A job too big for one day can run in pieces:
 
 ```
-python scripts/quotient.py rate new book --dir ~/book --task-file job.md --days 7 --quote 2100000
+python scripts/quotient.py rate new book --dir ~/book --task-file job.md --quote 500000 --daily 100000   # 5 installments
 python scripts/quotient.py rate run book                     # one installment now
 python scripts/quotient.py rate schedule book --time 03:00   # one every day
 python scripts/quotient.py rate status
+```
+
+After you choose installments, a second window asks when the first one starts (now, today at a time you write, or tonight) and at what time the next ones run every day. When an installment ends, the next time you write a window asks what to do: start the next one now (it spends more of today's limit, at your own risk), at a time you choose today, or at the usual time. Every choice has a free field: the plan is yours.
+
+```
+python scripts/quotient.py rate once book --time 15:30       # one more installment today
+python scripts/quotient.py rate run book --force              # one more installment now
+python scripts/quotient.py rate stop book                     # stop the job and its schedule
 ```
 
 Each installment is a fresh, non-interactive Claude Code run (`claude -p`) in the job's folder. It reads the job description and a handoff file (what is done, what remains, where to resume), works, and updates the handoff after each step. When the day's cap is spent, a hook refuses every tool except the handoff update, so the run stops cleanly instead of being cut off. After the first run Quotient also learns the dollar value Claude Code reports per weighted token and adds `--max-budget-usd` as a hard stop.

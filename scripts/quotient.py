@@ -5,6 +5,7 @@ and a correction learned from the difference.
 Part of a Claude Code plugin. Standard library only (Python 3.8+).
 
 Commands:
+  hook-session         SessionStart hook: the quote protocol, once per session
   hook-prompt          UserPromptSubmit hook (reads the hook JSON on stdin)
   hook-stop            Stop hook
   hook-pretool         PreToolUse hook, used only inside installment runs
@@ -26,7 +27,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 DEFAULTS = {
     # Below this many weighted tokens no quote is asked for.
@@ -68,6 +69,8 @@ CHOICE_KEYS = r"(?:SCELTA|CHOICE)"
 QUOTE_RE = re.compile(r"^[\s>*_`#-]*" + QUOTE_KEYS + r"[*_`]*\s*:\s*(.+)$", re.M)
 CHOICE_RE = re.compile(r"^[\s>*_`#-]*" + CHOICE_KEYS + r"[*_`]*\s*:[\s*_`]*([^\s*_`,.;:]+)", re.M)
 CONTINUES_RE = re.compile(r"(?:JOB|LAVORO)[*_`]*\s*:\s*[*_`]*(?:CONTINUES|CONTINUA)", re.I)
+PACE_RE = re.compile(r"^[\s>*_`#-]*(?:PACE|RITMO)[*_`]*\s*:[\s*_`]*([^\n]+)", re.M)
+TODAY_RE = re.compile(r"\b(?:today|oggi|all|tutto)\b", re.I)
 OPTION_RE = re.compile(r"([^\W\d][\w-]*)\s*=\s*~?\s*(\d[\d.,_]*)\s*([kKmM])?(?![\w])")
 DECLINE = {"none", "nessuna", "nessuno", "no", "annulla", "cancel"}
 INSTALLMENT_RE = re.compile(r"^(?:split|rata|rate|installments?)\d*$", re.I)
@@ -292,6 +295,15 @@ def parse_quote(text):
     return found
 
 
+def parse_pace(text):
+    """'today', the installment plan as written, or None."""
+    match = PACE_RE.search(text or "")
+    if not match:
+        return None
+    value = match.group(1).strip()
+    return "today" if TODAY_RE.search(value) else value
+
+
 def parse_choice(text):
     match = CHOICE_RE.search(text or "")
     return match.group(1).lower() if match else None
@@ -364,54 +376,107 @@ def fmt_miss(m):
 
 # ---------------------------------------------------------------- hooks
 
+def run_cmd():
+    """How Claude should call this script: the same Python that runs the hooks."""
+    return '"%s" "%s"' % (sys.executable, os.path.abspath(__file__))
+
+
+def calibration(cfg, learned):
+    n = len(learned["jobs"])
+    if n == 0:
+        return "No finished jobs yet, so the correction factor is x1 and the first estimates will be rough."
+    rows = learned["rows"]
+    return "Correction factor from %d finished job(s): x%.2f%s; typical miss before correction %s, recent miss with it %s." % (
+        n, learned["factor"], " (still uncertain)" if n < cfg["min_jobs"] else "",
+        fmt_miss(median([r["miss_raw"] for r in rows])), fmt_miss(median([r["miss_corrected"] for r in rows[-5:]])))
+
+
+def protocol(cfg, factor):
+    """The full rules, given once at the start of a session (and after a compaction)."""
+    cmd = run_cmd()
+    big = cfg["threshold"] * cfg["many_options_factor"]
+    return "\n".join([
+        "[Quotient %s] Quote protocol for this session. Unit: weighted tokens (wt) = input + 1.25 x cache write (2 x for 1-hour cache) + 0.1 x cache read + 5 x output, the ratios of the API prices." % VERSION,
+        "WHEN: before work that will likely cost more than the threshold (%s wt), and whenever the user calls a job big or asks for a quote. Do not start the work: quote first. Under the threshold, if nobody asks, just work." % fmt(cfg["threshold"]),
+        "HOW:",
+        "1) Estimate the job at three levels sized to it: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f)." % (fmt(big), factor),
+        "2) Write one machine line with your RAW estimates, always in English: QUOTE: essential=<n> good=<n> max=<n>",
+        "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate. 'Ritmo'/'Pace': all today, plus two installment plans that fit the job (e.g. '2 days, ~X a day', '5 days, ~Y a day'). The window always has a free field: the user can write any pace there (e.g. '50k a day'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
+        "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: days=<n>`, `PACE: daily=<n>`. If today: do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. If the user declines: `CHOICE: none`.",
+        "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with two questions: 'Prima rata'/'First installment' (now; today at a time they write; tonight at 03:00) and 'Ogni giorno'/'Every day' (the daily time; free field). Then: now = run `%s rate run <name>` in the background; a time today = `rate once <name> --time HH:MM`; every day = `rate schedule <name> --time HH:MM`. The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely." % (cmd, cmd),
+        "Every decision Quotient needs from the user goes through the choice window, with a free field.",
+    ]) + "\n"
+
+
+def rate_events():
+    """What happened to installment jobs since the user last wrote: each thing is told once."""
+    base = os.path.join(home(), "rate")
+    lines = []
+    if not os.path.isdir(base):
+        return lines
+    for name in sorted(os.listdir(base)):
+        folder = os.path.join(base, name)
+        job = load_json(os.path.join(folder, "job.json"), None)
+        if not job:
+            continue
+        runs = read_jsonl(os.path.join(folder, "runs.jsonl"))
+        if len(runs) <= job.get("told", 0):
+            continue
+        last = runs[-1]
+        spent = sum(r.get("wt") or 0 for r in runs)
+        if job["status"] == "done":
+            lines.append("Installment job '%s' is FINISHED after %d installment(s): real cost %s wt%s. Tell the user." % (
+                name, len(runs), fmt(spent),
+                " against a raw quote of %s wt" % fmt(job["quote"]) if job.get("quote") else ""))
+        elif last.get("error"):
+            lines.append("Installment %d of job '%s' FAILED (%s). Open the choice window: retry now / retry at a time they choose / stop the job (`rate stop %s`)." % (
+                len(runs), name, str(last["error"])[:200], name))
+        else:
+            lines.append("Installment %d of job '%s' ended at %s: %s wt of a %s daily cap, %s wt so far. Open the choice window: start the next one now (it spends more of today's limit, at their own risk) / today at a time they choose / at the usual daily time." % (
+                len(runs), name, (last.get("finished") or "")[11:16], fmt(last.get("wt")),
+                fmt(job["daily_cap"]), fmt(spent)))
+        job["told"] = len(runs)
+        save_json(os.path.join(folder, "job.json"), job)
+    if lines:
+        lines.append("Commands: %s rate run <name> --force (in the background) | rate once <name> --time HH:MM | rate schedule <name> --time HH:MM | rate stop <name>" % run_cmd())
+    return lines
+
+
+def hook_session():
+    """SessionStart: the full protocol, once per session instead of at every message."""
+    read_stdin_json()
+    if os.environ.get("QUOTIENT_JOB"):
+        return
+    cfg = config()
+    out(protocol(cfg, learning(cfg)["factor"]))
+
+
 def hook_prompt():
     data = read_stdin_json()
+    name = os.environ.get("QUOTIENT_JOB")
+    if name:
+        out("[Quotient %s] This is an installment run of the job '%s': follow the prompt. No quotes, no questions to the user.\n" % (VERSION, name))
+        return
     cfg = config()
     sid = data.get("session_id") or "unknown"
     state = load_json(session_path(sid), {})
     learned = learning(cfg)
-    n = len(learned["jobs"])
-    factor = learned["factor"]
-    threshold = cfg["threshold"]
-    big = threshold * cfg["many_options_factor"]
-
-    if n == 0:
-        calib = "No finished jobs yet, so the correction factor is x1 and the first estimates will be rough."
-    else:
-        rows = learned["rows"]
-        recent = median([r["miss_corrected"] for r in rows[-5:]])
-        calib = "Correction factor learned from %d finished job(s): x%.2f%s. Typical miss before correction %s, recent miss with correction %s." % (
-            n, factor, " (still uncertain)" if n < cfg["min_jobs"] else "",
-            fmt_miss(median([r["miss_raw"] for r in rows])), fmt_miss(recent))
-
-    ctx = context_size(data.get("transcript_path") or "")
-    turns = [t["wt"] for t in read_jsonl(os.path.join(home(), "turns.jsonl"))[-20:] if t.get("wt")]
     hints = []
+    ctx = context_size(data.get("transcript_path") or "")
     if ctx:
-        hints.append("The conversation is now ~%s tokens: every model call re-reads it, costing at least ~%s wt per call before any output." % (fmt(ctx), fmt(ctx * cfg["weights"]["cache_read"])))
-    if turns:
-        hints.append("Recent turns cost a median of %s wt." % fmt(median(turns)))
-
-    lines = [
-        "[Quotient %s] Cost check. Unit: weighted tokens (wt) = input + 1.25 x cache write (2 x for 1-hour cache) + 0.1 x cache read + 5 x output, the ratios of the API prices." % VERSION,
-        "Threshold: %s wt. %s %s" % (fmt(threshold), calib, " ".join(hints)),
-    ]
-    pending = state.get("pending")
+        hints.append("The conversation is ~%s tokens: each model call re-reads it, at least ~%s wt per call." % (
+            fmt(ctx), fmt(ctx * cfg["weights"]["cache_read"])))
+    lines = ["[Quotient %s] Threshold %s wt. %s %s Quote rules: see the Quotient protocol at the start of the session." % (
+        VERSION, fmt(cfg["threshold"]), calibration(cfg, learned), " ".join(hints))]
+    lines += rate_events()
     job = state.get("job")
+    pending = state.get("pending")
     if job:
-        lines.append("A job is in progress (choice '%s', raw estimate %s wt, spent so far %s wt). If it is still not finished at the end of this reply, end the reply with the line: JOB: CONTINUES" % (
+        lines.append("A job is in progress (level '%s', raw estimate %s wt, spent so far %s wt). If it is not finished at the end of this reply, end it with the line: JOB: CONTINUES" % (
             job.get("choice"), fmt(job.get("raw_estimate")), fmt(job.get("actual"))))
     elif pending:
-        names = ", ".join("%s=%s" % (k, fmt(v)) for k, v in pending["options"].items())
-        lines.append("A quote is waiting for the user's choice (raw estimates: %s). If this message picks one, start your reply with the line `CHOICE: <option name>` and do the job at that level; if the job will not be finished at the end of this reply, end it with the line `JOB: CONTINUES`. If the user declines, write `CHOICE: none`. If the user picks an installment option, set it up with: python \"%s\" rate new --help" % (
-            names, os.path.abspath(__file__)))
-    lines += [
-        "Rule: before starting work that will likely cost more than the threshold, do not start. Reply briefly with options and stop:",
-        "- three options: essential (the minimum that does the job), good, max. If 'good' is above %s wt, give five options (add two in between) plus installments: split3 and split7, the same work split over 3 or 7 days with a daily cap, so the user can keep using the AI meanwhile." % fmt(big),
-        "- for each option say what it includes and its estimate corrected by the factor (your raw estimate x %.2f), in the user's language; say the estimates are not guaranteed and get more precise with use." % factor,
-        "- end with one machine line, in English whatever the user's language, holding your RAW estimates, for example: QUOTE: essential=120k good=300k max=800k",
-        "Under the threshold, just do the work: no quote.",
-    ]
+        lines.append("A quote waits for the user's choice (raw: %s). If this message chooses, write `CHOICE: <level>` and `PACE: ...` as the protocol says, then go on." % (
+            ", ".join("%s=%s" % (k, fmt(v)) for k, v in pending["options"].items())))
     out("\n".join(lines) + "\n")
 
 
@@ -451,9 +516,12 @@ def hook_stop():
 
     quote = parse_quote(text)
     choice = parse_choice(text)
+    pace = parse_pace(text)
     continues = bool(CONTINUES_RE.search(text))
     job = state.get("job")
     pending = state.get("pending")
+    # With the choice window, the quote and the choice arrive in the same turn.
+    same_turn = bool(quote and choice and choice in quote)
 
     if job:
         job["actual"] += cost
@@ -461,14 +529,16 @@ def hook_stop():
         if quote or not continues:
             close_job(job)
             state["job"] = None
-    elif choice and pending:
+    elif choice and (same_turn or pending):
+        source = {"options": quote, "factor": learning(cfg)["factor"], "quote_cost": 0} if same_turn else pending
         state["pending"] = None
-        raw = pending["options"].get(choice)
-        if raw and choice not in DECLINE and not INSTALLMENT_RE.match(choice):
+        raw = source["options"].get(choice)
+        installments = (pace not in (None, "today")) or INSTALLMENT_RE.match(choice)
+        if raw and choice not in DECLINE and not installments:
             job = {
-                "started": now_iso(), "session": sid, "options": pending["options"],
-                "choice": choice, "raw_estimate": raw, "factor_used": pending.get("factor", 1.0),
-                "quote_cost": pending.get("quote_cost", 0), "actual": cost, "turns": 1,
+                "started": now_iso(), "session": sid, "options": source["options"],
+                "choice": choice, "raw_estimate": raw, "factor_used": source.get("factor", 1.0),
+                "quote_cost": source.get("quote_cost", 0), "actual": cost, "turns": 1,
             }
             if continues:
                 state["job"] = job
@@ -479,7 +549,7 @@ def hook_stop():
         if pending["age"] > cfg["pending_ttl_turns"]:
             state["pending"] = None
 
-    if quote:
+    if quote and not same_turn:
         pending = state.get("pending")
         if repeat and pending and pending.get("options") == quote:
             pending["quote_cost"] = pending.get("quote_cost", 0) + cost
@@ -618,17 +688,21 @@ def cmd_config(args):
 
 # ---------------------------------------------------------------- installments
 
-RATE_PROMPT = """You are doing ONE daily installment of a bigger job, inside a spending cap.
+RATE_PROMPT = """You are doing ONE installment of a bigger job, inside a spending cap.
 1. Read the job: {task}
 2. Read the handoff from the previous installments: {handoff}
 3. Continue from where the handoff says. Work in small steps. After each finished step, update {handoff}: what is done, what remains, where to resume. Keep it short.
-4. If a tool call is refused because today's installment is used up, update {handoff} and stop at once.
+4. If a tool call is refused because this installment is used up, update {handoff} and stop at once.
 5. When the WHOLE job is finished, write the line JOB DONE at the top of {handoff}.
-Today's cap: {cap} weighted tokens. This is installment {number} of about {days}."""
+This installment's cap: {cap} weighted tokens. This is installment {number} of about {days}."""
 
 
 def rate_dir(name):
     return os.path.join(home(), "rate", re.sub(r"[^\w-]", "_", name))
+
+
+def task_name(name, once=False):
+    return "quotient-" + re.sub(r"[^\w-]", "_", name) + ("-once" if once else "")
 
 
 def find_claude(cfg):
@@ -665,9 +739,17 @@ def rate_new(args):
         task = args.task
     else:
         sys.exit("quotient: give the job with --task or --task-file")
-    daily = args.daily or (args.quote // args.days if args.quote else None)
-    if not daily:
-        sys.exit("quotient: give --daily (weighted tokens per day) or --quote with --days")
+    factor = learning(config())["factor"]
+    # The daily cap is real spending, so it uses the corrected total.
+    total = args.quote * factor if args.quote else None
+    if args.daily:
+        daily = args.daily
+        days = args.days or (max(1, math.ceil(total / daily)) if total else None)
+    elif total and args.days:
+        daily = math.ceil(total / args.days)
+        days = args.days
+    else:
+        sys.exit("quotient: give --daily (weighted tokens per installment), or --quote with --days")
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, "TASK.md"), "w", encoding="utf-8") as f:
         f.write(task.strip() + "\n")
@@ -675,13 +757,15 @@ def rate_new(args):
         f.write("Nothing done yet.\n")
     job = {
         "name": args.name, "dir": os.path.abspath(args.dir), "daily_cap": int(daily),
-        "days": args.days, "quote": args.quote, "created": now_iso(), "status": "open",
-        "model": args.model, "usd_per_wt": None,
+        "days": days, "quote": args.quote, "factor_at_quote": round(factor, 4), "created": now_iso(),
+        "status": "open", "model": args.model, "usd_per_wt": None, "told": 0,
     }
     save_json(os.path.join(folder, "job.json"), job)
-    out("Job '%s' ready: %s wt a day for about %d days, working in %s\nJob files: %s\nRun one installment: python \"%s\" rate run %s\nOr every day: python \"%s\" rate schedule %s --time 03:00\n" % (
-        args.name, fmt(daily), args.days, job["dir"], folder, os.path.abspath(__file__), args.name,
-        os.path.abspath(__file__), args.name))
+    out("Job '%s' ready: %s wt per installment%s, working in %s\nJob files: %s\n"
+        "Run one installment now: %s rate run %s\nOnce today at a time: %s rate once %s --time HH:MM\n"
+        "Every day: %s rate schedule %s --time HH:MM\n" % (
+            args.name, fmt(daily), ", about %d installment(s)" % days if days else "", job["dir"], folder,
+            run_cmd(), args.name, run_cmd(), args.name, run_cmd(), args.name))
 
 
 def rate_run(args):
@@ -690,13 +774,14 @@ def rate_run(args):
     job = load_json(os.path.join(folder, "job.json"), None)
     if not job:
         sys.exit("quotient: no job named '%s'" % args.name)
-    if job["status"] == "done":
-        out("Job '%s' is already finished.\n" % args.name)
+    if job["status"] in ("done", "stopped"):
+        out("Job '%s' is %s.\n" % (args.name, job["status"]))
         return
     runs = read_jsonl(os.path.join(folder, "runs.jsonl"))
     today = datetime.now().strftime("%Y-%m-%d")
     if not args.force and any((r.get("started") or "").startswith(today) for r in runs):
-        out("Today's installment of '%s' has already run (use --force to run another).\n" % args.name)
+        out("Today's installment of '%s' has already run. To run another one today (it spends more of "
+            "today's limit): rate run %s --force\n" % (args.name, args.name))
         return
     claude = find_claude(cfg)
     if not claude:
@@ -704,7 +789,7 @@ def rate_run(args):
     rc = cfg["rate"]
     prompt = (rc["prompt_prefix"] + " " if rc["prompt_prefix"] else "") + RATE_PROMPT.format(
         task=os.path.join(folder, "TASK.md"), handoff=os.path.join(folder, "HANDOFF.md"),
-        cap=fmt(job["daily_cap"]), number=len(runs) + 1, days=job["days"])
+        cap=fmt(job["daily_cap"]), number=len(runs) + 1, days=job.get("days") or "?")
     hook = {"hooks": {"PreToolUse": [{"hooks": [{
         "type": "command", "command": sys.executable,
         "args": [os.path.abspath(__file__), "hook-pretool"], "timeout": 30}]}]}}
@@ -758,8 +843,9 @@ def rate_run(args):
             append_jsonl(os.path.join(home(), "jobs.jsonl"), {
                 "started": job["created"], "finished": job["finished"], "session": "rate:" + job["name"],
                 "options": {"rate": job["quote"]}, "choice": "rate", "raw_estimate": job["quote"],
-                "factor_used": 1.0, "quote_cost": 0, "actual": total, "turns": len(runs) + 1,
-                "ratio": round(total / job["quote"], 4)})
+                "factor_used": job.get("factor_at_quote", 1.0), "quote_cost": 0, "actual": total,
+                "turns": len(runs) + 1, "ratio": round(total / job["quote"], 4)})
+        unschedule(args.name)
     save_json(os.path.join(folder, "job.json"), job)
     out("Installment %d of '%s': %s wt (cap %s)%s%s\n" % (
         len(runs) + 1, args.name, fmt(wt), fmt(job["daily_cap"]),
@@ -767,8 +853,8 @@ def rate_run(args):
 
 
 def rate_status(args):
-    names = [args.name] if args.name else sorted(os.listdir(os.path.join(home(), "rate"))) \
-        if os.path.isdir(os.path.join(home(), "rate")) else []
+    base = os.path.join(home(), "rate")
+    names = [args.name] if args.name else (sorted(os.listdir(base)) if os.path.isdir(base) else [])
     if not names:
         out("No installment jobs.\n")
     for name in names:
@@ -778,33 +864,63 @@ def rate_status(args):
             continue
         runs = read_jsonl(os.path.join(folder, "runs.jsonl"))
         spent = sum(r.get("wt") or 0 for r in runs)
-        out("%s: %s, %d installment(s), %s wt spent, cap %s a day%s\n" % (
+        out("%s: %s, %d installment(s), %s wt spent, cap %s per installment%s\n" % (
             name, job["status"], len(runs), fmt(spent), fmt(job["daily_cap"]),
-            ", quote %s" % fmt(job["quote"]) if job.get("quote") else ""))
+            ", raw quote %s" % fmt(job["quote"]) if job.get("quote") else ""))
         for r in runs[-5:]:
             out("  %s  %s wt%s\n" % (r["started"][:16], fmt(r.get("wt")), "  error" if r.get("error") else ""))
 
 
-def rate_schedule(args):
-    task = "quotient-" + re.sub(r"[^\w-]", "_", args.name)
-    run = '"%s" "%s" rate run %s' % (sys.executable, os.path.abspath(__file__), args.name)
+def check_time(value):
+    if not re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", value or ""):
+        sys.exit("quotient: write the time as HH:MM, for example 03:00")
+    hh, mm = value.split(":")
+    return "%02d:%s" % (int(hh), mm)
+
+
+def schedule(name, at, once):
+    at = check_time(at)
+    run = '"%s" "%s" rate run %s%s' % (sys.executable, os.path.abspath(__file__), name, " --force" if once else "")
     if os.name == "nt":
-        cmd = ["schtasks", "/Create", "/F", "/SC", "DAILY", "/TN", task, "/TR", run, "/ST", args.time]
+        cmd = ["schtasks", "/Create", "/F", "/SC", "ONCE" if once else "DAILY",
+               "/TN", task_name(name, once), "/TR", run, "/ST", at]
         proc = subprocess.run(cmd, capture_output=True)
         out((proc.stdout or proc.stderr).decode("utf-8", "replace") or "")
-        out("Scheduled '%s' every day at %s. Remove it with: rate unschedule %s\n" % (task, args.time, args.name))
+        out("%s '%s' at %s. Remove it with: rate stop %s\n" % (
+            "Scheduled once, today," if once else "Scheduled every day", name, at, name))
     else:
-        hh, mm = args.time.split(":")
-        out("Add this line with `crontab -e`:\n%s %s * * * %s\n" % (int(mm), int(hh), run))
+        hh, mm = at.split(":")
+        if once:
+            out("Run this once (needs `at`):\necho '%s' | at %s\n" % (run, at))
+        else:
+            out("Add this line with `crontab -e`:\n%d %d * * * %s\n" % (int(mm), int(hh), run))
 
 
-def rate_unschedule(args):
-    task = "quotient-" + re.sub(r"[^\w-]", "_", args.name)
+def unschedule(name):
     if os.name == "nt":
-        proc = subprocess.run(["schtasks", "/Delete", "/F", "/TN", task], capture_output=True)
-        out((proc.stdout or proc.stderr).decode("utf-8", "replace") or "")
-    else:
-        out("Remove the line with `rate run %s` from `crontab -e`.\n" % args.name)
+        for once in (False, True):
+            subprocess.run(["schtasks", "/Delete", "/F", "/TN", task_name(name, once)], capture_output=True)
+
+
+def rate_schedule(args):
+    schedule(args.name, args.time, once=False)
+
+
+def rate_once(args):
+    schedule(args.name, args.time, once=True)
+
+
+def rate_stop(args):
+    folder = rate_dir(args.name)
+    job = load_json(os.path.join(folder, "job.json"), None)
+    if not job:
+        sys.exit("quotient: no job named '%s'" % args.name)
+    unschedule(args.name)
+    if job["status"] == "open":
+        job["status"] = "stopped"
+        save_json(os.path.join(folder, "job.json"), job)
+    out("Job '%s' stopped; its scheduled runs are removed%s.\n" % (
+        args.name, "" if os.name == "nt" else " (remove its crontab line yourself)"))
 
 
 # ---------------------------------------------------------------- main
@@ -814,7 +930,7 @@ def main(argv=None):
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=VERSION)
     sub = parser.add_subparsers(dest="cmd")
-    for name in ("hook-prompt", "hook-stop", "hook-pretool", "report", "export"):
+    for name in ("hook-session", "hook-prompt", "hook-stop", "hook-pretool", "report", "export"):
         sub.add_parser(name)
     p = sub.add_parser("config")
     p.add_argument("key", nargs="?")
@@ -822,28 +938,32 @@ def main(argv=None):
 
     rate = sub.add_parser("rate", help="the work in installments")
     rsub = rate.add_subparsers(dest="rate_cmd")
-    p = rsub.add_parser("new", help="split a big job into daily installments")
+    p = rsub.add_parser("new", help="split a big job into installments")
     p.add_argument("name")
     p.add_argument("--dir", default=".", help="folder the work happens in")
     p.add_argument("--task", help="what the whole job is")
     p.add_argument("--task-file", help="file holding what the whole job is")
-    p.add_argument("--days", type=int, default=7)
+    p.add_argument("--days", type=int, help="how many installments")
     p.add_argument("--daily", type=int, help="cap per installment, in weighted tokens")
-    p.add_argument("--quote", type=int, help="estimate of the whole job, in weighted tokens")
+    p.add_argument("--quote", type=int, help="raw estimate of the whole job, in weighted tokens")
     p.add_argument("--model")
-    p = rsub.add_parser("run", help="run today's installment")
+    p = rsub.add_parser("run", help="run one installment now")
     p.add_argument("name")
-    p.add_argument("--force", action="store_true")
+    p.add_argument("--force", action="store_true", help="run even if one already ran today")
     p = rsub.add_parser("status")
     p.add_argument("name", nargs="?")
-    p = rsub.add_parser("schedule", help="run an installment every day")
+    p = rsub.add_parser("schedule", help="run an installment every day at a time")
     p.add_argument("name")
     p.add_argument("--time", default="03:00")
-    p = rsub.add_parser("unschedule")
+    p = rsub.add_parser("once", help="run one more installment today at a time")
+    p.add_argument("name")
+    p.add_argument("--time", required=True)
+    p = rsub.add_parser("stop", help="stop a job and remove its scheduled runs")
     p.add_argument("name")
 
     args = parser.parse_args(argv)
-    hooks = {"hook-prompt": hook_prompt, "hook-stop": hook_stop, "hook-pretool": hook_pretool}
+    hooks = {"hook-session": hook_session, "hook-prompt": hook_prompt,
+             "hook-stop": hook_stop, "hook-pretool": hook_pretool}
     if args.cmd in hooks:
         try:
             hooks[args.cmd]()
@@ -857,8 +977,8 @@ def main(argv=None):
     elif args.cmd == "config":
         cmd_config(args)
     elif args.cmd == "rate":
-        actions = {"new": rate_new, "run": rate_run, "status": rate_status,
-                   "schedule": rate_schedule, "unschedule": rate_unschedule}
+        actions = {"new": rate_new, "run": rate_run, "status": rate_status, "schedule": rate_schedule,
+                   "once": rate_once, "stop": rate_stop}
         if args.rate_cmd not in actions:
             rate.print_help()
             return

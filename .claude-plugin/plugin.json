@@ -1,7 +1,7 @@
 {
   "name": "quotient",
   "displayName": "Quotient",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A quote before big AI jobs, with options to choose from; the real cost after; a correction learned from its own errors; big jobs divided into daily installments.",
   "author": {
     "name": "Francesco Candela (Korvonordico)"

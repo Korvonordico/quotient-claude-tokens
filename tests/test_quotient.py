@@ -200,7 +200,74 @@ class TestFlow(Base):
         self.assertEqual(set(exported), {"date", "options", "level", "raw_estimate", "actual", "turns", "version"})
 
 
+class TestWindow(Base):
+    """0.3: the quote and the choice arrive in the same turn, through the choice window."""
+
+    def test_same_turn_choice_today_is_measured(self):
+        self.t.user("rewrite chapter 3, it's a big job")
+        self.t.call("q", usage(output=100), texts=["QUOTE: essential=100k good=250k max=500k"], tools=1)
+        self.t.tool_result()  # the user's answer in the window
+        self.t.call("w", usage(output=2000), texts=["CHOICE: good\nPACE: today", "done"])
+        self.stop()
+        jobs = pv.finished_jobs()
+        self.assertEqual((jobs[0]["choice"], jobs[0]["raw_estimate"], jobs[0]["actual"]), ("good", 250000, 10500))
+        self.assertIsNone(pv.load_json(pv.session_path("s1"), {}).get("pending"))
+
+    def test_installments_are_not_a_session_job(self):
+        self.t.user("big job")
+        self.t.call("q", usage(output=100), texts=["QUOTE: essential=100k good=250k max=500k"])
+        self.t.call("w", usage(output=100), texts=["CHOICE: max\nPACE: daily=100k"])
+        self.stop()
+        self.assertEqual(pv.finished_jobs(), [])
+        self.assertIsNone(pv.load_json(pv.session_path("s1"), {}).get("pending"))
+
+    def test_pace(self):
+        self.assertEqual(pv.parse_pace("PACE: today"), "today")
+        self.assertEqual(pv.parse_pace("**RITMO:** tutto oggi"), "today")
+        self.assertEqual(pv.parse_pace("PACE: days=5"), "days=5")
+        self.assertIsNone(pv.parse_pace("no pace here"))
+
+    def test_session_protocol_and_short_prompt(self):
+        protocol = self.run_hook(pv.hook_session, {})
+        self.assertIn("AskUserQuestion", protocol)
+        self.assertIn("free field", protocol)
+        line = self.run_hook(pv.hook_prompt, {"session_id": "s1", "transcript_path": self.t.path})
+        self.assertLess(len(line), 600)
+        with mock.patch.dict(os.environ, {"QUOTIENT_JOB": "book"}):
+            self.assertIn("installment run", self.run_hook(pv.hook_prompt, {}))
+            self.assertEqual(self.run_hook(pv.hook_session, {}), "")
+
+
 class TestInstallments(Base):
+    def new_job(self, **kw):
+        args = mock.Mock(dir=self.dir, task="job", task_file=None, days=None, daily=None, quote=None, model=None)
+        args.name = "book"
+        for k, v in kw.items():
+            setattr(args, k, v)
+        self.run_hook(lambda: pv.rate_new(args), {})
+        return pv.load_json(os.path.join(pv.rate_dir("book"), "job.json"), None)
+
+    def test_custom_daily_gives_the_days(self):
+        job = self.new_job(quote=500000, daily=100000)
+        self.assertEqual((job["daily_cap"], job["days"]), (100000, 5))
+
+    def test_days_give_the_daily_cap(self):
+        job = self.new_job(quote=500000, days=2)
+        self.assertEqual((job["daily_cap"], job["days"]), (250000, 2))
+
+    def test_finished_installment_is_told_once(self):
+        self.new_job(quote=500000, days=2)
+        pv.append_jsonl(os.path.join(pv.rate_dir("book"), "runs.jsonl"),
+                        {"started": "2026-10-05T14:00:00+02:00", "finished": "2026-10-05T14:40:00+02:00",
+                         "wt": 240000, "error": None, "done": False})
+        payload = {"session_id": "s1", "transcript_path": self.t.path}
+        first = self.run_hook(pv.hook_prompt, payload)
+        second = self.run_hook(pv.hook_prompt, payload)
+        self.assertIn("choice window", first)
+        self.assertIn("own risk", first)
+        self.assertNotIn("Installment 1", second)
+
+
     def test_cap_allows_only_the_handoff(self):
         args = mock.Mock(name="x", dir=self.dir, task="job", task_file=None, days=3, daily=1000,
                          quote=None, model=None)

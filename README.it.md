@@ -27,10 +27,13 @@ Serve Python 3.8 o più recente (solo la libreria standard) e `sh` (su Windows a
 
 ## Come funziona
 
-- **Quando mandi un messaggio** (hook `UserPromptSubmit`), Quotient dà a Claude poche righe: la soglia, il fattore di correzione imparato fin lì, quanto è grande la conversazione e il formato del preventivo. Circa 270 token a messaggio.
-- **Sopra la soglia**, Claude risponde con le scelte e chiude con una riga per la macchina, con le sue stime grezze:
-  `QUOTE: essential=120k good=300k max=800k` (la riga per la macchina è sempre in inglese; la spiegazione Claude te la dà nella tua lingua)
-- **Quando scegli**, Claude comincia la risposta con `CHOICE: good` e fa il lavoro. Se il lavoro dura più di una risposta, chiude ogni risposta non finita con `JOB: CONTINUES`, e il costo delle risposte dopo si somma.
+- **All'inizio di una chat** (hook `SessionStart`), Quotient dà a Claude le regole del preventivo una volta sola: circa 650 token. **A ogni messaggio** (hook `UserPromptSubmit`) solo una riga corta: la soglia, il fattore di correzione, quanto è grande la conversazione e le novità delle tue rate. Circa 70 token.
+- **Quando interviene:** quando un lavoro costerà probabilmente più della soglia, e ogni volta che dici che è un lavoro grosso o chiedi un preventivo.
+- **Si apre una finestra di scelta** (quella di Claude Code) con due domande:
+  - **Livello**: *essential* (essenziale), *good* (buono), *max* (massimo), proporzionati al lavoro. Per un lavoro da 500.000: massimo 500.000, medio 250.000, minimo 100.000.
+  - **Ritmo**: tutto oggi, oppure a rate, adatte al lavoro: per esempio 250.000 al giorno per 2 giorni, o 100.000 al giorno per 5 giorni.
+  - La finestra ha sempre un campo libero: lì scrivi il tuo ritmo, per esempio «50.000 al giorno».
+- Claude scrive una riga per la macchina con le stime grezze, `QUOTE: essential=100k good=250k max=500k`, e dopo la tua risposta `CHOICE: good` e `PACE: today` (o `PACE: daily=100k`). Le righe per la macchina sono sempre in inglese; la spiegazione Claude te la dà nella tua lingua. Se un lavoro dura più di una risposta, ogni risposta non finita chiude con `JOB: CONTINUES`, e il costo delle risposte dopo si somma.
 - **Alla fine di ogni risposta** (hook `Stop`), Quotient legge il file della conversazione e somma il costo di quella risposta. Ogni chiamata si conta **una volta sola**: il file ripete la stessa chiamata una volta per ogni pezzo, e contando tutte le righe il risultato verrebbe doppio.
 
 ### L'unità: i token pesati
@@ -71,10 +74,18 @@ python scripts/quotient.py export                     # solo i numeri, da condiv
 Un lavoro troppo grande per un giorno può andare a pezzi:
 
 ```
-python scripts/quotient.py rate new libro --dir ~/libro --task-file lavoro.md --days 7 --quote 2100000
+python scripts/quotient.py rate new libro --dir ~/libro --task-file lavoro.md --quote 500000 --daily 100000   # 5 rate
 python scripts/quotient.py rate run libro                     # una rata adesso
 python scripts/quotient.py rate schedule libro --time 03:00   # una ogni giorno
 python scripts/quotient.py rate status
+```
+
+Quando scegli le rate, una seconda finestra ti chiede quando parte la prima (adesso, oggi a un'ora che scrivi tu, o stanotte) e a che ora partono le altre ogni giorno. Quando una rata finisce, la prossima volta che scrivi si apre una finestra: far partire la prossima subito (consuma altro limite di oggi, a tuo rischio), a un'ora che scegli oggi, o all'ora solita. Ogni scelta ha il campo libero: il piano lo decidi tu.
+
+```
+python scripts/quotient.py rate once libro --time 15:30   # un'altra rata oggi a quell'ora
+python scripts/quotient.py rate run libro --force          # un'altra rata adesso
+python scripts/quotient.py rate stop libro                 # ferma il lavoro e i suoi orari
 ```
 
 Ogni rata è un'esecuzione nuova di Claude Code senza finestra (`claude -p`) nella cartella del lavoro. Legge la descrizione del lavoro e un file di consegna (cosa è fatto, cosa resta, da dove si riprende), lavora, e aggiorna la consegna dopo ogni passo. Quando il tetto del giorno è speso, un hook rifiuta ogni strumento tranne l'aggiornamento della consegna, così la rata si ferma in ordine invece di essere tagliata a metà. Dopo la prima rata Quotient impara anche quanti dollari Claude Code segna per ogni token pesato, e aggiunge `--max-budget-usd` come freno di sicurezza.

@@ -1,10 +1,11 @@
 ---
-description: Split a big job into daily installments with a spending cap per day
+description: Split a big job into installments with a spending cap per installment
 argument-hint: [what the job is]
 ---
-The user wants to do this job in daily installments: $ARGUMENTS
+The user wants to do this job in installments: $ARGUMENTS
 
-1. If the job or its size is unclear, ask the user one question at a time: what the job is, the folder it works in, how many days, and the cap per day in weighted tokens (or the total estimate, which gets divided by the days).
-2. Write the job description to a temporary file, then create the job with:
-   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" rate new <short-name> --dir <folder> --task-file <file> --days <n> --daily <cap>` (add `--quote <total>` when there is a total estimate, so the final cost can be compared with it).
-3. Tell the user how to run one installment now, and how to run one every day (`rate schedule <short-name> --time HH:MM`). Scheduling creates a system task: do it only if the user says yes.
+1. If the job is unclear, ask what it is and which folder it works in.
+2. Estimate it and open the choice window (AskUserQuestion), in the user's language, with two questions: 'Livello'/'Level' (essential, good, max, each with its corrected estimate) and 'Ritmo'/'Pace' (installment plans that fit, e.g. 2 or 5 days with the amount per day). The free field lets the user write any pace, e.g. '50k a day'.
+3. Write the job description to a file, then create the job:
+   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" rate new <short-name> --dir <folder> --task-file <file> --quote <raw estimate> --days <n>` (or `--daily <n>` for a pace per day).
+4. Open a second window: 'Prima rata'/'First installment' (now; today at a time they write; tonight at 03:00) and 'Ogni giorno'/'Every day' (the daily time, free field). Then run what they chose: `rate run <name>` in the background, `rate once <name> --time HH:MM`, `rate schedule <name> --time HH:MM`. Scheduling creates a system task: it is the user's choice in the window that allows it.
