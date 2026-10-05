@@ -1,7 +1,7 @@
 {
   "name": "quotient",
   "displayName": "Quotient",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A quote before big AI jobs, with options to choose from; the real cost after; a correction learned from its own errors; big jobs divided into daily installments.",
   "author": {
     "name": "Francesco Candela (Korvonordico)"
@@ -9,5 +9,52 @@
   "homepage": "https://github.com/Korvonordico/quotient",
   "repository": "https://github.com/Korvonordico/quotient",
   "license": "MIT",
-  "keywords": ["cost", "tokens", "quote", "estimate", "budget", "usage-limits", "installments"]
+  "keywords": [
+    "cost",
+    "tokens",
+    "quote",
+    "estimate",
+    "budget",
+    "usage-limits",
+    "installments"
+  ],
+  "userConfig": {
+    "threshold": {
+      "type": "number",
+      "title": "Threshold / Soglia",
+      "description": "From how many weighted tokens a job gets a quote first (100000 = often, 300000 = default, 1000000 = only huge jobs). / Da quanti token pesati un lavoro riceve prima un preventivo.",
+      "default": 300000,
+      "min": 10000,
+      "max": 100000000
+    },
+    "reserve_percent": {
+      "type": "number",
+      "title": "Weekly reserve % / Riserva settimanale %",
+      "description": "Share of the weekly limit kept free for normal use: installments never plan into it. / Parte del limite settimanale tenuta libera per l'uso normale.",
+      "default": 20,
+      "min": 0,
+      "max": 90
+    },
+    "lang": {
+      "type": "string",
+      "title": "Report language / Lingua del resoconto",
+      "description": "Language of the report and the status line. / Lingua del resoconto e della riga di stato.",
+      "options": [
+        "en",
+        "it"
+      ],
+      "default": "en"
+    },
+    "after": {
+      "type": "string",
+      "title": "After installments / Dopo le rate",
+      "description": "What the PC does after a scheduled installment, if nobody is using it. / Cosa fa il PC dopo una rata, se nessuno lo usa.",
+      "options": [
+        "nothing",
+        "sleep",
+        "hibernate"
+      ],
+      "default": "nothing"
+    }
+  }
 }

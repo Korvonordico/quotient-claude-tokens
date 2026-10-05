@@ -29,9 +29,11 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 
 DEFAULTS = {
+    # False until the user has set Quotient up (first-use window, /quotient:setup, or Claude Code's plugin settings).
+    "configured": False,
     # Below this many weighted tokens no quote is asked for.
     "threshold": 300000,
     # When the middle option is above threshold x this, more options and installments.
@@ -68,6 +70,8 @@ DEFAULTS = {
         "timeout_minutes": 240,
         # After an installment, put the PC back to sleep only if nobody used it for this long.
         "idle_minutes": 10,
+        # What the PC does after an installment unless a job says otherwise: nothing, sleep or hibernate.
+        "after": "nothing",
         "extra_args": [],
     },
 }
@@ -152,8 +156,53 @@ def read_jsonl(path, tail_bytes=None):
     return rows
 
 
+OPTIONS = {  # plugin setting -> (config key path, type)
+    "THRESHOLD": (("threshold",), int),
+    "RESERVE_PERCENT": (("week", "reserve_percent"), int),
+    "LANG": (("lang",), str),
+    "AFTER": (("rate", "after"), str),
+}
+
+
 def config():
     return merge(DEFAULTS, load_json(os.path.join(home(), "config.json"), {}))
+
+
+def save_settings(values):
+    """Write settings (path tuple -> value) into config.json and mark Quotient as set up."""
+    path = os.path.join(home(), "config.json")
+    user = load_json(path, {})
+    for keys, value in values.items():
+        node = user
+        for k in keys[:-1]:
+            node = node.setdefault(k, {})
+        node[keys[-1]] = value
+    user["configured"] = True
+    save_json(path, user)
+
+
+def sync_plugin_options():
+    """Claude Code passes the plugin's settings to hooks as CLAUDE_PLUGIN_OPTION_<KEY>; scheduled runs
+    do not get them, so they are copied into config.json, where every part of Quotient reads."""
+    values = {}
+    for key, (keys, kind) in OPTIONS.items():
+        raw = os.environ.get("CLAUDE_PLUGIN_OPTION_" + key)
+        if raw not in (None, ""):
+            try:
+                values[keys] = kind(float(raw)) if kind is int else kind(raw)
+            except ValueError:
+                pass
+    if not values:
+        return
+    cfg = config()
+    current = {}
+    for keys in values:
+        node = cfg
+        for k in keys:
+            node = node.get(k) if isinstance(node, dict) else None
+        current[keys] = node
+    if current != values or not cfg.get("configured"):
+        save_settings(values)
 
 
 def session_path(session_id):
@@ -455,13 +504,46 @@ def rate_events():
     return lines
 
 
+def setup_instructions(cfg):
+    return ("FIRST USE: Quotient is not set up yet. At the user's first message in this session, before anything else, "
+            "open the choice window (AskUserQuestion) in the user's language with four questions, each with a free field: "
+            "'Soglia'/'Threshold' (from how many weighted tokens a job gets a quote: 100.000 = often, 300.000 = the default, "
+            "1.000.000 = only huge jobs); 'Riserva'/'Reserve' (share of the weekly limit kept for normal use: 10%%, 20%%, 30%%); "
+            "'Lingua'/'Language' of the report (italiano, English); 'Dopo le rate'/'After installments' (put the PC to sleep, "
+            "hibernate, leave it on). Current values: threshold %s, reserve %d%%, language %s, after %s. Then save them with: "
+            "%s setup --threshold <n> --reserve <n> --lang it|en --after sleep|hibernate|nothing  and tell the user that "
+            "/quotient:setup opens this window again whenever they want to change it.\n" % (
+                fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"], cfg["rate"]["after"], run_cmd()))
+
+
+def cmd_setup(args):
+    values = {}
+    if args.threshold is not None:
+        values[("threshold",)] = int(args.threshold)
+    if args.reserve is not None:
+        values[("week", "reserve_percent")] = int(args.reserve)
+    if args.lang:
+        values[("lang",)] = args.lang
+    if args.after:
+        values[("rate", "after")] = args.after
+    save_settings(values)
+    cfg = config()
+    out("Quotient is set up: threshold %s wt, reserve %d%% of the week, report in %s, after installments: %s.\n"
+        "Change it any time with /quotient:setup.\n" % (
+            fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"], cfg["rate"]["after"]))
+
+
 def hook_session():
     """SessionStart: the full protocol, once per session instead of at every message."""
     read_stdin_json()
     if os.environ.get("QUOTIENT_JOB"):
         return
+    sync_plugin_options()
     cfg = config()
-    out(protocol(cfg, learning(cfg)["factor"]))
+    text = protocol(cfg, learning(cfg)["factor"])
+    if not cfg.get("configured"):
+        text += setup_instructions(cfg)
+    out(text)
 
 
 def hook_prompt():
@@ -470,6 +552,7 @@ def hook_prompt():
     if name:
         out("[Quotient %s] This is an installment run of the job '%s': follow the prompt. No quotes, no questions to the user.\n" % (VERSION, name))
         return
+    sync_plugin_options()
     cfg = config()
     sid = data.get("session_id") or "unknown"
     state = load_json(session_path(sid), {})
@@ -1171,7 +1254,7 @@ def rate_new(args):
         "name": args.name, "dir": os.path.abspath(args.dir), "daily_cap": int(daily),
         "days": days, "quote": args.quote, "factor_at_quote": round(factor, 4), "created": now_iso(),
         "status": "open", "model": args.model, "usd_per_wt": None, "told": 0,
-        "after": args.after,
+        "after": args.after or config()["rate"]["after"],
     }
     save_json(os.path.join(folder, "job.json"), job)
     out("Job '%s' ready: %s wt per installment%s, working in %s\nJob files: %s\n"
@@ -1554,6 +1637,11 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="cmd")
     for name in ("hook-session", "hook-prompt", "hook-stop", "hook-pretool", "report", "export", "statusline"):
         sub.add_parser(name)
+    p = sub.add_parser("setup", help="set Quotient up: threshold, weekly reserve, language, what the PC does after installments")
+    p.add_argument("--threshold", type=int)
+    p.add_argument("--reserve", type=int)
+    p.add_argument("--lang", choices=("it", "en"))
+    p.add_argument("--after", choices=("nothing", "sleep", "hibernate"))
     p = sub.add_parser("setup-statusline", help="show the plan limits in the status line and record them")
     p.add_argument("--write", action="store_true", help="write the setting in ~/.claude/settings.json")
     p.add_argument("--force", action="store_true", help="replace a status line that is already set")
@@ -1572,8 +1660,8 @@ def main(argv=None):
     p.add_argument("--daily", type=int, help="cap per installment, in weighted tokens")
     p.add_argument("--quote", type=int, help="raw estimate of the whole job, in weighted tokens")
     p.add_argument("--model")
-    p.add_argument("--after", choices=("nothing", "sleep", "hibernate"), default="nothing",
-                   help="what the PC does after each installment, if nobody is using it")
+    p.add_argument("--after", choices=("nothing", "sleep", "hibernate"),
+                   help="what the PC does after each installment, if nobody is using it (default: the setting)")
     p = rsub.add_parser("run", help="run one installment now")
     p.add_argument("name")
     p.add_argument("--force", action="store_true", help="run even if one already ran today")
@@ -1622,6 +1710,8 @@ def main(argv=None):
             sys.stderr.write("quotient: %s\n" % exc)
     elif args.cmd == "setup-statusline":
         setup_statusline(args)
+    elif args.cmd == "setup":
+        cmd_setup(args)
     elif args.cmd == "report":
         report()
     elif args.cmd == "export":

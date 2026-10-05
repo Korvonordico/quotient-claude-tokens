@@ -281,6 +281,29 @@ class TestLimits(Base):
         self.assertIn("Too early", report)
 
 
+class TestSetup(Base):
+    """0.7: the first use asks for the settings; Claude Code's plugin dialog and /quotient:setup change them."""
+
+    def test_first_use_opens_the_setup_window(self):
+        text = self.run_hook(pv.hook_session, {})
+        self.assertIn("FIRST USE", text)
+        self.run_hook(lambda: pv.cmd_setup(mock.Mock(threshold=150000, reserve=30, lang="it", after="sleep")), {})
+        cfg = pv.config()
+        self.assertEqual((cfg["threshold"], cfg["week"]["reserve_percent"], cfg["lang"], cfg["rate"]["after"], cfg["configured"]),
+                         (150000, 30, "it", "sleep", True))
+        self.assertNotIn("FIRST USE", self.run_hook(pv.hook_session, {}))
+
+    def test_plugin_dialog_settings_reach_scheduled_runs(self):
+        with mock.patch.dict(os.environ, {"CLAUDE_PLUGIN_OPTION_THRESHOLD": "500000",
+                                          "CLAUDE_PLUGIN_OPTION_RESERVE_PERCENT": "25",
+                                          "CLAUDE_PLUGIN_OPTION_AFTER": "hibernate"}):
+            self.run_hook(pv.hook_session, {})
+        # a scheduled run has no plugin variables: it reads config.json
+        cfg = pv.config()
+        self.assertEqual((cfg["threshold"], cfg["week"]["reserve_percent"], cfg["rate"]["after"], cfg["configured"]),
+                         (500000, 25, "hibernate", True))
+
+
 class TestWeek(Base):
     """0.6: all installment jobs together against what is left of the week."""
 

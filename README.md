@@ -25,6 +25,10 @@ In Claude Code:
 
 Needs Python 3.8 or newer (standard library only) and `sh` (on Windows it comes with Git for Windows, which Claude Code already uses).
 
+## First use
+
+The first time, Quotient asks for four settings in a choice window: the threshold (from how many weighted tokens a job gets a quote), the share of the week kept free for normal use, the language of the report, and what the PC does after scheduled installments. Claude Code's own plugin settings show the same four. To change them later: `/quotient:setup`.
+
 ## How it works
 
 - **At the start of a session** (`SessionStart` hook), Quotient gives Claude the quote rules once: about 650 tokens. **At each message** (`UserPromptSubmit` hook) only one short line: the threshold, the correction factor, the size of the conversation, and news about your installments. About 70 tokens.

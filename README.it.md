@@ -25,6 +25,10 @@ In Claude Code:
 
 Serve Python 3.8 o più recente (solo la libreria standard) e `sh` (su Windows arriva con Git for Windows, che Claude Code usa già).
 
+## Il primo uso
+
+La prima volta Quotient chiede quattro impostazioni in una finestra di scelta: la soglia (da quanti token pesati un lavoro riceve un preventivo), la parte della settimana tenuta libera per l'uso normale, la lingua del resoconto, e cosa fa il PC dopo le rate programmate. Le stesse quattro compaiono nelle impostazioni dei plugin di Claude Code. Per cambiarle dopo: `/quotient:setup`.
+
 ## Come funziona
 
 - **All'inizio di una chat** (hook `SessionStart`), Quotient dà a Claude le regole del preventivo una volta sola: circa 650 token. **A ogni messaggio** (hook `UserPromptSubmit`) solo una riga corta: la soglia, il fattore di correzione, quanto è grande la conversazione e le novità delle tue rate. Circa 70 token.
