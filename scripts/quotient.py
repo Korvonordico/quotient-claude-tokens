@@ -19,6 +19,7 @@ Commands:
 """
 
 import argparse
+import csv
 import glob
 import json
 import math
@@ -30,7 +31,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-VERSION = "0.7.1"
+VERSION = "0.7.2"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /quotient:setup, or Claude Code's plugin settings).
@@ -1236,8 +1237,17 @@ def rate_dir(name):
     return os.path.join(home(), "rate", re.sub(r"[^\w-]", "_", name))
 
 
-def task_name(name, once=False):
-    return "quotient-" + re.sub(r"[^\w-]", "_", name) + ("-once" if once else "")
+def task_name(name, once=False, at=None):
+    """One daily task per job; one task per time for `rate once`, so a second time does not replace the first."""
+    base = "quotient-" + re.sub(r"[^\w-]", "_", name)
+    if not once:
+        return base
+    return base + "-once" + (at.strftime("-%Y%m%d-%H%M") if at else "")
+
+
+def once_task(name, task):
+    """Is this Task Scheduler name one of the job's `rate once` tasks (also the old name, without the time)?"""
+    return re.fullmatch(re.escape(task_name(name, once=True)) + r"(-\d{8}-\d{4})?", task) is not None
 
 
 def find_claude(cfg):
@@ -1510,9 +1520,15 @@ def task_xml(name, start, once, arguments, wake=True):
     """A Task Scheduler task that wakes the PC from sleep or hibernation, and runs late if it missed its time."""
     def esc(text):
         return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
-    trigger = ("<TimeTrigger><StartBoundary>%s</StartBoundary><Enabled>true</Enabled></TimeTrigger>" if once else
-               "<CalendarTrigger><StartBoundary>%s</StartBoundary><Enabled>true</Enabled>"
-               "<ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>") % start.strftime("%Y-%m-%dT%H:%M:%S")
+    stamp = "%Y-%m-%dT%H:%M:%S"
+    if once:
+        # a once task can still run late for a week; then Windows removes it, so they do not pile up
+        end = datetime.fromtimestamp(start.timestamp() + 7 * 86400)
+        trigger = ("<TimeTrigger><StartBoundary>%s</StartBoundary><EndBoundary>%s</EndBoundary>"
+                   "<Enabled>true</Enabled></TimeTrigger>") % (start.strftime(stamp), end.strftime(stamp))
+    else:
+        trigger = ("<CalendarTrigger><StartBoundary>%s</StartBoundary><Enabled>true</Enabled>"
+                   "<ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>") % start.strftime(stamp)
     return """<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Quotient: installment of %s</Description></RegistrationInfo>
@@ -1525,22 +1541,25 @@ def task_xml(name, start, once, arguments, wake=True):
     <StartWhenAvailable>true</StartWhenAvailable>
     <WakeToRun>%s</WakeToRun>
     <ExecutionTimeLimit>PT6H</ExecutionTimeLimit>
-    <Enabled>true</Enabled>
+    <Enabled>true</Enabled>%s
   </Settings>
   <Actions Context="Author"><Exec><Command>%s</Command><Arguments>%s</Arguments><WorkingDirectory>%s</WorkingDirectory></Exec></Actions>
 </Task>
-""" % (esc(name), trigger, "true" if wake else "false", esc(sys.executable), esc(arguments), esc(home()))
+""" % (esc(name), trigger, "true" if wake else "false",
+       "\n    <DeleteExpiredTaskAfter>PT1H</DeleteExpiredTaskAfter>" if once else "",
+       esc(sys.executable), esc(arguments), esc(home()))
 
 
 def schedule(name, at, once, force=False, wake=True):
     start = next_time(at)
     arguments = '"%s" rate run %s%s' % (launcher(), name, " --force" if once or force else "")
     if os.name == "nt":
-        xml = os.path.join(rate_dir(name), "task-once.xml" if once else "task-daily.xml")
+        xml = os.path.join(rate_dir(name), start.strftime("task-once-%Y%m%d-%H%M.xml") if once else "task-daily.xml")
         os.makedirs(os.path.dirname(xml), exist_ok=True)
         with open(xml, "w", encoding="utf-16") as f:
             f.write(task_xml(name, start, once, arguments, wake))
-        proc = subprocess.run(["schtasks", "/Create", "/F", "/TN", task_name(name, once), "/XML", xml], capture_output=True)
+        proc = subprocess.run(["schtasks", "/Create", "/F", "/TN", task_name(name, once, start), "/XML", xml],
+                              capture_output=True)
         if proc.returncode != 0:
             sys.exit("quotient: the task was not created: %s" % (proc.stderr or proc.stdout).decode("utf-8", "replace").strip())
         out("%s '%s' at %s%s. It runs even if the PC is asleep or hibernated%s. Remove it with: rate stop %s\n" % (
@@ -1557,10 +1576,20 @@ def schedule(name, at, once, force=False, wake=True):
         out("To wake the computer first: macOS `sudo pmset repeat wake MTWRFSU %s:00`; Linux `sudo rtcwake -m no -t <time>`.\n" % start.strftime("%H:%M"))
 
 
+def once_tasks(name):
+    """The job's `rate once` tasks that Task Scheduler holds now."""
+    proc = subprocess.run(["schtasks", "/Query", "/FO", "CSV", "/NH"], capture_output=True)
+    names = set()
+    for row in csv.reader(proc.stdout.decode("utf-8", "replace").splitlines()):
+        if row and once_task(name, row[0].lstrip("\\")):
+            names.add(row[0].lstrip("\\"))
+    return sorted(names)
+
+
 def unschedule(name):
     if os.name == "nt":
-        for once in (False, True):
-            subprocess.run(["schtasks", "/Delete", "/F", "/TN", task_name(name, once)], capture_output=True)
+        for task in [task_name(name)] + once_tasks(name):
+            subprocess.run(["schtasks", "/Delete", "/F", "/TN", task], capture_output=True)
 
 
 # ---------------------------------------------------------------- the PC: awake, idle, asleep

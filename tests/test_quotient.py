@@ -418,6 +418,22 @@ class TestInstallments(Base):
         self.assertIn("<DaysInterval>1</DaysInterval>", daily)
         self.assertIn("<WakeToRun>false</WakeToRun>", daily)
 
+    def test_each_once_time_is_its_own_task(self):
+        # 05/10/2026: three `rate once` at 19:00, 19:30, 20:00 left only the 20:00 one
+        times = [pv.datetime(2026, 10, 5, 19, 0), pv.datetime(2026, 10, 5, 19, 30), pv.datetime(2026, 10, 5, 20, 0)]
+        names = [pv.task_name("prova", True, t) for t in times]
+        self.assertEqual(len(set(names)), 3)
+        self.assertEqual(names[1], "quotient-prova-once-20261005-1930")
+        self.assertEqual(pv.task_name("prova"), "quotient-prova")
+        self.assertTrue(all(pv.once_task("prova", n) for n in names))
+        self.assertTrue(pv.once_task("prova", "quotient-prova-once"))       # the old name is still removed
+        self.assertFalse(pv.once_task("prova", "quotient-prova"))           # the daily task is not a once task
+        self.assertFalse(pv.once_task("prova", "quotient-prova-notte-once-20261005-1900"))  # another job
+        xml = pv.task_xml("prova", times[0], True, "a")
+        self.assertIn("<EndBoundary>2026-10-12T19:00:00</EndBoundary>", xml)
+        self.assertIn("<DeleteExpiredTaskAfter>PT1H</DeleteExpiredTaskAfter>", xml)
+        self.assertNotIn("DeleteExpiredTaskAfter", pv.task_xml("prova", times[0], False, "a"))
+
     def test_a_past_time_means_tomorrow(self):
         past = pv.datetime.now().replace(second=0, microsecond=0)
         moment = pv.next_time(past.strftime("%H:%M"))
