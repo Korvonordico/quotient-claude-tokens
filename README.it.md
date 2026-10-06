@@ -14,7 +14,7 @@ Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol d
 - **Il ritmo lo scegli tu**: tutto oggi, oppure a rate, una al giorno, con la quantità al giorno. Oppure il ritmo che scrivi tu.
 - **Il costo vero, dopo**, letto dai file di Claude Code e messo accanto alla stima.
 - **Impara dai suoi errori**: ogni preventivo viene corretto in base a quanto hanno sbagliato quelli di prima. Non parti da zero: finché non hai 5 lavori tuoi, parte dalla media condivisa dei lavori veri di tutti (solo numeri, vedi sotto).
-- **Le rate lavorano mentre non ci sei**: il PC si sveglia, fa il pezzo del giorno e torna a dormire (vedi sotto).
+- **Le rate lavorano mentre non ci sei**: il PC si sveglia, fa il pezzo del giorno e torna a dormire. Quando torni, una notifica e il resoconto nella chat del lavoro ti dicono cosa ha fatto (vedi sotto).
 - **La settimana tutta insieme**: più lavori insieme non mangiano mai la parte di settimana che tieni per te.
 - **I tuoi limiti sotto gli occhi**: quanto hai usato del limite delle 5 ore e di quello settimanale, e quanto resta.
 - **Privato**: tutto resta sul tuo computer, tranne una riga di numeri per ogni lavoro finito, per la media condivisa, che puoi spegnere (vedi [Cosa viene condiviso](#cosa-viene-condiviso)).
@@ -53,6 +53,8 @@ Lasci il PC **in sospensione o in ibernazione**, come fai sempre. Ogni rata poi 
 4. **Se nessuno sta usando il PC** (tastiera e mouse fermi da 10 minuti), Quotient **lo rimette in sospensione**, o in ibernazione se hai scelto così. Se lo stai usando, resta acceso.
 5. **Il giorno dopo, alla stessa ora, ricomincia**, finché il lavoro è finito. Poi l'orario si cancella da solo.
 
+**Quando torni lo vedi subito.** Per ogni rata Windows mostra una notifica, che resta nel centro notifiche. Il resoconto completo ti aspetta nella chat in cui hai creato il lavoro e compare al tuo primo messaggio lì: quale rata, quando, quanto è costata rispetto alla quantità del giorno e alla settimana, cosa ha fatto, cosa manca e quando parte la prossima. Le altre chat te lo dicono una volta sola, e una seconda volta non prima di un giorno dopo; poi tacciono. Se vuoi i resoconti in un'altra chat, chiedilo a Claude lì (`rate here <lavoro>`).
+
 Da sapere:
 - Se preferisci che Quotient non tocchi mai il PC, lo scegli nella configurazione: le rate allora partono solo con il PC già acceso.
 - Un timer può svegliare un PC **in sospensione o in ibernazione, non uno spento del tutto**. Se il PC era spento, la rata parte appena lo accendi.
@@ -80,7 +82,7 @@ Col tempo stima anche quanti token vale l'1% di ogni limite, così un preventivo
 Ogni copia di Quotient impara dai suoi errori, ma chi comincia non ne ha ancora. Allora le copie mettono insieme i loro numeri: dopo ogni lavoro finito, Quotient manda **una riga di numeri, esattamente questa e nient'altro**:
 
 ```json
-{"v":1,"q":"0.9.0","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"0.9.1","family":"opus","estimate":225000,"actual":259000}
 ```
 
 Il formato, la versione di Quotient, la famiglia del modello (opus, sonnet, haiku, fable o altro), la stima grezza e il costo vero in token pesati, arrotondati a 3 cifre. **Niente date, nomi, testi, percorsi, codici di sessione o di persona.** La riga parte all'inizio della chat successiva, mai a metà di una risposta, e niente parte prima che Claude Code ti abbia mostrato un messaggio che lo dice.
@@ -119,7 +121,7 @@ Gli altri comandi li usa Claude per te quando scegli nelle finestre. `/quotient:
 
 **Come si aggancia.** All'inizio di una chat Quotient dà a Claude le sue regole una volta sola (circa 650 token); a ogni messaggio, una riga corta (circa 70 token). Claude scrive delle righe per la macchina (`QUOTE:`, `CHOICE:`, `PACE:`, `JOB: CONTINUES`) che Quotient legge alla fine di ogni risposta, sommando il costo di quella risposta e contando ogni chiamata una volta sola.
 
-**Le rate.** Ognuna è un'esecuzione senza finestra (`claude -p`) nella cartella del lavoro, avviata dall'Utilità di pianificazione di Windows tramite un piccolo lanciatore in `~/.quotient`, così continua a funzionare dopo gli aggiornamenti del plugin. Quando il tetto del giorno è speso, un hook rifiuta ogni strumento tranne l'aggiornamento della consegna. Due rate dello stesso lavoro non partono mai insieme.
+**Le rate.** Ognuna è un'esecuzione senza finestra (`claude -p`) nella cartella del lavoro, avviata dall'Utilità di pianificazione di Windows tramite un piccolo lanciatore in `~/.quotient`, così continua a funzionare dopo gli aggiornamenti del plugin. Quando il tetto del giorno è speso, un hook rifiuta ogni strumento tranne l'aggiornamento della consegna. Due rate dello stesso lavoro non partono mai insieme. Il lavoro ricorda la chat che l'ha creato (Claude Code passa il codice della chat ai comandi; se non lo fa, Quotient lo prende alla fine della risposta). La notifica usa il sistema di notifiche di Windows tramite PowerShell (su macOS `osascript`, su Linux `notify-send`) e non scrive file; `config rate.notify false` la spegne.
 
 **I tuoi dati.** Tutto sta in `~/.quotient/` (o in `QUOTIENT_HOME`). `export` scrive le righe esatte che la condivisione manda. Le righe in attesa sono in `share-outbox.jsonl`; la media scaricata è `average.json`.
 

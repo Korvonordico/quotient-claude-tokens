@@ -9,3 +9,4 @@ The user wants to do this job in installments: $ARGUMENTS
 3. Write the job description to a file, then create the job:
    `sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" rate new <short-name> --dir <folder> --task-file <file> --quote <raw estimate> --days <n>` (or `--daily <n>` for a pace per day).
 4. Open a second window: 'Prima rata'/'First installment' (now; today at a time they write; tonight at 03:00) and 'Ogni giorno'/'Every day' (the daily time, free field). Then run what they chose: `rate run <name>` in the background, `rate once <name> --time HH:MM`, `rate schedule <name> --time HH:MM`. Scheduling creates a system task: it is the user's choice in the window that allows it.
+5. Tell the user in one line: after each installment Windows shows a notification, and the full report comes back to this chat at their next message here (`rate here <name>` in another chat moves it there).

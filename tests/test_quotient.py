@@ -63,6 +63,15 @@ class Base(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.env = mock.patch.dict(os.environ, {"QUOTIENT_HOME": os.path.join(self.dir, "home")})
         self.env.start()
+        os.environ.pop("CLAUDE_CODE_SESSION_ID", None)  # tests run inside a chat too: no chat unless a test sets one
+        os.environ.pop("QUOTIENT_JOB", None)
+        # tests never show a notification and never read the real Task Scheduler
+        self.toast = mock.patch.object(pv, "notify", return_value=True)
+        self.notified = self.toast.start()
+        self.addCleanup(self.toast.stop)
+        self.sched = mock.patch.object(pv, "next_run", return_value=None)
+        self.sched.start()
+        self.addCleanup(self.sched.stop)
         # tests do not see the numbers shipped with the plugin unless they ask for them
         self.bundled = mock.patch.object(pv, "bundled_average_path", return_value=os.path.join(self.dir, "none.json"))
         self.bundled.start()
@@ -246,6 +255,9 @@ class TestWindow(Base):
         self.assertIn("free field", protocol)
         self.assertIn("ONE DAY of work", protocol)
         self.assertIn("never bare numbers in parentheses", protocol)
+        # 06/10/2026: QUOTE/CHOICE/PACE written in a progress note mid-reply were kept only as a summary
+        self.assertIn("LAST message of your reply", protocol)
+        self.assertIn("rate here <name>", protocol)
         line = self.run_hook(pv.hook_prompt, {"session_id": "s1", "transcript_path": self.t.path})
         self.assertLess(len(line), 600)
         with mock.patch.dict(os.environ, {"QUOTIENT_JOB": "book"}):
@@ -539,6 +551,274 @@ class TestInstallments(Base):
     def test_outside_installments_nothing_happens(self):
         os.environ.pop("QUOTIENT_JOB", None)
         self.assertEqual(self.run_hook(pv.hook_pretool, {"tool_name": "Bash"}), "")
+
+
+class TestReports(Base):
+    """0.9.1: each installment's report goes back to the chat that created the job (06/10/2026: the user saw
+    nothing new in the morning and thought the 03:00 installment had not worked)."""
+
+    def setUp(self):
+        super().setUp()
+        self.projects = os.path.join(self.dir, "projects", "E--work")
+        os.makedirs(self.projects)
+        self.home_chat = self.chat("home1", "Riprendi il libro")
+        self.other_chat = self.chat("other1", "Che faccio?")
+
+    def chat(self, sid, title=None):
+        path = os.path.join(self.projects, sid + ".jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "queue-operation", "timestamp": "2026-10-05T16:05:08.617Z"}) + "\n")
+            if title:
+                f.write(json.dumps({"type": "custom-title", "customTitle": title, "sessionId": sid}) + "\n")
+        return path
+
+    def new_job(self, session=None, **kw):
+        args = mock.Mock(dir=self.dir, task="job", task_file=None, days=2, daily=None, quote=500000, model=None,
+                         after="nothing")
+        args.name = "book"
+        for k, v in kw.items():
+            setattr(args, k, v)
+        env = {"CLAUDE_CODE_SESSION_ID": session} if session else {}
+        with mock.patch.dict(os.environ, env):
+            said = self.run_hook(lambda: pv.rate_new(args), {})
+        with open(os.path.join(pv.rate_dir("book"), "HANDOFF.md"), "w", encoding="utf-8") as f:
+            f.write("Done: chapters 1-6. Remains: chapters 7-12.\n")
+        return said
+
+    def add_run(self, wt=240000, error=None):
+        pv.append_jsonl(os.path.join(pv.rate_dir("book"), "runs.jsonl"),
+                        {"started": "2026-10-06T03:00:01+02:00", "finished": "2026-10-06T03:06:46+02:00",
+                         "wt": wt, "cap": 250000, "error": error, "done": False})
+
+    def prompt(self, path, text="ciao"):
+        return self.run_hook(pv.hook_prompt, {"session_id": os.path.basename(path)[:-6], "transcript_path": path,
+                                              "prompt": text})
+
+    def job(self):
+        return pv.load_json(os.path.join(pv.rate_dir("book"), "job.json"), None)
+
+    def test_the_job_remembers_the_chat_that_created_it(self):
+        said = self.new_job(session="home1")
+        self.assertEqual(self.job()["session"], "home1")
+        self.assertIn("come back to this chat", said)
+        shutil.rmtree(pv.rate_dir("book"))  # a job created from a terminal has no chat
+        self.new_job()
+        self.assertIsNone(self.job()["session"])
+
+    def test_the_report_shows_in_its_own_chat_once(self):
+        self.new_job(session="home1")
+        self.add_run()
+        elsewhere = self.prompt(self.other_chat)
+        self.assertIn("waiting in another chat", elsewhere)
+        self.assertIn('"Riprendi il libro" (started 05/10', elsewhere)
+        self.assertIn("Notice 1 of 2", elsewhere)
+        self.assertIn("rate here book", elsewhere)
+        self.assertNotIn("Installment report of job", elsewhere)
+        self.assertNotIn("chapters 1-6", elsewhere)
+        there = self.prompt(self.home_chat)
+        self.assertIn("Installment report of job 'book'", there)
+        self.assertIn("- installment 1: ", there)
+        self.assertIn("240k wt of a 250k wt cap (96%)", there)
+        self.assertIn("Done: chapters 1-6. Remains: chapters 7-12.", there)
+        self.assertIn("about 2 more installment(s)", there)  # 500k quote, 240k spent, 250k a day: 260k left
+        self.assertIn("choice window", there)
+        self.assertNotIn("installment 1", self.prompt(self.home_chat))   # told once
+        self.assertNotIn("another chat", self.prompt(self.other_chat))   # read: no more notices
+
+    def test_other_chats_get_two_notices_a_day_apart_then_none(self):
+        self.new_job(session="home1")
+        self.add_run()
+        now = pv.time.time()
+        third = self.chat("third1")
+        with mock.patch.object(pv.time, "time", return_value=now):
+            self.assertIn("Notice 1 of 2", self.prompt(self.other_chat))
+            self.assertNotIn("another chat", self.prompt(third))           # not insisting
+        with mock.patch.object(pv.time, "time", return_value=now + 23 * 3600):
+            self.assertNotIn("another chat", self.prompt(self.other_chat))
+        with mock.patch.object(pv.time, "time", return_value=now + 25 * 3600):
+            self.assertIn("Notice 2 of 2", self.prompt(third))
+        self.add_run()                                                     # a new installment, still unread
+        with mock.patch.object(pv.time, "time", return_value=now + 80 * 3600):
+            self.assertNotIn("another chat", self.prompt(self.other_chat))  # after the second: never again
+            there = self.prompt(self.home_chat)
+            self.assertIn("- installment 1: ", there)                       # both are in the report
+            self.assertIn("- installment 2: ", there)
+        self.add_run()                                                     # read, so new news may be told once
+        with mock.patch.object(pv.time, "time", return_value=now + 81 * 3600):
+            self.assertIn("Notice 1 of 2", self.prompt(self.other_chat))
+
+    def test_without_a_chat_or_with_a_lost_chat_the_first_chat_gets_it(self):
+        self.new_job(session="gone1")   # its transcript does not exist any more
+        self.add_run()
+        said = self.prompt(self.other_chat)
+        self.assertIn("Installment report of job 'book'", said)
+
+    def test_jobs_from_before_keep_their_count(self):
+        self.new_job()
+        job = self.job()
+        job["told"] = 1           # 0.9.0 kept the count in job.json
+        pv.save_json(os.path.join(pv.rate_dir("book"), "job.json"), job)
+        self.add_run()
+        self.assertNotIn("- installment 1", self.prompt(self.other_chat))
+        self.add_run()
+        said = self.prompt(self.other_chat)
+        self.assertIn("- installment 2: ", said)
+        self.assertNotIn("- installment 1: ", said)
+
+    def test_rate_here_moves_the_reports(self):
+        self.new_job(session="home1")
+        self.add_run()
+        self.assertIn("Notice 1 of 2", self.prompt(self.other_chat))
+        args = mock.Mock(session=None)
+        args.name = "book"
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "other1"}):
+            said = self.run_hook(lambda: pv.rate_here(args), {})
+        self.assertIn("now come to this chat", said)
+        self.assertEqual(self.job()["session"], "other1")
+        self.assertIn("Installment report of job 'book'", self.prompt(self.other_chat))
+        args.session = "home1"   # from a terminal
+        self.run_hook(lambda: pv.rate_here(args), {})
+        self.assertEqual(self.job()["session"], "home1")
+        args.session = None      # outside a chat, without --session: nothing changes
+        self.assertIn("--session", self.run_hook(lambda: pv.rate_here(args), {}))
+        self.assertEqual(self.job()["session"], "home1")
+
+    def test_the_chat_is_bound_from_the_command_when_claude_code_does_not_pass_it(self):
+        self.new_job()   # no CLAUDE_CODE_SESSION_ID: older Claude Code
+        def command(text):
+            self.t._write({"type": "assistant", "requestId": "r%d" % self.t.n, "message": {
+                "id": "m%d" % self.t.n, "usage": usage(output=10),
+                "content": [{"type": "tool_use", "id": "t", "name": "Bash", "input": {"command": text}}]}})
+        self.t.user("dividi il libro in rate")
+        command('"python" "C:/q/scripts/quotient.py" rate new book --dir . --task-file t.md --quote 500000 --days 2')
+        self.stop("done")
+        self.assertEqual(self.job()["session"], "s1")
+        # a job created before this reply is not taken by `rate new`; `rate here` takes it; --session is kept
+        job = self.job()
+        job["session"], job["created"] = None, "2026-10-01T00:00:00+02:00"
+        pv.save_json(os.path.join(pv.rate_dir("book"), "job.json"), job)
+        self.t.user("ancora")
+        command('python quotient.py rate new book --dir .')
+        self.stop("x")
+        self.assertIsNone(self.job()["session"])
+        self.t.user("qui")
+        command('sh run.sh rate here book --session home1')
+        self.stop("x")
+        self.assertIsNone(self.job()["session"])
+        self.t.user("qui davvero")
+        command('"C:/Users/x/.quotient/launcher.py" rate here "book"')
+        self.stop("x")
+        self.assertEqual(self.job()["session"], "s1")
+
+    def test_scheduled_prompts_leave_the_report_for_the_user(self):
+        pv.store(("rate", "prompt_prefix"), "[ATTIVITA-AUTOMATICA]")
+        self.new_job()
+        self.add_run()
+        self.assertNotIn("installment 1", self.prompt(self.other_chat, "[ATTIVITA-AUTOMATICA] copia di sicurezza"))
+        self.assertIn("- installment 1: ", self.prompt(self.other_chat, "buongiorno"))
+
+    def test_what_remains_when_the_quote_was_too_low(self):
+        self.new_job(session="home1", quote=300000)
+        self.add_run(wt=320000)
+        said = self.prompt(self.home_chat)
+        self.assertIn("107% of it spent", said)
+        self.assertIn("the quote was too low", said)
+
+    def test_failed_and_finished(self):
+        self.new_job(session="home1")
+        self.add_run(error="timeout")
+        said = self.prompt(self.home_chat)
+        self.assertIn("FAILED: timeout", said)
+        self.assertIn("rate stop book", said)
+        job = self.job()
+        job["status"] = "done"
+        pv.save_json(os.path.join(pv.rate_dir("book"), "job.json"), job)
+        self.add_run()
+        self.assertIn("the job FINISHED", self.prompt(self.other_chat))
+        self.assertIn("The job is FINISHED", self.prompt(self.home_chat))
+
+    def test_the_end_of_an_installment_notifies_and_keeps_what_a_chat_changed(self):
+        self.new_job()
+        folder = pv.rate_dir("book")
+        result = {"session_id": "inst1", "usage": usage(inp=1000, output=100), "total_cost_usd": 0.01}
+
+        def claude_run(cmd, **kw):
+            job = pv.load_json(os.path.join(folder, "job.json"), None)
+            job["session"] = "home1"      # `rate here` from a chat while the installment works
+            pv.save_json(os.path.join(folder, "job.json"), job)
+            return mock.Mock(stdout=json.dumps(result).encode(), stderr=b"", returncode=0)
+
+        args = mock.Mock(force=True)
+        args.name = "book"
+        with mock.patch.object(pv, "find_claude", return_value="claude"), \
+                mock.patch.object(pv.subprocess, "run", side_effect=claude_run), \
+                mock.patch.object(pv, "find_transcript", side_effect=lambda sid, near=None:
+                                  self.home_chat if sid == "home1" else None):
+            self.run_hook(lambda: pv.run_installment(args), {})
+        self.assertEqual(self.job()["session"], "home1")
+        run = pv.read_jsonl(os.path.join(folder, "runs.jsonl"))[-1]
+        self.assertEqual((run["wt"], run["cap"], run["notified"]), (1500, 250000, True))
+        title, body = self.notified.call_args.args
+        self.assertEqual(title, "Quotient · installment 1 of 'book' done")
+        self.assertIn("1,500 weighted tokens of 250,000", body)
+        self.assertIn('The report is in the chat "Riprendi il libro"', body)
+
+    def test_notification_texts_in_italian(self):
+        pv.store(("lang",), "it")
+        self.new_job(session="home1")
+        job = self.job()
+        runs = [{"started": "2026-10-06T10:00:01+02:00", "finished": "2026-10-06T10:07:30+02:00", "wt": 548000,
+                 "cap": 550000, "error": None}]
+        with mock.patch.object(pv, "find_transcript", return_value=self.home_chat):
+            title, body = pv.installment_toast("tutorial", job, runs, pv.config())
+            self.assertEqual(title, "Quotient · rata 1 di «tutorial» finita")
+            self.assertIn("10:00–10:07 · 548.000 token pesati su 550.000", body)
+            self.assertRegex(body, r"Il resoconto è nella chat «Riprendi il libro» \(aperta il 05/10 alle \d\d:05\)\.")
+            # 06/10/2026, rata 2 vera: 675.352 token pesati, 1% della settimana circa 5,34 milioni
+            with mock.patch.object(pv, "capacity", return_value={"per_point": 5340000}):
+                self.assertIn(" · 0,1% della settimana (stima).", pv.installment_toast("tutorial", job, runs, pv.config())[1])
+            self.assertEqual((pv.percent(0.126, "it"), pv.percent(9.94, "en"), pv.percent(23.4, "it")), ("0,1%", "9.9%", "23%"))
+            runs[0]["error"] = "timeout"
+            self.assertIn("non riuscita", pv.installment_toast("tutorial", job, runs, pv.config())[0])
+            job["status"] = "done"
+            title, body = pv.installment_toast("tutorial", job, runs, pv.config())
+        self.assertEqual(title, "Quotient · «tutorial» è finito")
+        self.assertIn("1 rata, 548.000 token pesati in tutto (preventivo 500.000)", body)
+        self.assertEqual(pv.amount(1147735, "it"), "1,15 milioni")
+        self.assertEqual(pv.amount(1147735, "en"), "1.15 million")
+
+    def test_the_notification_can_be_turned_off_and_leaves_no_file(self):
+        notify = self.toast.temp_original
+        with mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+            pv.store(("rate", "notify"), False)
+            self.assertFalse(notify("t", "b"))
+            run.assert_not_called()
+            pv.store(("rate", "notify"), True)
+            before = set(os.listdir(pv.home()))
+            self.assertTrue(notify("Quotient · «x»", "b & <c>"))
+            self.assertEqual(set(os.listdir(pv.home())), before)
+        if os.name == "nt":
+            self.assertEqual(run.call_args.args[0][0], "powershell.exe")
+            env = run.call_args.kwargs["env"]
+            self.assertEqual((env["QUOTIENT_TOAST_TITLE"], env["QUOTIENT_TOAST_BODY"]), ("Quotient · «x»", "b & <c>"))
+            self.assertIn("SecurityElement]::Escape", run.call_args.args[0][-1])
+        with mock.patch.object(pv.subprocess, "run", side_effect=OSError("no powershell")):
+            self.assertFalse(notify("t", "b"))   # never an error for the installment
+
+    @unittest.skipUnless(os.name == "nt", "Task Scheduler")
+    def test_next_run_from_task_scheduler(self):
+        next_run = self.sched.temp_original
+        later = pv.datetime.fromtimestamp(pv.time.time() + 3 * 3600).strftime("%Y-%m-%dT%H:%M:%S")
+        earlier = pv.datetime.fromtimestamp(pv.time.time() + 3600).strftime("%Y-%m-%dT%H:%M:%S")
+        past = "2020-01-01T10:00:00"
+        out = ("%s\r\n%s\r\n%s\r\n" % (later, past, earlier)).encode()
+        with mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(stdout=out)) as run:
+            self.assertEqual(next_run("book").strftime("%Y-%m-%dT%H:%M:%S"), earlier)
+        script = run.call_args.args[0][-1]
+        self.assertIn("-eq 'quotient-book'", script)
+        self.assertIn("-like 'quotient-book-once*'", script)
+        with mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(stdout=b"")):
+            self.assertIsNone(next_run("book"))
 
 
 class FakeService:

@@ -14,7 +14,7 @@ The name holds both halves: it starts like *quote*, the price agreed before a jo
 - **The pace is yours**: all today, or in installments, one a day, with the amount per day. Or any pace you write yourself.
 - **The real cost after**, read from Claude Code's own records, next to the estimate.
 - **It learns from its errors**: each quote is corrected by how far off the earlier ones were. You do not start from zero: until you have 5 jobs of your own, it starts from the shared average of everyone's real jobs (numbers only, see below).
-- **Installments that work while you are away**: the PC wakes up, does the day's piece, and goes back to sleep (see below).
+- **Installments that work while you are away**: the PC wakes up, does the day's piece, and goes back to sleep. When you come back, a notification and the report in the job's chat tell you what it did (see below).
 - **The week as a whole**: several jobs together never eat the share of the week you keep for yourself.
 - **Your limits at a glance**: how much of the 5-hour and weekly limits you have used, and what is left.
 - **Private**: everything stays on your computer, except one line of numbers per finished job for the shared average, which you can turn off (see [What is shared](#what-is-shared)).
@@ -53,6 +53,8 @@ You leave the PC **in sleep or hibernation**, as you always do. Every installmen
 4. **If nobody is using the PC** (no keyboard or mouse for 10 minutes), Quotient **puts it back to sleep**, or into hibernation if you chose that. If you are using it, it stays on.
 5. **The next day, at the same time, it starts again**, until the job is finished. Then the schedule removes itself.
 
+**When you come back, you see it at once.** For each installment Windows shows a notification, which stays in the notification center. The full report waits in the chat where you created the job and appears at your first message there: which installment, when, what it cost against the day's amount and the week, what it did, what is left and when the next one starts. Other chats tell you only once, and a second time no sooner than a day later; then they stop. To get the reports in another chat, ask Claude there (`rate here <job>`).
+
 Good to know:
 - If you prefer that Quotient never touches the PC, choose so in the setup: installments then run only when the PC is already on.
 - A timer can wake a PC that is **asleep or hibernated, not one that is shut down**. If the PC was off, the installment runs as soon as you turn it on.
@@ -80,7 +82,7 @@ Over time it also estimates how many tokens 1% of each limit holds, so a quote c
 Each copy of Quotient learns from its own errors, but a new user has no errors yet. So the copies pool their numbers: after each finished job, Quotient sends **one line of numbers, exactly this and nothing else**:
 
 ```json
-{"v":1,"q":"0.9.0","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"0.9.1","family":"opus","estimate":225000,"actual":259000}
 ```
 
 The format, the Quotient version, the model family (opus, sonnet, haiku, fable or other), the raw estimate and the real cost in weighted tokens, rounded to 3 significant digits. **No dates, no names, no text, no paths, no session or user ids.** The line leaves at the start of your next session, never in the middle of a reply, and nothing is queued before Claude Code has shown you a message about it.
@@ -119,7 +121,7 @@ Claude runs the other commands for you when you choose in the windows. `/quotien
 
 **How it hooks in.** At the start of a session Quotient gives Claude its rules once (about 650 tokens); at each message, one short line (about 70 tokens). Claude writes machine lines (`QUOTE:`, `CHOICE:`, `PACE:`, `JOB: CONTINUES`) that Quotient reads at the end of each reply, adding up the cost of that reply with each API call counted once.
 
-**Installments.** Each one is a non-interactive run (`claude -p`) in the job's folder, started by Windows Task Scheduler through a small launcher in `~/.quotient`, so it keeps working after plugin updates. A hook refuses every tool except the handoff update once the day's cap is spent. Two installments of the same job never run at the same time.
+**Installments.** Each one is a non-interactive run (`claude -p`) in the job's folder, started by Windows Task Scheduler through a small launcher in `~/.quotient`, so it keeps working after plugin updates. A hook refuses every tool except the handoff update once the day's cap is spent. Two installments of the same job never run at the same time. A job remembers the chat that created it (Claude Code passes the chat's id to the commands it runs; when it does not, Quotient takes it at the end of the reply). The notification uses Windows' own notification system through PowerShell (on macOS `osascript`, on Linux `notify-send`) and writes no file; `config rate.notify false` turns it off.
 
 **Your data.** Everything is in `~/.quotient/` (or `QUOTIENT_HOME`). `export` prints the exact lines sharing sends. The outbox is `share-outbox.jsonl`; the downloaded average is `average.json`.
 
