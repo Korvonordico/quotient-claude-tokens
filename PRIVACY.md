@@ -6,7 +6,7 @@ Quotient is a Claude Code plugin by Francesco Candela (Korvonordico). It runs on
 
 ## What stays on your computer
 
-Everything Quotient records: your quotes, the real costs, your limits, your settings and your installment jobs. They are in `~/.quotient/` (or `QUOTIENT_HOME`). Quotient never reads your conversations' text to send it anywhere, and never reads your files, memory or chat history for sharing.
+Everything Quotient records: your quotes, the real costs, your limits, your settings, your installment jobs, the jobs left open in a chat, and the page with charts (`report.html`). They are in `~/.quotient/` (or `QUOTIENT_HOME`). To measure costs, Quotient reads from Claude Code's transcripts only numbers (the token counts of each call), the machine lines Claude writes and the names of the tools Claude called; it never sends their text anywhere, and never reads your files, memory or chat history for sharing.
 
 An installment job also remembers which chat created it (the chat's id), so each installment's report comes back there; to tell you where the report waits, Quotient reads that chat's title from Claude Code's files on your computer. The notification at the end of an installment is shown by your own system (on Windows it stays in the notification center). None of this leaves your computer.
 
@@ -15,7 +15,7 @@ An installment job also remembers which chat created it (the chat's id), so each
 To help everyone start from real numbers instead of from zero, Quotient shares **one line of numbers for each finished job**. Exactly this, and nothing else:
 
 ```json
-{"v":1,"q":"0.9.1","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"0.9.5","family":"opus","estimate":225000,"actual":259000}
 ```
 
 | Field | What it is |
@@ -24,7 +24,7 @@ To help everyone start from real numbers instead of from zero, Quotient shares *
 | `q` | the Quotient version |
 | `family` | the model family that did most of the job: opus, sonnet, haiku, fable or other |
 | `estimate` | the raw estimate, in weighted tokens, rounded to 3 significant digits |
-| `actual` | the real cost, in weighted tokens, rounded to 3 significant digits |
+| `actual` | the real cost of the work, in weighted tokens, rounded to 3 significant digits (from 0.9.5 without re-reading what the chat held when the job started, which the estimate is not about; the version in `q` tells the two apart) |
 
 No date or time, no names, no text, no file paths, no session or user ids, no account. `quotient export` prints the lines your jobs produce; `/quotient:share` shows the state, the exact form of the line and how many lines are waiting.
 
@@ -66,17 +66,17 @@ Open an issue at https://github.com/Korvonordico/quotient-claude-tokens/issues.
 
 Quotient è un plugin per Claude Code di Francesco Candela (Korvonordico). Gira sul tuo computer. Questa pagina dice esattamente cosa ne esce.
 
-**Resta sul tuo computer** tutto quello che Quotient registra: preventivi, costi veri, limiti, impostazioni e lavori a rate, in `~/.quotient/`. Quotient non manda mai il testo delle conversazioni, i tuoi file, la memoria o la cronologia.
+**Resta sul tuo computer** tutto quello che Quotient registra: preventivi, costi veri, limiti, impostazioni, lavori a rate, lavori lasciati aperti in una chat e la pagina con i grafici (`report.html`), in `~/.quotient/`. Per misurare i costi Quotient legge dalle trascrizioni di Claude Code solo numeri (i token di ogni chiamata), le righe per la macchina che scrive Claude e i nomi degli strumenti usati; non manda mai il testo delle conversazioni, i tuoi file, la memoria o la cronologia.
 
 Un lavoro a rate ricorda anche quale chat l'ha creato (il codice della chat), così il resoconto di ogni rata torna lì; per dirti dove ti aspetta, Quotient legge il titolo di quella chat dai file di Claude Code sul tuo computer. La notifica alla fine di una rata la mostra il tuo sistema (su Windows resta nel centro notifiche). Niente di tutto questo esce dal tuo computer.
 
 **Cosa viene condiviso**: una riga di numeri per ogni lavoro finito, esattamente questa e nient'altro:
 
 ```json
-{"v":1,"q":"0.9.1","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"0.9.5","family":"opus","estimate":225000,"actual":259000}
 ```
 
-Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e il costo vero in token pesati, arrotondati a 3 cifre. Niente date né orari, niente nomi, testi, percorsi, codici di sessione o di persona, niente account. La riga parte all'inizio della sessione successiva, mai a metà di una risposta, e niente parte prima che tu sia avvisato: la prima volta Claude Code ti mostra un messaggio che dice cosa viene condiviso e come spegnerlo. Va a un piccolo servizio su Cloudflare Workers, il cui codice è pubblico in [`server/`](server/), che accetta solo righe di quella forma.
+Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e il costo vero del lavoro in token pesati (dalla 0.9.5 senza la rilettura di quello che la chat conteneva quando il lavoro è cominciato, che la stima non riguarda), arrotondati a 3 cifre. Niente date né orari, niente nomi, testi, percorsi, codici di sessione o di persona, niente account. La riga parte all'inizio della sessione successiva, mai a metà di una risposta, e niente parte prima che tu sia avvisato: la prima volta Claude Code ti mostra un messaggio che dice cosa viene condiviso e come spegnerlo. Va a un piccolo servizio su Cloudflare Workers, il cui codice è pubblico in [`server/`](server/), che accetta solo righe di quella forma.
 
 **Scegli tu, e puoi cambiare idea quando vuoi**: la finestra del primo uso ti chiede se partecipi (di serie sì). Per cambiarlo: `/quotient:share off`, l'impostazione del plugin *Condividi numeri anonimi*, oppure `QUOTIENT_SHARE=0`. Da spento non parte niente, e le righe in attesa vengono cancellate. **La media condivisa la scarichi e la usi lo stesso.**
 

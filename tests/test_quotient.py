@@ -85,6 +85,8 @@ class Base(unittest.TestCase):
         self.addCleanup(self.offline.stop)
         self.t = Transcript(os.path.join(self.dir, "session.jsonl"))
         self.w = pv.config()["weights"]
+        # the caps of the older tests are about the work alone: re-reading an installment's start is tested apart
+        pv.store(("chat", "installment_start"), 0)
 
     def tearDown(self):
         self.env.stop()
@@ -174,7 +176,11 @@ class TestFlow(Base):
         self.assertEqual(len(jobs), 1)
         actual = 125000 + 50000 + 50000 + 60000 + 20000
         self.assertEqual(jobs[0]["actual"], actual)
-        self.assertAlmostEqual(pv.learning(pv.config())["factor"], actual / 200000)
+        # 0.9.5: re-reading, at each call, the 600k the chat held when the job started is the chat part
+        # (w1: 500k read x0.1 + 100k written x1.25; w2: 600k read x0.1); the factor is learned on the rest
+        chat = 50000 + 125000 + 60000
+        self.assertEqual((jobs[0]["chat"], jobs[0]["work"]), (chat, actual - chat))
+        self.assertAlmostEqual(pv.learning(pv.config())["factor"], (actual - chat) / 200000)
         self.assertIsNone(pv.load_json(pv.session_path("s1"), {})["pending"])
 
     def test_job_over_several_turns(self):
@@ -217,7 +223,8 @@ class TestFlow(Base):
     def test_report_and_export(self):
         self.test_quote_choice_job_and_learning()
         report = self.run_hook(pv.report, {})
-        self.assertIn("x1.5", report)
+        self.assertIn("x0.35", report)
+        self.assertIn("+235k", report)
         exported = json.loads(self.run_hook(pv.export, {}))
         self.assertEqual(set(exported), {"v", "q", "family", "estimate", "actual"})
 

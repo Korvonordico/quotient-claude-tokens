@@ -1,0 +1,36 @@
+# Runs Quotient's tests at every push and pull request, so a version is never published with tests that fail
+# (it happened with 0.8.0: 4 tests failed and nobody saw it).
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.9", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Quotient (Python, standard library only)
+        run: python -m unittest discover -s tests -v
+
+  service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The shared-average service (numbers it accepts and how it averages them)
+        run: node --test server/test/stats.test.mjs

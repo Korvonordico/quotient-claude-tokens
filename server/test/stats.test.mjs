@@ -93,3 +93,7 @@ test("no jobs: no average, no crash", () => {
   assert.equal(summarize([]), null);
   assert.equal(buildAverage({}, [], "2026-10-06"), null);
 });
+
+test("two-digit versions such as 0.10.0 are accepted (the line format does not change)", () => {
+  assert.deepEqual(validate(body({ ...good, q: "0.10.0" })), { family: "opus", version: "0.10.0", estimate: 225000, actual: 259000 });
+});
