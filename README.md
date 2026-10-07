@@ -63,6 +63,16 @@ A real case, 6 October 2026: a job cost 4.67 million weighted tokens, of which 2
 
 When a chat has grown long, the window also offers to do the job **in a new chat**, and says how much that saves. You open a new chat and ask to continue: Quotient tells the new chat that a job is waiting, and measures it there.
 
+## Long chats: keep them, or let them compact themselves
+
+A plugin cannot run `/compact`, but Claude Code can summarize a chat by itself when it reaches a size. In the setup you choose one of three:
+
+- **Keep the chat as it is** (the default). Quotient does not touch compaction; when a chat has grown long, the window offers a new chat.
+- **Let it compact itself at the size Quotient recommends**: where re-reading the chat at every call costs about twice the work of a call, from your own numbers (about 600,000 tokens at the start).
+- **At a size you choose**, from 100,000 to 1,000,000 tokens.
+
+For the last two, Quotient writes `autoCompactWindow` in `~/.claude/settings.json`, and takes its own value back if you return to the first (a value you had set yourself is put back). A summary loses some details: when the chat gets close to the size, Quotient tells Claude once to save to files what must not be lost. Each compaction is measured, and the report says what it saved. Change it any time with `/quotient:setup` or in the plugin settings.
+
 ## Installments: the PC works while you are away
 
 You leave the PC **in sleep or hibernation**, as you always do. Every installment then goes like this:
@@ -73,7 +83,7 @@ You leave the PC **in sleep or hibernation**, as you always do. Every installmen
 4. **If nobody is using the PC** (no keyboard or mouse for 10 minutes), Quotient **puts it back to sleep**, or into hibernation if you chose that. If you are using it, it stays on.
 5. **The next day, at the same time, it starts again**, until the job is finished. Then the schedule removes itself.
 
-**When you come back, you see it at once.** For each installment Windows shows a notification, which stays in the notification center. The full report waits in the chat where you created the job and appears at your first message there: which installment, when, what it cost against the day's amount and the week, what it did, what is left and when the next one starts. Other chats tell you only once, and a second time no sooner than a day later; then they stop. To get the reports in another chat, ask Claude there (`rate here <job>`).
+**When you come back, you see it at once.** For each installment Windows shows a notification, which stays in the notification center; a click opens a page with that installment's report (it is kept in the job's folder, under `reports`). The full report waits in the chat where you created the job and appears at your first message there: which installment, when, what it cost against the day's amount and the week, what it did, what is left and when the next one starts. Other chats tell you only once, and a second time no sooner than a day later; then they stop. To get the reports in another chat, ask Claude there (`rate here <job>`).
 
 Good to know:
 - If you prefer that Quotient never touches the PC, choose so in the setup: installments then run only when the PC is already on.
@@ -102,7 +112,7 @@ Over time it also estimates how many tokens 1% of each limit holds, so a quote c
 Each copy of Quotient learns from its own errors, but a new user has no errors yet. So the copies pool their numbers: after each finished job, Quotient sends **one line of numbers, exactly this and nothing else**:
 
 ```json
-{"v":1,"q":"0.9.5","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"0.9.6","family":"opus","estimate":225000,"actual":259000}
 ```
 
 The format, the Quotient version, the model family (opus, sonnet, haiku, fable or other), the raw estimate and the real cost of the work in weighted tokens (from 0.9.5 without the re-reading of the chat, which the estimate is not about), rounded to 3 significant digits. **No dates, no names, no text, no paths, no session or user ids.** The line leaves at the start of your next session, never in the middle of a reply, and nothing is queued before Claude Code has shown you a message about it.
@@ -119,7 +129,7 @@ Everything in detail: [PRIVACY.md](PRIVACY.md).
 Everything, so nothing is a surprise:
 
 - **On your computer, always**: its Python script, through `sh`, at the start of each session, at each message, at the end of each reply, and before each tool call inside an installment. It reads Claude Code's transcripts of your chats only for numbers: the token counts of each call, the machine lines Claude writes, and which tools Claude called (to measure the cost and Quotient's own weight). No text from them is ever sent anywhere.
-- **It writes** only in `~/.quotient/` (or `QUOTIENT_HOME`). The one exception is `setup-statusline --write`, which puts the status line in `~/.claude/settings.json`, and only when you run it.
+- **It writes** only in `~/.quotient/` (or `QUOTIENT_HOME`), plus a report page for each installment in the job's own folder. The two exceptions touch `~/.claude/settings.json`, and only when you choose them: `setup-statusline --write` puts the status line there, and the long-chat choice «compact» writes `autoCompactWindow` there (taken back when you choose «keep» again).
 - **For installments, only after you choose them in the window**: Windows Task Scheduler tasks (`schtasks`) that run at the time you chose and, if you allow it, wake the PC; Claude Code itself (`claude -p`) in the job's folder, with the permission mode `acceptEdits`, no permission prompts, and only the tools you allow in `rate.extra_args`; PowerShell for the notification and to read when the next installment runs; sleep or hibernation afterwards, if you chose so and nobody is using the PC. `rate check` reads (never changes) the wake-timer setting with `powercfg`.
 - **It sends**, unless sharing is off: one line of numbers per finished job to `https://quotient-share.korvonordico.workers.dev` (see [What is shared](#what-is-shared)).
 - **It fetches**, once a day: `https://raw.githubusercontent.com/Korvonordico/quotient-data/main/average.json`, or the service's `/v1/average` when GitHub does not answer. Both belong to the author.
@@ -158,6 +168,8 @@ Claude runs the other commands for you when you choose in the windows. `/quotien
 **Work and re-reading, exactly.** A call's prompt is read from the cache first, then written to it, then sent as plain input. For each call, the part of the prompt that the chat held when the job started (position 0 to the size of the job's first prompt) is priced with those weights: that is the re-reading; the rest of the cost is the work. A call after a compaction, whose prompt is shorter, adds no older chat. Jobs measured before 0.9.5 get their split once from their chat's transcript, if it still exists. The steps a quote will take are its corrected work divided by the work per step learned from finished jobs (30,000 weighted tokens until there are 3).
 
 **Installments.** Each one is a non-interactive run (`claude -p`) in the job's folder, started by Windows Task Scheduler through a small launcher in `~/.quotient`, so it keeps working after plugin updates. A hook refuses every tool except the handoff update once what is spent plus the next two steps (the size of the latest calls, at most 40% of the cap) would reach the day's cap, so the steps that close the installment fit inside it. Each installment keeps a `PROGRESS: <n>%` line in its handoff; from it Quotient tells how much and how many installments remain. The day's cap includes re-reading each installment's own start, learned from the installments before. Two installments of the same job never run at the same time. A job remembers the chat that created it (Claude Code passes the chat's id to the commands it runs; when it does not, Quotient takes it at the end of the reply). The notification uses Windows' own notification system through PowerShell (on macOS `osascript`, on Linux `notify-send`) and writes no file; `config rate.notify false` turns it off.
+
+**Long chats.** A plugin cannot run `/compact` (hooks can only block or watch a compaction), so the choice is written as Claude Code's own `autoCompactWindow`; the environment variable `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, if you set it, wins over it. A `PreCompact` hook notes the chat's size before the summary, and the end of the next reply notes the size after it; the saving is that difference, at the cache price, at every later call of that chat (`compactions.jsonl`).
 
 **Your data.** Everything is in `~/.quotient/` (or `QUOTIENT_HOME`). `export` prints the exact lines sharing sends. The outbox is `share-outbox.jsonl`; the downloaded average is `average.json`; jobs open in a chat are in `chat-jobs.json` (forgotten after 7 days); the page with charts is `report.html`.
 

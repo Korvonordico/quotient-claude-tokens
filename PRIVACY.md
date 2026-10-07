@@ -15,7 +15,7 @@ An installment job also remembers which chat created it (the chat's id), so each
 To help everyone start from real numbers instead of from zero, Quotient shares **one line of numbers for each finished job**. Exactly this, and nothing else:
 
 ```json
-{"v":1,"q":"0.9.5","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"0.9.6","family":"opus","estimate":225000,"actual":259000}
 ```
 
 | Field | What it is |
@@ -73,7 +73,7 @@ Un lavoro a rate ricorda anche quale chat l'ha creato (il codice della chat), co
 **Cosa viene condiviso**: una riga di numeri per ogni lavoro finito, esattamente questa e nient'altro:
 
 ```json
-{"v":1,"q":"0.9.5","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"0.9.6","family":"opus","estimate":225000,"actual":259000}
 ```
 
 Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e il costo vero del lavoro in token pesati (dalla 0.9.5 senza la rilettura di quello che la chat conteneva quando il lavoro è cominciato, che la stima non riguarda), arrotondati a 3 cifre. Niente date né orari, niente nomi, testi, percorsi, codici di sessione o di persona, niente account. La riga parte all'inizio della sessione successiva, mai a metà di una risposta, e niente parte prima che tu sia avvisato: la prima volta Claude Code ti mostra un messaggio che dice cosa viene condiviso e come spegnerlo. Va a un piccolo servizio su Cloudflare Workers, il cui codice è pubblico in [`server/`](server/), che accetta solo righe di quella forma.

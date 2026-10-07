@@ -768,7 +768,11 @@ class TestReports(Base):
         title, body = self.notified.call_args.args
         self.assertEqual(title, "Quotient · installment 1 of 'book' done")
         self.assertIn("1,500 weighted tokens of 250,000", body)
-        self.assertIn('The report is in the chat "Riprendi il libro"', body)
+        # 07/10/2026: the report is a page in the work folder, and the notification opens it with a click
+        self.assertIn("Click to open the report.", body)
+        self.assertEqual(run["report_page"], os.path.join(self.dir, "reports", "book-installment-1.html"))
+        self.assertTrue(os.path.exists(run["report_page"]))
+        self.assertTrue(self.notified.call_args.kwargs["link"].startswith("file:///"))
 
     def test_notification_texts_in_italian(self):
         pv.store(("lang",), "it")
@@ -793,6 +797,44 @@ class TestReports(Base):
         self.assertIn("1 rata, 548.000 token pesati in tutto (preventivo 500.000)", body)
         self.assertEqual(pv.amount(1147735, "it"), "1,15 milioni")
         self.assertEqual(pv.amount(1147735, "en"), "1.15 million")
+
+    def test_the_report_page_opens_from_the_notification(self):
+        # 07/10/2026: a report shown only at the next message in one chat looked like no report at all
+        pv.store(("lang",), "it")
+        self.new_job(session="home1")
+        job = self.job()
+        work = os.path.join(self.dir, "lavoro con spazi")
+        os.makedirs(work)
+        job["dir"] = work
+        folder = pv.rate_dir(job["name"])
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "HANDOFF.md"), "w", encoding="utf-8") as f:
+            f.write("# Consegna\nPROGRESS: 50%\n## Fatto\n- **257** affermazioni in `verifica/`\n- <niente html>\n")
+        runs = [{"started": "2026-10-07T03:00:03+02:00", "finished": "2026-10-07T03:36:46+02:00", "wt": 4656438,
+                 "cap": 5800000, "error": None, "progress": 50.0}]
+        page = pv.write_report_page(job["name"], job, runs, pv.config(), folder)
+        self.assertEqual(page, os.path.join(work, "resoconti", "%s-rata-1.html" % job["name"]))
+        with open(page, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("rata 1 di «%s» finita" % job["name"], text)
+        self.assertIn("03:00–03:36", text)
+        self.assertIn("<b>257</b> affermazioni in <code>verifica/</code>", text)
+        self.assertIn("&lt;niente html&gt;", text)
+        self.assertNotIn("Clicca", text)
+        title, body = pv.installment_toast(job["name"], job, runs, pv.config(), page)
+        self.assertTrue(body.endswith("Clicca per aprire il resoconto."))
+        uri = pv.page_uri(page)
+        self.assertTrue(uri.startswith("file:///") and " " not in uri and "%20" in uri)
+        notify = self.toast.temp_original
+        with mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+            self.assertTrue(notify(title, body, link=uri))
+        if os.name == "nt":
+            self.assertEqual(run.call_args.kwargs["env"]["QUOTIENT_TOAST_LINK"], uri)
+            self.assertIn("activationType='protocol'", run.call_args.args[0][-1])
+        # a page that cannot be written never stops the installment
+        cfg = pv.config()
+        with mock.patch.object(pv.os, "makedirs", side_effect=OSError("disk")):
+            self.assertIsNone(pv.write_report_page(job["name"], job, runs, cfg, folder))
 
     def test_the_notification_can_be_turned_off_and_leaves_no_file(self):
         notify = self.toast.temp_original

@@ -396,3 +396,114 @@ class TestReportPage(ChatBase):
                              "raw_estimate": 200000, "factor_used": 1.2, "actual": 1}])
         self.assertEqual(saved["below"], 1)
         self.assertAlmostEqual(saved["below_wt"], 240000)
+
+
+class TestCompact(ChatBase):
+    """0.9.6: long chats are kept as they are, or compact themselves at a size the user chooses (07/10/2026: a
+    plugin cannot run /compact, so Quotient sets Claude Code's own autoCompactWindow, only on the user's choice)."""
+
+    def setUp(self):
+        super().setUp()
+        self.settings = os.path.join(self.dir, "claude-settings.json")
+        patcher = mock.patch.object(pv, "claude_settings_path", return_value=self.settings)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("CLAUDE_CODE_AUTO_COMPACT_WINDOW", None)
+
+    def setup(self, choice):
+        args = mock.Mock(threshold=None, reserve=None, lang=None, after=None, wake=None, share=None, compact=choice)
+        return self.run_hook(lambda: pv.cmd_setup(args), {})
+
+    def written(self):
+        return json.load(open(self.settings, encoding="utf-8"))
+
+    def test_keep_is_the_default_and_touches_nothing(self):
+        self.assertEqual(pv.config()["compact"]["mode"], "keep")
+        self.assertIn("kept as they are", pv.apply_compact(pv.config()))
+        self.assertFalse(os.path.exists(self.settings))
+
+    def test_a_chosen_size_is_written_and_taken_back(self):
+        with open(self.settings, "w", encoding="utf-8") as f:
+            json.dump({"theme": "dark", "autoCompactWindow": 300000}, f)
+        said = self.setup("500.000")
+        self.assertIn("500,000", said)
+        self.assertEqual(self.written(), {"theme": "dark", "autoCompactWindow": 500000})
+        self.setup("keep")
+        self.assertEqual(self.written(), {"theme": "dark", "autoCompactWindow": 300000})  # the user's own value is back
+        self.setup("auto")
+        self.assertEqual(self.written()["autoCompactWindow"], 600000)  # 2 x 30k of work a call / 0.1
+        self.setup("keep")
+        self.assertEqual(self.written()["autoCompactWindow"], 300000)
+
+    def test_without_a_value_of_its_own_keep_removes_only_its_own(self):
+        self.setup("400000")
+        self.assertEqual(self.written(), {"autoCompactWindow": 400000})
+        self.setup("keep")
+        self.assertEqual(self.written(), {})
+
+    def test_sizes_are_kept_inside_what_claude_code_accepts(self):
+        self.setup("50000")
+        self.assertEqual(self.written()["autoCompactWindow"], 100000)
+        self.setup("5000000")
+        self.assertEqual(self.written()["autoCompactWindow"], 1000000)
+        with self.assertRaises(SystemExit):
+            self.setup("sometimes")
+
+    def test_an_unreadable_settings_file_is_never_overwritten(self):
+        with open(self.settings, "w", encoding="utf-8") as f:
+            f.write("{broken")
+        self.assertIn("left as it is", self.setup("500000"))
+        self.assertEqual(open(self.settings, encoding="utf-8").read(), "{broken")
+
+    def test_the_plugin_setting_applies_the_choice(self):
+        with mock.patch.dict(os.environ, {"CLAUDE_PLUGIN_OPTION_COMPACT": "custom", "CLAUDE_PLUGIN_OPTION_COMPACT_AT": "450000"}):
+            pv.sync_plugin_options()
+        self.assertEqual(self.written()["autoCompactWindow"], 450000)
+
+    def prompt_at(self, size, sid="s1"):
+        t = self.chat("c-%d" % size)
+        t.user("hello")
+        t.call("a", usage(read=size, output=10))
+        return self.run_hook(pv.hook_prompt, {"session_id": sid, "transcript_path": t.path})
+
+    def test_a_warning_before_the_summary_once_for_each_approach(self):
+        self.setup("500000")
+        self.assertNotIn("COMPACTION SOON", self.prompt_at(300000))
+        self.assertIn("COMPACTION SOON", self.prompt_at(450000))
+        self.assertNotIn("COMPACTION SOON", self.prompt_at(470000))   # said once
+        self.assertNotIn("COMPACTION SOON", self.prompt_at(120000))   # compacted: the flag clears
+        self.assertIn("COMPACTION SOON", self.prompt_at(460000))      # the next approach is told again
+
+    def test_keeping_the_chat_never_warns(self):
+        self.assertNotIn("COMPACTION SOON", self.prompt_at(990000))
+
+    def test_a_compaction_is_measured_before_and_after(self):
+        big = self.chat("big")
+        big.user("hello")
+        big.call("a", usage(read=600000, output=10))
+        self.run_hook(pv.hook_precompact, {"session_id": "s1", "transcript_path": big.path, "trigger": "auto"})
+        self.assertEqual(pv.load_json(pv.session_path("s1"), {})["compacting"]["before"], 600000)
+        self.t.user("go on")
+        self.t.call("b", usage(read=150000, output=10))
+        self.stop()
+        row = pv.read_jsonl(pv.compactions_path())[0]
+        self.assertEqual((row["before"], row["after"], row["trigger"]), (600000, 150000, "auto"))
+        # the saving: at each later call of that chat, (600k - 150k) x 0.1 less to re-read
+        pv.append_jsonl(os.path.join(pv.home(), "turns.jsonl"),
+                        {"ts": "2099-01-01T00:00:00+00:00", "session": "s1", "wt": 1, "calls": 4})
+        summary = pv.compaction_summary()
+        self.assertEqual((summary["count"], summary["auto"]), (1, 1))
+        self.assertAlmostEqual(summary["saved"], 450000 * 0.1 * 4)
+        self.assertIn("Compactions: 1 (1 automatic)", self.run_hook(pv.report, {}))
+
+    def test_first_use_window_asks_about_long_chats(self):
+        text = pv.setup_instructions(pv.config())
+        self.assertIn("'Chat lunghe'/'Long chats'", text)
+        self.assertIn("setup --compact keep|auto|<tokens>", text)
+
+
+class TestPagesKeepTheirStyles(ChatBase):
+    def test_the_chart_page_keeps_its_colours(self):
+        # 07/10/2026: the installment page took the same style name and the chart page lost its colours
+        self.assertIn("--s1", pv.PAGE_STYLE)
+        self.assertNotIn("--s1", pv.RUN_PAGE_STYLE)
