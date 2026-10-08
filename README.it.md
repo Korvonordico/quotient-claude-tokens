@@ -80,7 +80,7 @@ Lasci il PC **in sospensione o in ibernazione**, come fai sempre. Ogni rata poi 
 1. **All'ora che hai scelto** (per esempio le 3 di notte), Windows sveglia il PC.
 2. **Quotient avvia Claude Code** in sottofondo, senza aprire l'app. Claude legge il lavoro e una breve nota su dove si era fermato l'ultima volta.
 3. **Claude lavora sul pezzo successivo** finché arriva alla quantità di quel giorno. Poi scrive dove si è fermato e si ferma in ordine.
-4. **Se nessuno sta usando il PC** (tastiera e mouse fermi da 10 minuti), Quotient **lo rimette in sospensione**, o in ibernazione se hai scelto così. Se lo stai usando, resta acceso.
+4. **Se la rata ha trovato il PC addormentato e nessuno lo sta usando** (tastiera e mouse fermi da 10 minuti), Quotient **lo rimette in sospensione**, o in ibernazione se hai scelto così. Un PC che era già acceso quando la rata è partita resta acceso, anche se stai solo guardando qualcosa (Quotient lo legge dal registro di Windows).
 5. **Il giorno dopo, alla stessa ora, ricomincia**, finché il lavoro è finito. Poi l'orario si cancella da solo.
 
 **Quando torni lo vedi subito.** Per ogni rata Windows mostra una notifica, che resta nel centro notifiche; con un clic si apre una pagina con il resoconto di quella rata (resta nella cartella del lavoro, in `resoconti`). Il resoconto completo ti aspetta nella chat in cui hai creato il lavoro e compare al tuo primo messaggio lì: quale rata, quando, quanto è costata rispetto alla quantità del giorno e alla settimana, cosa ha fatto, cosa manca e quando parte la prossima. Le altre chat te lo dicono una volta sola, e una seconda volta non prima di un giorno dopo; poi tacciono. Se vuoi i resoconti in un'altra chat, chiedilo a Claude lì (`rate here <lavoro>`).
@@ -89,7 +89,7 @@ Da sapere:
 - Se preferisci che Quotient non tocchi mai il PC, lo scegli nella configurazione: le rate allora partono solo con il PC già acceso.
 - Un timer può svegliare un PC **in sospensione o in ibernazione, non uno spento del tutto**. Se il PC era spento, la rata parte appena lo accendi.
 - Windows deve permettere i timer di riattivazione. `rate check` ti dice se è così, e come attivarli.
-- Se usi l'app desktop di Claude, fai una volta il login di Claude Code in un terminale (`claude auth login`): le rate girano fuori dall'app.
+- Se usi l'app desktop di Claude, fai una volta il login di Claude Code in un terminale (`claude auth login`): le rate girano fuori dall'app. Quel login può scadere: finché c'è un lavoro a rate aperto, Quotient lo controlla ogni 6 ore sui tuoi messaggi (senza costi) e te lo dice in chat, così lo rinnovi prima della notte. `rate check --live` fa una chiamata vera con il modello più piccolo per esserne sicuri (pochi centesimi). Una rata che si ferma per il login non spende niente, e la sua notifica dice cosa fare.
 - Puoi far partire una rata in più lo stesso giorno, se accetti che consumi altro limite di quel giorno.
 - Il risveglio e la sospensione funzionano su Windows. Su macOS e Linux Quotient ti dà la riga per programmarlo tu.
 
@@ -112,7 +112,7 @@ Col tempo stima anche quanti token vale l'1% di ogni limite, così un preventivo
 Ogni copia di Quotient impara dai suoi errori, ma chi comincia non ne ha ancora. Allora le copie mettono insieme i loro numeri: dopo ogni lavoro finito, Quotient manda **una riga di numeri, esattamente questa e nient'altro**:
 
 ```json
-{"v":1,"q":"0.9.6","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"0.9.7","family":"opus","estimate":225000,"actual":259000}
 ```
 
 Il formato, la versione di Quotient, la famiglia del modello (opus, sonnet, haiku, fable o altro), la stima grezza e il costo vero del lavoro in token pesati (dalla 0.9.5 senza la rilettura della chat, che la stima non riguarda), arrotondati a 3 cifre. **Niente date, nomi, testi, percorsi, codici di sessione o di persona.** La riga parte all'inizio della chat successiva, mai a metà di una risposta, e niente parte prima che Claude Code ti abbia mostrato un messaggio che lo dice.

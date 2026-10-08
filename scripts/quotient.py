@@ -36,7 +36,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "0.9.6"
+VERSION = "0.9.7"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /quotient:setup, or Claude Code's plugin settings).
@@ -1164,7 +1164,8 @@ def report_lines(name, job, runs, told, folder):
     elif job.get("status") == "open":
         nxt = next_run(name)
         lines.append("Next installment: %s." % when(nxt.timestamp(), "en") if nxt else
-                     "No installment is scheduled.")
+                     "The next installment could not be read from Task Scheduler (it may still be scheduled: "
+                     "`rate status` or `rate check` tell)." if nxt is False else "No installment is scheduled.")
     pages = [r["report_page"] for r in runs[told:] if r.get("report_page")]
     if pages:
         lines.append("Report page(s) the user can open (give the path): %s" % ", ".join(pages))
@@ -1512,7 +1513,7 @@ def hook_prompt():
     scheduled = bool(prefix and (data.get("prompt") or "").lstrip().startswith(prefix))
     if not scheduled:
         lines += rate_events(sid, path)
-    for alert in (week_alert(cfg), None if scheduled else pace_alert(cfg)):
+    for alert in (week_alert(cfg), None if scheduled else pace_alert(cfg), None if scheduled else auth_alert(cfg)):
         if alert:
             lines.append(alert)
     job = state.get("job")
@@ -2279,6 +2280,38 @@ def pace_alert(cfg):
                 p["fits_per_day"] or 0))
 
 
+AUTH_EVERY = 6 * 3600  # how often the login for installments is checked, on the user's messages
+
+
+def auth_alert(cfg):
+    """While an installment job is open, check at most every 6 hours (on the user's messages, so there is time
+    to fix it before the night) that Claude Code is logged in for runs outside the app. It only reads the
+    status, at no token cost; a login that is there but cannot be renewed shows only in a real call
+    (`rate check --live`). One line for Claude when it is not logged in."""
+    if not any(j.get("status") == "open" for j in open_jobs()):
+        return None
+    path = os.path.join(home(), "auth-check.json")
+    state = load_json(path, {})
+    if time.time() - (state.get("epoch") or 0) < AUTH_EVERY:
+        return None
+    claude = find_claude(cfg)
+    if not claude:
+        return None
+    logged = None
+    try:
+        proc = subprocess.run([claude, "auth", "status"], capture_output=True, timeout=8)
+        logged = json.loads(proc.stdout.decode("utf-8", "replace")).get("loggedIn")
+    except Exception:
+        pass
+    save_json(path, {"epoch": round(time.time()), "logged": logged})
+    if logged is not False:
+        return None
+    return ("INSTALLMENTS WILL FAIL: Claude Code is not logged in for runs outside the app (auth status). Tell the "
+            "user in ONE line, and offer to start the login now: run `\"%s\" auth login` in the background; the "
+            "browser opens and the user clicks Authorize. If the page shows a code, the user pastes it into a "
+            "terminal themselves: never handle that code. Then check with `\"%s\" auth status`." % (claude, claude))
+
+
 def week_room(cfg, job):
     """Weighted tokens this installment may spend without eating into the reserve (None if unknown)."""
     plan = week_plan(cfg)
@@ -2353,7 +2386,8 @@ COMMANDS = [
     ("rate pause <job> / rate resume <job>", "pause a job, or start it again", "mette in pausa un lavoro, o lo fa ripartire"),
     ("rate stop <job>", "stop a job and remove its scheduled runs", "ferma un lavoro e toglie i suoi orari"),
     ("rate status [job]", "installments done and weighted tokens spent", "rate fatte e token pesati spesi"),
-    ("rate check", "can a scheduled installment wake this PC, and is Claude Code logged in", "una rata programmata puo' svegliare il PC, e Claude Code e' collegato"),
+    ("rate check [--live]", "can a scheduled installment wake this PC, and is Claude Code logged in (--live: one real call, a few cents)",
+     "una rata programmata puo' svegliare il PC, e Claude Code e' collegato (--live: una chiamata vera, pochi centesimi)"),
 ]
 
 
@@ -2945,6 +2979,10 @@ RATE_PROMPT = """You are doing ONE installment of a bigger job, inside a spendin
 This installment's cap: {cap} weighted tokens. This is installment {number} of about {days}."""
 
 
+LOGIN_ERROR = ("Claude Code is not logged in for runs outside the app (the login expired or was never made): log in "
+               "again with `claude auth login` (in a chat, ask Claude to start it)")
+
+
 def rate_dir(name):
     return os.path.join(home(), "rate", re.sub(r"[^\w-]", "_", name))
 
@@ -3022,19 +3060,24 @@ def bind_chat(name, sid):
 
 
 def next_run(name):
-    """When the job's next scheduled installment starts, or None (Windows: read from Task Scheduler)."""
+    """When the job's next scheduled installment starts (Windows: read from Task Scheduler): a datetime, None
+    when nothing is scheduled, or False when Task Scheduler could not be read (08/10/2026: right after the PC
+    resumed, the old query timed out and the report said "no installment is scheduled" although one was)."""
     if os.name != "nt":
         return None
-    script = ("Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -eq '%s' -or $_.TaskName "
-              "-like '%s*' } | Get-ScheduledTaskInfo | Where-Object { $_.NextRunTime } | ForEach-Object { "
-              "$_.NextRunTime.ToString('yyyy-MM-ddTHH:mm:ss') }" % (task_name(name), task_name(name, once=True)))
+    script = ("$t=@(Get-ScheduledTask -TaskName '%s' -ErrorAction SilentlyContinue) + @(Get-ScheduledTask -TaskName "
+              "'%s*' -ErrorAction SilentlyContinue); $t | Where-Object { $_ } | Get-ScheduledTaskInfo | Where-Object "
+              "{ $_.NextRunTime } | ForEach-Object { $_.NextRunTime.ToString('s') }; 'done'" % (
+                  task_name(name), task_name(name, once=True)))
     try:
         proc = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-                              capture_output=True, timeout=15)
-        times = [datetime.strptime(line.strip(), "%Y-%m-%dT%H:%M:%S")
-                 for line in proc.stdout.decode("utf-8", "replace").splitlines() if line.strip()]
+                              capture_output=True, timeout=30)
+        lines = [l.strip() for l in proc.stdout.decode("utf-8", "replace").splitlines() if l.strip()]
+        if "done" not in lines:
+            return False
+        times = [datetime.strptime(l, "%Y-%m-%dT%H:%M:%S") for l in lines if l != "done"]
     except Exception:
-        return None
+        return False
     times = [t for t in times if t > datetime.now()]
     return min(times) if times else None
 
@@ -3158,7 +3201,8 @@ def write_report_page(name, job, runs, cfg, folder=None):
         if job.get("status") == "open":
             nxt = next_run(name)
             parts.append("<p><b>%s</b> %s</p>" % ("Prossima rata:" if it else "Next installment:",
-                         when(nxt.timestamp(), cfg.get("lang")) if nxt else ("nessuna in programma" if it else "none scheduled")))
+                         when(nxt.timestamp(), cfg.get("lang")) if nxt else (("non letta da Windows" if it else "not read from Windows") if nxt is False
+                                     else ("nessuna in programma" if it else "none scheduled"))))
         parts.append("<p>%s <code>%s</code></p></div>" % ("Cartella del lavoro:" if it else "Work folder:",
                      html.escape(job.get("dir") or folder, quote=False)))
         text = (load_text(os.path.join(folder, "HANDOFF.md")) or "").strip()
@@ -3200,7 +3244,15 @@ def installment_toast(name, job, runs, cfg, page=None):
             ((" (preventivo %s)" if it else " (quote %s)") % amount(job["quote"], cfg.get("lang"))) if job.get("quote") else "")
     elif run.get("error"):
         title = ("Quotient · rata %d di «%s» non riuscita" if it else "Quotient · installment %d of '%s' failed") % (n, name)
-        body = str(run["error"])[:150].strip().rstrip(".") + ". "
+        if str(run["error"]).startswith(LOGIN_ERROR[:40]):
+            title = ("Quotient · rata %d di «%s» non partita: login scaduto" if it else
+                     "Quotient · installment %d of '%s' did not start: login expired") % (n, name)
+            body = ("Claude Code per le rate non è collegato. In una chat chiedi di rifare il login, poi di "
+                    "riprovare la rata. Non si è speso niente. " if it else
+                    "Claude Code is not logged in for installments. In a chat, ask to log in again, then to retry "
+                    "the installment. Nothing was spent. ")
+        else:
+            body = str(run["error"])[:150].strip().rstrip(".") + ". "
     else:
         per_point = (capacity("seven_day") or {}).get("per_point")
         title = ("Quotient · rata %d di «%s» finita" if it else "Quotient · installment %d of '%s' done") % (n, name)
@@ -3333,6 +3385,8 @@ def rate_run(args):
     os.makedirs(folder, exist_ok=True)
     with open(lock, "w") as f:
         f.write(str(os.getpid()))
+    woke = found_asleep(config())
+    args.woke = woke
     keep_awake(True)
     try:
         run_installment(args)
@@ -3344,7 +3398,9 @@ def rate_run(args):
             pass
     job = load_json(os.path.join(folder, "job.json"), {}) or {}
     after = job.get("after") or "nothing"
-    if after != "nothing":
+    if after != "nothing" and not woke:
+        out("The PC was already on when the installment started: it stays on.\n")
+    elif after != "nothing":
         idle = idle_seconds()
         if idle is not None and idle >= config()["rate"]["idle_minutes"] * 60:
             out("Nobody is using the PC: %s.\n" % after)
@@ -3442,9 +3498,11 @@ def run_installment(args):
     error = None
     if result.get("is_error") or not result:
         said = str(result.get("result") or "") + stderr
-        error = ("Claude Code is not logged in for runs outside the app: run `claude auth login` once in a terminal"
-                 if "logged in" in said.lower() or "/login" in said else (said.strip()[-300:] or "error"))
+        low = said.lower()
+        error = (LOGIN_ERROR if "logged in" in low or "/login" in said or "authenticate" in low or "oauth" in low
+                 else (said.strip()[-300:] or "error"))
     run = {"started": started, "finished": now_iso(), "session": sid, "wt": wt, "calls": calls,
+           "found_asleep": getattr(args, "woke", None) if isinstance(getattr(args, "woke", None), bool) else None,
            "chat": chat, "fresh": fresh, "usd": usd, "error": error, "done": done, "cap": cap,
            "progress": 100.0 if done else parse_progress(handoff)}
     # Read the job again: a chat may have changed it while the installment worked (`rate here`, `rate set`).
@@ -3637,6 +3695,35 @@ def unschedule(name):
 
 # ---------------------------------------------------------------- the PC: awake, idle, asleep
 
+def woken_recently(minutes=10):
+    """Did the PC resume from sleep or hibernation in the last minutes? Read from Windows' own log (Kernel-Power
+    107, Power-Troubleshooter 1). True, False, or None where it cannot be read."""
+    if os.name != "nt":
+        return None
+    script = ("$t=(Get-Date).AddMinutes(-%d); $e=Get-WinEvent -FilterHashtable @{LogName='System';Id=1,107;"
+              "StartTime=$t} -ErrorAction SilentlyContinue | Where-Object { $_.ProviderName -match "
+              "'Kernel-Power|Power-Troubleshooter' } | Select-Object -First 1; if ($e) {'yes'} else {'no'}" % minutes)
+    try:
+        proc = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+                              capture_output=True, timeout=30)
+        text = proc.stdout.decode("utf-8", "replace").strip().lower()
+    except Exception:
+        return None
+    return True if text.endswith("yes") else False if text.endswith("no") else None
+
+
+def found_asleep(cfg):
+    """Did this installment find the PC asleep (and so wake it)? 08/10/2026: the PC was on and in use at 03:00,
+    nobody had touched mouse or keyboard for 10 minutes, and the installment put it into hibernation. From then
+    on the PC goes back to sleep only if it was asleep when the installment started. When Windows' log cannot
+    be read: someone who used the PC in the last minutes means it was on."""
+    woke = woken_recently()
+    if woke is None:
+        idle = idle_seconds()
+        woke = idle is not None and idle >= cfg["rate"]["idle_minutes"] * 60
+    return woke
+
+
 def keep_awake(on):
     """While an installment works, Windows must not put the PC back to sleep."""
     if os.name != "nt":
@@ -3710,8 +3797,36 @@ def rate_check(args):
     except ValueError:
         logged = None
     out("Logged in for runs outside the app: %s\n" % {True: "yes", False: "NO", None: "unknown"}[logged])
+    if getattr(args, "live", False) is True:
+        out(live_check(config(), claude) + "\n")
     if logged is False:
         out('Log in once, in a terminal (it opens the browser; paste the code it gives you):\n"%s" auth login\n' % claude)
+
+
+def live_check(cfg, claude):
+    """One real call with the smallest model, the way an installment runs: it shows a login that is there but
+    can no longer be renewed (08/10/2026), which the status alone does not. It costs a few cents."""
+    prefix = (cfg["rate"].get("prompt_prefix") or "").strip()
+    cmd = [claude, "-p", (prefix + " " if prefix else "") + "Reply with the single word OK.", "--model", "haiku",
+           "--max-turns", "1", "--output-format", "json"]
+    try:
+        proc = subprocess.run(cmd, cwd=home(), env=dict(os.environ, QUOTIENT_CHECK="1"), capture_output=True,
+                              timeout=180)
+        result = {}
+        for line in reversed(proc.stdout.decode("utf-8", "replace").strip().splitlines()):
+            try:
+                result = json.loads(line)
+                break
+            except ValueError:
+                continue
+    except Exception as exc:
+        return "Live test: it could not run (%s)." % exc
+    said = str(result.get("result") or "") + proc.stderr.decode("utf-8", "replace")
+    if result and not result.get("is_error") and "ok" in str(result.get("result") or "").lower():
+        return "Live test: OK, an installment can run now (cost $%.4f)." % (result.get("total_cost_usd") or 0)
+    if "authenticate" in said.lower() or "logged in" in said.lower() or "oauth" in said.lower():
+        return "Live test: FAILED, " + LOGIN_ERROR + "."
+    return "Live test: FAILED: %s" % (said.strip()[-300:] or "no answer")
 
 
 def wake_allowed(args):
@@ -3816,7 +3931,8 @@ def main(argv=None):
     p = rsub.add_parser("here", help="each installment's report comes to this chat")
     p.add_argument("name")
     p.add_argument("--session", help="the chat (Claude Code session id), when run from a terminal")
-    rsub.add_parser("check", help="can a scheduled installment wake this PC?")
+    p = rsub.add_parser("check", help="can a scheduled installment wake this PC, and is Claude Code logged in?")
+    p.add_argument("--live", action="store_true", help="also one real call with the smallest model (a few cents)")
     rsub.add_parser("week", help="all open installment jobs against what is left of the week")
     p = rsub.add_parser("pause", help="pause a job: its scheduled runs skip it")
     p.add_argument("name")
@@ -3833,6 +3949,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     hooks = {"hook-session": hook_session, "hook-prompt": hook_prompt,
              "hook-stop": hook_stop, "hook-pretool": hook_pretool, "hook-precompact": hook_precompact}
+    if args.cmd in hooks and os.environ.get("QUOTIENT_CHECK"):
+        return  # the live test of `rate check` is not a chat: nothing to measure or to tell
     if args.cmd in hooks:
         try:
             hooks[args.cmd]()

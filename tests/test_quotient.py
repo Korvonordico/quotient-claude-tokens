@@ -72,6 +72,11 @@ class Base(unittest.TestCase):
         self.sched = mock.patch.object(pv, "next_run", return_value=None)
         self.sched.start()
         self.addCleanup(self.sched.stop)
+        # tests never read Windows' event log or Claude Code's login (0.9.7)
+        for name, value in (("woken_recently", True), ("auth_alert", None)):
+            patcher = mock.patch.object(pv, name, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         # tests do not see the numbers shipped with the plugin unless they ask for them
         self.bundled = mock.patch.object(pv, "bundled_average_path", return_value=os.path.join(self.dir, "none.json"))
         self.bundled.start()
@@ -860,14 +865,19 @@ class TestReports(Base):
         later = pv.datetime.fromtimestamp(pv.time.time() + 3 * 3600).strftime("%Y-%m-%dT%H:%M:%S")
         earlier = pv.datetime.fromtimestamp(pv.time.time() + 3600).strftime("%Y-%m-%dT%H:%M:%S")
         past = "2020-01-01T10:00:00"
-        out = ("%s\r\n%s\r\n%s\r\n" % (later, past, earlier)).encode()
+        out = ("%s\r\n%s\r\n%s\r\ndone\r\n" % (later, past, earlier)).encode()
         with mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(stdout=out)) as run:
             self.assertEqual(next_run("book").strftime("%Y-%m-%dT%H:%M:%S"), earlier)
         script = run.call_args.args[0][-1]
-        self.assertIn("-eq 'quotient-book'", script)
-        self.assertIn("-like 'quotient-book-once*'", script)
+        self.assertIn("-TaskName 'quotient-book'", script)
+        self.assertIn("-TaskName 'quotient-book-once*'", script)
+        with mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(stdout=b"done\r\n")):
+            self.assertIsNone(next_run("book"))      # Task Scheduler answered: nothing scheduled
+        # 08/10/2026: right after a resume the query timed out, and the report said "no installment is scheduled"
         with mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(stdout=b"")):
-            self.assertIsNone(next_run("book"))
+            self.assertIs(next_run("book"), False)   # no answer: not read, which is not "nothing scheduled"
+        with mock.patch.object(pv.subprocess, "run", side_effect=pv.subprocess.TimeoutExpired("ps", 30)):
+            self.assertIs(next_run("book"), False)
 
 
 class FakeService:

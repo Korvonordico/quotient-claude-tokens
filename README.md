@@ -80,7 +80,7 @@ You leave the PC **in sleep or hibernation**, as you always do. Every installmen
 1. **At the time you chose** (for example 03:00), Windows wakes the PC.
 2. **Quotient starts Claude Code** in the background, without opening the app. Claude reads the job and a short note of where it stopped last time.
 3. **Claude works on the next piece** until it reaches that day's amount. Then it writes down where it stopped, and stops cleanly.
-4. **If nobody is using the PC** (no keyboard or mouse for 10 minutes), Quotient **puts it back to sleep**, or into hibernation if you chose that. If you are using it, it stays on.
+4. **If the installment found the PC asleep and nobody is using it** (no keyboard or mouse for 10 minutes), Quotient **puts it back to sleep**, or into hibernation if you chose that. A PC that was already on when the installment started stays on, even if you are only watching something (Quotient reads it from Windows' own log).
 5. **The next day, at the same time, it starts again**, until the job is finished. Then the schedule removes itself.
 
 **When you come back, you see it at once.** For each installment Windows shows a notification, which stays in the notification center; a click opens a page with that installment's report (it is kept in the job's folder, under `reports`). The full report waits in the chat where you created the job and appears at your first message there: which installment, when, what it cost against the day's amount and the week, what it did, what is left and when the next one starts. Other chats tell you only once, and a second time no sooner than a day later; then they stop. To get the reports in another chat, ask Claude there (`rate here <job>`).
@@ -89,7 +89,7 @@ Good to know:
 - If you prefer that Quotient never touches the PC, choose so in the setup: installments then run only when the PC is already on.
 - A timer can wake a PC that is **asleep or hibernated, not one that is shut down**. If the PC was off, the installment runs as soon as you turn it on.
 - Windows must allow wake timers. `rate check` tells you whether it does, and how to turn them on.
-- If you use the Claude desktop app, log in Claude Code once in a terminal (`claude auth login`): installments run outside the app.
+- If you use the Claude desktop app, log in Claude Code once in a terminal (`claude auth login`): installments run outside the app. That login can expire: while an installment job is open, Quotient checks it every 6 hours on your messages (at no cost) and tells you in the chat, so you can renew it before the night. `rate check --live` makes one real call with the smallest model to be sure (a few cents). An installment that stops for the login spends nothing, and its notification says what to do.
 - You can start one more installment the same day, if you accept that it uses more of that day's limit.
 - Waking and sleeping work on Windows. On macOS and Linux Quotient gives you the line to schedule it yourself.
 
@@ -112,7 +112,7 @@ Over time it also estimates how many tokens 1% of each limit holds, so a quote c
 Each copy of Quotient learns from its own errors, but a new user has no errors yet. So the copies pool their numbers: after each finished job, Quotient sends **one line of numbers, exactly this and nothing else**:
 
 ```json
-{"v":1,"q":"0.9.6","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"0.9.7","family":"opus","estimate":225000,"actual":259000}
 ```
 
 The format, the Quotient version, the model family (opus, sonnet, haiku, fable or other), the raw estimate and the real cost of the work in weighted tokens (from 0.9.5 without the re-reading of the chat, which the estimate is not about), rounded to 3 significant digits. **No dates, no names, no text, no paths, no session or user ids.** The line leaves at the start of your next session, never in the middle of a reply, and nothing is queued before Claude Code has shown you a message about it.

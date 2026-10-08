@@ -507,3 +507,89 @@ class TestPagesKeepTheirStyles(ChatBase):
         # 07/10/2026: the installment page took the same style name and the chart page lost its colours
         self.assertIn("--s1", pv.PAGE_STYLE)
         self.assertNotIn("--s1", pv.RUN_PAGE_STYLE)
+
+
+class TestNight097(ChatBase):
+    """0.9.7, after the night of 08/10/2026: at 03:00 the login for installments had expired, the installment
+    stopped at once, and Quotient put into hibernation a PC that was on and in use."""
+
+    def new_job(self):
+        args = mock.Mock(dir=self.dir, task="job", task_file=None, days=2, daily=None, quote=500000, model=None,
+                         after="hibernate", template=None)
+        args.name = "book"
+        self.run_hook(lambda: pv.rate_new(args), {})
+
+    def run_once(self, woke, idle):
+        args = mock.Mock(force=True)
+        args.name = "book"
+        with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"), \
+                mock.patch.object(pv, "woken_recently", return_value=woke), \
+                mock.patch.object(pv, "idle_seconds", return_value=idle), \
+                mock.patch.object(pv, "go_to_sleep") as sleep:
+            said = self.run_hook(lambda: pv.rate_run(args), {})
+        return said, sleep
+
+    def test_a_pc_that_was_on_is_never_put_to_sleep(self):
+        self.new_job()
+        said, sleep = self.run_once(woke=False, idle=3600)    # on and untouched for an hour: still in use
+        sleep.assert_not_called()
+        self.assertIn("already on", said)
+
+    def test_a_pc_the_installment_woke_goes_back_to_sleep_if_nobody_uses_it(self):
+        self.new_job()
+        said, sleep = self.run_once(woke=True, idle=3600)
+        sleep.assert_called_once_with("hibernate")
+        said, sleep = self.run_once(woke=True, idle=30)       # someone sat down meanwhile
+        sleep.assert_not_called()
+
+    def test_without_windows_log_recent_use_means_the_pc_was_on(self):
+        cfg = pv.config()
+        with mock.patch.object(pv, "woken_recently", return_value=None), \
+                mock.patch.object(pv, "idle_seconds", return_value=60):
+            self.assertFalse(pv.found_asleep(cfg))
+        with mock.patch.object(pv, "woken_recently", return_value=None), \
+                mock.patch.object(pv, "idle_seconds", return_value=3600):
+            self.assertTrue(pv.found_asleep(cfg))
+
+    def test_an_expired_login_is_said_plainly(self):
+        self.new_job()
+        job = pv.load_json(os.path.join(pv.rate_dir("book"), "job.json"), None)
+        run = {"started": "2026-10-08T03:00:03+02:00", "finished": "2026-10-08T03:00:16+02:00", "wt": 0,
+               "cap": 250000, "error": pv.LOGIN_ERROR, "done": False}
+        pv.store(("lang",), "it")
+        title, body = pv.installment_toast("book", job, [run], pv.config())
+        self.assertIn("login scaduto", title)
+        self.assertIn("rifare il login", body)
+        self.assertIn("Non si è speso niente", body)
+
+    def test_the_login_is_checked_on_messages_while_a_job_is_open(self):
+        real = TestNight097.real_auth_alert
+        with mock.patch.object(pv, "find_claude", return_value="claude.exe"), \
+                mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(stdout=b'{"loggedIn": false}')) as run:
+            self.assertIsNone(real(pv.config()))              # no open job: nothing to check
+            self.new_job()
+            first = real(pv.config())
+            second = real(pv.config())                        # checked again only after 6 hours
+        self.assertIn("INSTALLMENTS WILL FAIL", first)
+        self.assertIn("never handle that code", first)
+        self.assertIsNone(second)
+        self.assertEqual(run.call_count, 1)
+
+    def test_live_check(self):
+        good = mock.Mock(stdout=b'{"result": "OK", "is_error": false, "total_cost_usd": 0.0012}', stderr=b"")
+        bad = mock.Mock(stdout=b'{"result": "Failed to authenticate: OAuth session expired", "is_error": true}', stderr=b"")
+        with mock.patch.object(pv.subprocess, "run", return_value=good) as run:
+            self.assertIn("OK", pv.live_check(pv.config(), "claude.exe"))
+        self.assertEqual(run.call_args.kwargs["env"]["QUOTIENT_CHECK"], "1")
+        self.assertIn("haiku", run.call_args.args[0])
+        with mock.patch.object(pv.subprocess, "run", return_value=bad):
+            self.assertIn("not logged in", pv.live_check(pv.config(), "claude.exe"))
+
+    def test_hooks_stay_quiet_in_the_live_check(self):
+        with mock.patch.dict(os.environ, {"QUOTIENT_CHECK": "1"}):
+            with mock.patch.object(pv, "hook_prompt") as hook:
+                pv.main(["hook-prompt"])
+        hook.assert_not_called()
+
+
+TestNight097.real_auth_alert = staticmethod(pv.auth_alert)
