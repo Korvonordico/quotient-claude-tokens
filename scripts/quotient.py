@@ -87,6 +87,14 @@ DEFAULTS = {
     "lang": "en",
     # Path to the claude executable; empty means "find it".
     "claude_path": "",
+    "limits": {
+        # Read the plan limits straight from Anthropic (the same request as Claude Code's /usage, no tokens spent),
+        # at most once every this many seconds. live false: only the status line.
+        "live": True,
+        "every": 600,
+    },
+    # Count the chats of Hermes Agent (same Claude login, same limits) in the weeks and in the report.
+    "hermes": True,
     "week": {
         # Share of the weekly limit kept free for normal use; installments never plan into it.
         "reserve_percent": 20,
@@ -2053,6 +2061,40 @@ def limits_line(lang):
     return " · ".join(parts) + stale
 
 
+def measured_turns(cfg=None):
+    """(epoch, weighted tokens) of everything measured on this login: Claude Code turns and Hermes chats."""
+    rows = [(ts_epoch(t.get("ts")), t["wt"]) for t in read_jsonl(os.path.join(home(), "turns.jsonl")) if t.get("wt")]
+    cfg = cfg or config()
+    if cfg.get("hermes", True) and os.environ.get("QUOTIENT_HERMES") != "0":
+        try:
+            import hermes_source as hs
+            if hs.available():
+                hs.sync(home(), cfg["weights"])
+            rows += [(r.get("epoch"), r["wt"]) for r in hs.read_log(home()) if r.get("wt") and r.get("epoch")]
+        except Exception:
+            pass
+    return rows
+
+
+def refresh_limits(cfg=None, force=False):
+    """A fresh reading of the plan limits from Anthropic, when the last one is older than limits.every."""
+    cfg = cfg or config()
+    lim = cfg.get("limits") or {}
+    if not lim.get("live", True) or os.environ.get("QUOTIENT_LIMITS_LIVE") == "0":
+        return None
+    last = read_jsonl(limits_path(), tail_bytes=4096)
+    if not force and last and time.time() - (last[-1].get("epoch") or 0) < lim.get("every", 600):
+        return None
+    try:
+        import limits_live
+        snap = limits_live.fetch()
+    except Exception:
+        snap = None
+    if snap:
+        record_limits(snap, "oauth")
+    return snap
+
+
 def capacity(window):
     """How many weighted tokens 1% of a window holds, from readings and measured turns.
 
@@ -2065,7 +2107,7 @@ def capacity(window):
         if row.get(window) is None or not row.get(window + "_resets"):
             continue
         groups.setdefault(round(row[window + "_resets"] / 300), []).append(row)
-    turns = [(ts_epoch(t.get("ts")), t["wt"]) for t in read_jsonl(os.path.join(home(), "turns.jsonl")) if t.get("wt")]
+    turns = measured_turns()
     total_wt, total_points, count = 0.0, 0.0, 0
     for rows in groups.values():
         rows.sort(key=lambda r: r["epoch"])
@@ -2091,7 +2133,7 @@ def weeks():
             key = round(row["seven_day_resets"] / 300)
             g = groups.setdefault(key, {"resets": row["seven_day_resets"], "used": 0})
             g["used"] = max(g["used"], row["seven_day"])
-    turns = [(ts_epoch(t.get("ts")), t["wt"]) for t in read_jsonl(os.path.join(home(), "turns.jsonl")) if t.get("wt")]
+    turns = measured_turns()
     rows = []
     for g in sorted(groups.values(), key=lambda g: g["resets"]):
         start = g["resets"] - 7 * 86400
@@ -2370,6 +2412,10 @@ COMMANDS = [
     ("config [key [value]]", "show every setting, or change one", "mostra tutte le impostazioni, o ne cambia una"),
     ("/quotient:share [on|off]", "the shared average: exactly what is sent, and turning it on or off", "la media condivisa: cosa parte esattamente, e accenderla o spegnerla"),
     ("share status|on|off|send", "the same, from a terminal (send: send the waiting lines now)", "lo stesso, dal terminale (send: manda adesso le righe in attesa)"),
+    ("tick", "read Hermes' counters and the plan limits now (a scheduled task can run it every few minutes)",
+     "legge adesso i contatori di Hermes e i limiti del piano (un'attività pianificata può farlo ogni pochi minuti)"),
+    ("hermes", "Hermes Agent chats (same Claude login, same limits): read its token counters now",
+     "le chat di Hermes Agent (stesso login di Claude, stessi limiti): legge adesso i suoi contatori dei token"),
     ("export", "the exact line sharing sends for each finished job", "la riga esatta che la condivisione manda per ogni lavoro finito"),
     ("setup-statusline [--write]", "show the plan limits in the status line", "mostra i limiti del piano nella riga di stato"),
     ("rate new <job> --dir <folder> --task-file <file> --quote N (--days N | --daily N) [--template book|research|code-review]",
@@ -2445,6 +2491,9 @@ TEXT = {
         "running": "(in progress)",
         "too_early": "Too early to say whether the weeks are getting lighter: %d complete week(s), at least 4 are needed.",
         "trend_weeks": "Last 2 weeks: %.0f%% of the limit on average; the 2 before: %.0f%%.",
+        "hermes_head": "Hermes (same login, same limits): last 5 hours %s wt, last 7 days %s wt, of it subagents %s; re-reading the chat (cache reads) %s of it.",
+        "hermes_top": "  heaviest chat: %s wt  %s",
+        "hermes_none": "Hermes: not found on this PC.",
     },
     "it": {
         "title": "Quotient: stime contro costi veri (unità: token pesati)",
@@ -2477,6 +2526,9 @@ TEXT = {
         "running": "(in corso)",
         "too_early": "Troppo presto per dire se le settimane si alleggeriscono: %d settimane complete, ne servono almeno 4.",
         "trend_weeks": "Ultime 2 settimane: in media %.0f%% del limite; le 2 prima: %.0f%%.",
+        "hermes_head": "Hermes (stesso login, stessi limiti): ultime 5 ore %s token pesati, ultimi 7 giorni %s, di cui aiutanti %s; rilettura della chat (letture dalla cache) il %s.",
+        "hermes_top": "  chat più pesante: %s token pesati  %s",
+        "hermes_none": "Hermes: non trovato su questo PC.",
     },
 }
 
@@ -2515,6 +2567,28 @@ def weight_summary():
 
 def share_of(part, whole, lang):
     return percent(100.0 * part / whole, lang) if whole else "-"
+
+
+def hermes_lines(cfg, t, lang):
+    """The Hermes section of the report: its chats use the same login, so the same limits."""
+    try:
+        import hermes_source as hs
+    except ImportError:
+        return []
+    if not cfg.get("hermes", True) or os.environ.get("QUOTIENT_HERMES") == "0" or not hs.available():
+        return []
+    try:
+        hs.sync(home(), cfg["weights"])
+    except Exception:
+        pass
+    s = hs.summary(home())
+    if not s["rows"]:
+        return []
+    lines = ["", t["hermes_head"] % (fmt(s["five_hour"]), fmt(s["week"]), fmt(s["subagents"]),
+                                      share_of(s["read_share"] * s["week"], s["week"], lang))]
+    for _sid, c in s["top"][:3]:
+        lines.append(t["hermes_top"] % (fmt(c["wt"]), c["title"] or _sid))
+    return lines
 
 
 def report(args=None):
@@ -2574,6 +2648,8 @@ def report(args=None):
     lines.append(t["compact_mode"] % (("%s %s" % (t["compact_at"], fmt(target))) if target else t["compact_keep"]))
     if c["count"]:
         lines.append(t["compactions"] % (c["count"], c["auto"], fmt(c["saved"])))
+    lines += hermes_lines(cfg, t, lang)
+    refresh_limits(cfg)
     current = limits_line(lang)
     lines += ["", t["limits"] % (current or t["no_limits"])]
     for window in ("seven_day", "five_hour"):
@@ -3892,6 +3968,8 @@ def main(argv=None):
     p = sub.add_parser("setup-statusline", help="show the plan limits in the status line and record them")
     p.add_argument("--write", action="store_true", help="write the setting in ~/.claude/settings.json")
     p.add_argument("--force", action="store_true", help="replace a status line that is already set")
+    sub.add_parser("hermes", help="Hermes Agent chats: same Claude login, same limits")
+    sub.add_parser("tick", help="read Hermes' counters and the plan limits now (for a scheduled task, every few minutes)")
     p = sub.add_parser("config")
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
@@ -3971,6 +4049,15 @@ def main(argv=None):
         cmd_share(args)
     elif args.cmd == "commands":
         cmd_commands()
+    elif args.cmd == "tick":
+        cfg = config()
+        measured_turns(cfg)
+        snap = refresh_limits(cfg, force=True)
+        out(json.dumps({"limits": snap, "hermes": cfg.get("hermes", True)}) + "\n")
+    elif args.cmd == "hermes":
+        cfg = config()
+        t = TEXT.get(cfg.get("lang"), TEXT["en"])
+        out("\n".join(hermes_lines(cfg, t, cfg.get("lang")) or [t["hermes_none"]]).strip() + "\n")
     elif args.cmd == "report":
         report(args)
     elif args.cmd == "export":

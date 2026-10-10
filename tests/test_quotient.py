@@ -13,6 +13,9 @@ from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(HERE, "..", "scripts")
 sys.path.insert(0, SCRIPTS)
+# The tests never read this PC's Hermes chats nor ask Anthropic for the real limits.
+os.environ["QUOTIENT_HERMES"] = "0"
+os.environ["QUOTIENT_LIMITS_LIVE"] = "0"
 import quotient as pv  # noqa: E402
 
 
