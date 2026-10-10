@@ -107,6 +107,22 @@ Quotient · 5-hour: 31% used, 69% left, resets 19:30 · week: 6% used, 94% left,
 
 Over time it also estimates how many tokens 1% of each limit holds, so a quote can say "this takes about 8% of your week". Anthropic does not publish the limits in tokens, so this is an estimate, with its margin.
 
+## Hermes Agent too
+
+If you also use [Hermes Agent](https://github.com/NousResearch/hermes-agent) with your Claude login, its chats spend the same 5-hour and weekly limits. Quotient reads Hermes' token counters (its local session store, read-only: numbers, model and chat title, never the text), counts them in the weeks and in the report, and can work inside Hermes too: add two shell hooks to Hermes' `config.yaml`:
+
+```yaml
+hooks:
+  pre_llm_call:
+    - command: "<path>/scripts/quotient.py hermes-hook"
+  post_llm_call:
+    - command: "<path>/scripts/quotient.py hermes-hook"
+```
+
+Then Hermes gives Claude the quote protocol and the real limits at each message, measures quoted jobs from `CHOICE:` to `JOB: CLOSE`, and says once when a chat has grown so long that every step mostly re-reads it. `quotient.py hermes` shows the Hermes numbers; turn it off with `config hermes false`.
+
+The plan limits are now also read straight from Anthropic, with the same request as Claude Code's `/usage` and no tokens spent (at most every 10 minutes; off with `config limits.live false`). `quotient.py tick` reads both now, for a scheduled task.
+
 ## What is shared
 
 Each copy of Quotient learns from its own errors, but a new user has no errors yet. So the copies pool their numbers: after each finished job, Quotient sends **one line of numbers, exactly this and nothing else**:

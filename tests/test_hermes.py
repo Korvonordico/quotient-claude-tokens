@@ -83,6 +83,16 @@ class HermesSource(unittest.TestCase):
         self.assertFalse(hs.available(tempfile.mkdtemp()))
 
 
+class TaskNotification(unittest.TestCase):
+    def test_background_task_notices_do_not_start_a_turn(self):
+        os.environ["QUOTIENT_HERMES"] = "0"
+        import quotient as q
+        note = "<task-notification><task-id>b1</task-id><status>completed</status></task-notification>"
+        self.assertFalse(q.is_turn_start({"type": "user", "message": {"content": note}}))
+        self.assertFalse(q.is_turn_start({"type": "user", "message": {"content": [{"type": "text", "text": note}]}}))
+        self.assertTrue(q.is_turn_start({"type": "user", "message": {"content": "fai il lavoro"}}))
+
+
 class HermesHooks(unittest.TestCase):
     """The shell hooks end to end, through `quotient.py hermes-hook`, with a fake Hermes."""
 

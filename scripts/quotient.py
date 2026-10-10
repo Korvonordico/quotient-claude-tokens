@@ -342,14 +342,18 @@ def weigh(usage, weights):
 
 
 def is_turn_start(entry):
-    """A user entry that is not a tool result starts a new turn."""
+    """A user entry that is not a tool result starts a new turn. Claude Code's own notices about background
+    tasks (<task-notification>) arrive as user entries but are not something the user wrote: not a turn."""
     if entry.get("type") != "user" or entry.get("isMeta") or entry.get("isSidechain"):
         return False
     content = (entry.get("message") or {}).get("content")
     if isinstance(content, str):
-        return True
+        return not content.lstrip().startswith("<task-notification>")
     if isinstance(content, list):
         kinds = {b.get("type") for b in content if isinstance(b, dict)}
+        if kinds == {"text"} and all(str(b.get("text") or "").lstrip().startswith("<task-notification>")
+                                     for b in content if isinstance(b, dict)):
+            return False
         return "tool_result" not in kinds and bool(kinds)
     return False
 

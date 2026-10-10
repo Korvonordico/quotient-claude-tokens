@@ -64,7 +64,9 @@ def _context_per_call(state_chat, totals, calls):
     d_read = totals["cache_read_tokens"] - (last.get("cache_read_tokens") or 0)
     if d_calls > 0 and d_read > 0:
         return d_read / d_calls
-    return state_chat.get("ctx") or 0
+    if state_chat.get("ctx"):
+        return state_chat["ctx"]
+    return totals["cache_read_tokens"] / calls if calls else 0    # first look: the chat's average so far
 
 
 def short_line(q, cfg, factor, ctx):
@@ -102,6 +104,14 @@ def pre_llm_call(q, payload):
     else:
         text = short_line(q, cfg, factor, ctx)
     open_job = chat.get("job")
+    # Long chats (the lesson of M33: re-reading the chat is most of the cost). Two notices at most, a day apart.
+    big = (cfg.get("chat") or {}).get("hermes_compress_at", 250000)
+    told = chat.setdefault("compress_told", [])
+    if ctx > big and len(told) < 2 and (not told or time.time() - told[-1] > 24 * 3600):
+        told.append(time.time())
+        text += (" LONG CHAT: each step re-reads about %s tokens (%s wt). Tell the user once, in one line, that "
+                 "/compress (or a new chat with a summary) would make every next step cheaper." % (
+                     q.fmt(ctx), q.fmt(ctx * cfg["weights"]["cache_read"])))
     if open_job:
         spent = hs.weigh_hermes({k: totals[k] - open_job["start"][k] for k in hs.COUNTERS}, cfg["weights"])
         text += " Open job: %s, about %s wt spent of %s (raw)." % (open_job["choice"], q.fmt(spent),
