@@ -83,5 +83,59 @@ class HermesSource(unittest.TestCase):
         self.assertFalse(hs.available(tempfile.mkdtemp()))
 
 
+class HermesHooks(unittest.TestCase):
+    """The shell hooks end to end, through `quotient.py hermes-hook`, with a fake Hermes."""
+
+    def setUp(self):
+        self.q = tempfile.mkdtemp()
+        self.h = fake_hermes([
+            ("chat1", "cli", "claude-opus-5-5", 1000.0, 2000.0, None, "work", "anthropic", 10, 100, 10000, 1000)])
+        self.env = dict(os.environ, QUOTIENT_HOME=self.q, HERMES_HOME=self.h, QUOTIENT_LIMITS_LIVE="0",
+                        QUOTIENT_SHARE="0")
+
+    def hook(self, event, response=None):
+        import subprocess
+        payload = {"hook_event_name": event, "session_id": "chat1", "extra": {"assistant_response": response or "",
+                                                                               "model": "claude-opus-5-5"}}
+        r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "quotient.py"), "hermes-hook"],
+                           input=json.dumps(payload), capture_output=True, text=True, env=self.env, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout or "{}")
+
+    def jobs(self):
+        try:
+            with open(os.path.join(self.q, "jobs.jsonl"), encoding="utf-8") as f:
+                return [json.loads(x) for x in f if x.strip()]
+        except OSError:
+            return []
+
+    def test_protocol_in_full_once_then_short(self):
+        first = self.hook("pre_llm_call")["context"]
+        second = self.hook("pre_llm_call")["context"]
+        self.assertIn("QUOTE:", first)
+        self.assertIn("clarify", first)
+        self.assertLess(len(second), len(first) / 3)
+
+    def test_a_quoted_job_is_measured_from_choice_to_close(self):
+        self.hook("pre_llm_call")
+        self.hook("post_llm_call", "Preventivo pronto.\nQUOTE: essential=1000 good=2000 max=4000")
+        self.hook("post_llm_call", "CHOICE: good\nPACE: today")
+        update(self.h, "chat1", output_tokens=700)          # +600 output = 3000 wt of work
+        self.hook("post_llm_call", "Fatto.\nJOB: CLOSE j1")
+        jobs = self.jobs()
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["raw_estimate"], 2000)
+        self.assertEqual(jobs[0]["actual"], 3000)
+        self.assertEqual(jobs[0]["source"], "hermes")
+
+    def test_declined_and_dropped_jobs_are_not_measured(self):
+        self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000")
+        self.hook("post_llm_call", "CHOICE: none")
+        self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000")
+        self.hook("post_llm_call", "CHOICE: max")
+        self.hook("post_llm_call", "JOB: DROP j1")
+        self.assertEqual(self.jobs(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

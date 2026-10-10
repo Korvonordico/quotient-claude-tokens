@@ -3969,6 +3969,7 @@ def main(argv=None):
     p.add_argument("--write", action="store_true", help="write the setting in ~/.claude/settings.json")
     p.add_argument("--force", action="store_true", help="replace a status line that is already set")
     sub.add_parser("hermes", help="Hermes Agent chats: same Claude login, same limits")
+    sub.add_parser("hermes-hook", help="(Hermes shell hook) pre_llm_call / post_llm_call, JSON on stdin")
     sub.add_parser("tick", help="read Hermes' counters and the plan limits now (for a scheduled task, every few minutes)")
     p = sub.add_parser("config")
     p.add_argument("key", nargs="?")
@@ -4049,6 +4050,9 @@ def main(argv=None):
         cmd_share(args)
     elif args.cmd == "commands":
         cmd_commands()
+    elif args.cmd == "hermes-hook":
+        import hermes_hooks
+        hermes_hooks.main(sys.modules[__name__])
     elif args.cmd == "tick":
         cfg = config()
         measured_turns(cfg)
