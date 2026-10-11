@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quotient: know what an AI job costs before it starts</title>
+<meta name="description" content="Quotient is a Claude Code plugin: a token quote before a big AI job, the real cost after, and big jobs split into installments that respect your 5-hour and weekly usage limits.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0b0d11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Quotient: know what an AI job costs before it starts">
+<meta property="og:description" content="A Claude Code plugin: a token quote before a big job, the real cost after, and installments that respect your usage limits.">
+<meta property="og:image" content="https://raw.githubusercontent.com/Korvonordico/quotient-claude-tokens/main/docs/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%230d1117'/%3E%3Ccircle%20cx='16'%20cy='8.5'%20r='2.6'%20fill='%23e3b341'/%3E%3Crect%20x='7'%20y='14.4'%20width='18'%20height='3.2'%20rx='1.6'%20fill='%23e3b341'/%3E%3Ccircle%20cx='16'%20cy='23.5'%20r='2.6'%20fill='%23e3b341'/%3E%3C/svg%3E">
+<style>
+:root{
+  color-scheme:dark light;
+  --bg:#0b0d11;--surface:#12161c;--surface-2:#181d25;--border:#262d38;--text:#e8ecf1;--muted:#a4aebb;
+  --accent:#e3b341;--accent-hover:#efc65f;--accent-ink:#1c1400;--accent-text:#e9bd52;--ok:#56d364;
+  --term:#0d1117;--term-border:#262d38;--term-text:#e6edf3;--term-dim:#8b949e;
+  --shadow:0 30px 70px -30px rgba(0,0,0,.75);
+  --serif:Charter,"Bitstream Charter","Iowan Old Style",Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme:light){
+  :root{
+    --bg:#faf8f3;--surface:#fff;--surface-2:#f4f1ea;--border:#e2dccf;--text:#1a1c20;--muted:#535b67;
+    --accent-text:#875800;--ok:#1a7f37;--shadow:0 30px 60px -34px rgba(60,45,10,.45);
+  }
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.6 var(--sans);text-rendering:optimizeLegibility}
+a{color:var(--accent-text);text-underline-offset:.18em;text-decoration-thickness:1px}
+p,li,dd,figcaption{text-wrap:pretty}
+a:hover{text-decoration-thickness:2px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+code,pre{font-family:var(--mono)}
+p code,li code,dd code{font-size:.88em;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:.08em .35em;white-space:nowrap}
+.wrap{max-width:1040px;margin:0 auto;padding:0 24px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--accent);color:var(--accent-ink);padding:10px 14px;border-radius:8px;font-weight:600;z-index:10}
+.skip:focus{left:12px}
+.vh{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+
+/* header */
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:22px}
+.brand{display:inline-flex;align-items:center;gap:10px;color:var(--text);text-decoration:none;font:600 1.05rem/1 var(--sans);letter-spacing:.01em}
+.brand svg{flex:none}
+.top nav{display:flex;gap:4px;flex-wrap:wrap}
+.top nav a{color:var(--muted);text-decoration:none;padding:10px 12px;border-radius:8px;font-size:.95rem}
+.top nav a:hover{color:var(--text);background:var(--surface)}
+
+/* hero */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px 56px;align-items:end;padding-block:40px 44px}
+.kicker{margin:0 0 18px;font:500 clamp(.7rem,2.4vw,.88rem)/1.5 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.kicker b{color:var(--accent-text);font-weight:600}
+h1{font:700 clamp(3.4rem,10vw,6.4rem)/.95 var(--serif);letter-spacing:-.025em;margin:0}
+.tagline{font:600 clamp(1.4rem,3.4vw,2.05rem)/1.25 var(--sans);letter-spacing:-.01em;margin:18px 0 0;max-width:24ch}
+.lede{color:var(--muted);font-size:1.06rem;max-width:60ch;margin:0}
+.actions{display:flex;flex-wrap:wrap;gap:12px;margin:26px 0 0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 22px;border-radius:10px;font-weight:600;font-size:1rem;text-decoration:none;border:1px solid var(--border);color:var(--text);background:var(--surface);transition:background-color .15s,border-color .15s}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.meta{margin:18px 0 0;color:var(--muted);font-size:.9rem}
+
+/* demo */
+.demo{padding-block:12px 8px}
+.demo figure{margin:0}
+.demo img{display:block;width:100%;max-width:900px;height:auto;border-radius:11px;box-shadow:var(--shadow)}
+.demo figcaption{color:var(--muted);font-size:.95rem;max-width:72ch;margin-top:16px}
+
+/* sections */
+section{padding:56px 0}
+h2{font:700 clamp(1.75rem,4vw,2.45rem)/1.12 var(--serif);letter-spacing:-.015em;margin:0 0 14px}
+.intro{color:var(--muted);max-width:62ch;margin:0}
+h3{font:650 1.12rem/1.3 var(--sans);margin:0 0 8px}
+.label{display:block;font:600 .74rem/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent-text);margin-bottom:14px}
+
+/* feature cards */
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:30px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;display:flex;flex-direction:column}
+.card p{color:var(--muted);margin:0 0 18px;font-size:.98rem}
+.card .line{margin-top:auto;font:.82rem/1.5 var(--mono);background:var(--term);color:var(--term-text);border:1px solid var(--term-border);border-radius:8px;padding:10px 12px;overflow-wrap:anywhere}
+.line .ok{color:#56d364;font-weight:700}
+.line .dim{color:var(--term-dim)}
+.line .acc{color:#e3b341;font-weight:700}
+.card.wide{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:32px;align-items:center;padding:28px}
+.card.wide p{margin:0}
+.table-wrap{overflow-x:auto;background:var(--term);border:1px solid var(--term-border);border-radius:10px;color:var(--term-text)}
+table.quote{width:100%;border-collapse:collapse;font:.82rem/1.4 var(--mono);white-space:nowrap}
+.quote caption{caption-side:bottom;text-align:left;padding:10px 12px 12px;color:var(--term-dim);font-size:.76rem;white-space:normal}
+.quote th{font-weight:500;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--term-dim);text-align:left;padding:12px 12px 9px;border-bottom:1px solid var(--term-border)}
+.quote td{padding:8px 12px}
+.quote td:first-child{font-weight:700}
+.quote td:nth-child(2){color:#a2abb6}
+.quote .num{text-align:right}
+.quote tr.chosen td{background:rgba(227,179,65,.15)}
+.quote tr.chosen td:first-child{color:#e3b341}
+.quote tbody tr:last-child td{padding-bottom:12px}
+
+/* install */
+.install{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:36px;align-items:start;margin-top:28px}
+.term{margin:0;background:var(--term);color:var(--term-text);border:1px solid var(--term-border);border-radius:12px;padding:18px 20px;overflow-x:auto;font-size:.93rem;line-height:1.8}
+.term .cmd{user-select:all}
+.term .cmd::before{content:"> ";color:#e3b341;font-weight:700}
+.where-label{font-size:.9rem;color:var(--muted);margin:0 0 10px}
+.notes{margin:0;padding:0;list-style:none}
+.notes li{color:var(--muted);font-size:.96rem;padding:0 0 14px}
+.notes strong{color:var(--text);font-weight:600}
+dl.cmds{display:grid;grid-template-columns:max-content 1fr;gap:8px 18px;margin:26px 0 0;font-size:.95rem}
+dl.cmds dt{font-family:var(--mono);font-size:.88rem;color:var(--text)}
+dl.cmds dd{margin:0;color:var(--muted)}
+
+/* where it runs */
+.runs{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:28px;border-top:1px solid var(--border)}
+.runs > div{padding:24px 28px 0 0}
+.runs > div + div{padding-left:28px;border-left:1px solid var(--border)}
+.runs p{color:var(--muted);margin:0 0 12px;font-size:.98rem}
+
+/* privacy */
+.privacy{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:44px;align-items:start;margin-top:20px}
+.privacy p{color:var(--muted);margin:0 0 14px}
+.privacy .term{font-size:.84rem;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 18px}
+.facts{list-style:none;margin:0;padding:0;border-top:1px solid var(--border)}
+.facts li{padding:13px 0;border-bottom:1px solid var(--border);color:var(--muted);font-size:.95rem}
+.facts strong{color:var(--text);font-weight:600}
+
+footer{border-top:1px solid var(--border);padding:28px 0 40px;color:var(--muted);font-size:.9rem}
+footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px 24px}
+footer p{margin:0}
+footer a{color:var(--muted)}
+footer a:hover{color:var(--text)}
+
+@media (max-width:960px){
+  .hero{grid-template-columns:minmax(0,1fr);gap:26px}
+}
+@media (max-width:860px){
+  .cards,.card.wide,.install,.runs,.privacy{grid-template-columns:minmax(0,1fr)}
+  .card.wide{gap:20px;padding:24px}
+  .runs > div,.runs > div + div{padding:22px 0 0;border-left:0}
+  .runs > div + div{margin-top:22px;border-top:1px solid var(--border)}
+  section{padding:52px 0}
+}
+@media (max-width:520px){
+  body{font-size:16px}
+  .wrap{padding:0 18px}
+  .top nav a{padding:10px 8px}
+  .top nav a.hide-sm{display:none}
+  dl.cmds{grid-template-columns:minmax(0,1fr);gap:2px}
+  dl.cmds dd{margin-bottom:10px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="wrap top">
+  <a class="brand" href="#main" aria-label="Quotient, top of the page">
+    <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0d1117"/><circle cx="16" cy="8.5" r="2.6" fill="#e3b341"/><rect x="7" y="14.4" width="18" height="3.2" rx="1.6" fill="#e3b341"/><circle cx="16" cy="23.5" r="2.6" fill="#e3b341"/></svg>
+    Quotient
+  </a>
+  <nav aria-label="Page">
+    <a href="#features" class="hide-sm">Features</a>
+    <a href="#install">Install</a>
+    <a href="#privacy" class="hide-sm">Privacy</a>
+    <a href="https://github.com/Korvonordico/quotient-claude-tokens">GitHub</a>
+  </nav>
+</header>
+
+<main id="main">
+  <div class="wrap hero">
+    <div class="hero-main">
+      <p class="kicker" aria-hidden="true"><b>QUOTE:</b> essential=60000 good=150000 max=300000</p>
+      <h1>Quotient</h1>
+      <p class="tagline">Know what an AI job costs before it starts.</p>
+    </div>
+    <div class="hero-side">
+      <p class="lede">Today an AI job works like a mechanic who fixes your car without telling you the price: you find out at the till. With a subscription the till is the usage limit, and one big job can use up a whole week. Quotient is a plugin for Claude Code that gives you the price first, lets you choose, measures what the job really cost, and learns from the difference.</p>
+      <div class="actions">
+        <a class="btn primary" href="#install">Install</a>
+        <a class="btn" href="https://github.com/Korvonordico/quotient-claude-tokens">GitHub</a>
+      </div>
+      <p class="meta">MIT licensed · version 0.9.7 · needs Python 3.8 or newer</p>
+    </div>
+  </div>
+
+  <div class="wrap demo">
+    <figure>
+      <img src="demo.svg" width="900" height="520" alt="Animated terminal. The user asks Claude Code for a big job. Quotient shows a quote with three levels: essential 60k, good 150k and max 300k tokens, each with the share of the 5-hour and weekly limits it would take. The user picks good and the work runs. Quotient reports the actual cost, 142k tokens against an estimate of 150k, and updates its correction factor. Then a job too big for this week is split into 4 installments that run nightly at 03:00, with progress going from 25% to 100%.">
+      <figcaption>One loop: a quote before the job, your choice, the real cost after, and a job too big for this week split into nightly installments. Estimates are not guaranteed: at the start they can be quite far off, and they get closer with each finished job.</figcaption>
+    </figure>
+  </div>
+
+  <section id="features" aria-labelledby="features-h">
+    <div class="wrap">
+      <h2 id="features-h">The price first, the bill after</h2>
+      <p class="intro">Quotient does not make the model better at guessing: it measures the miss and corrects the next guess. And it plans big jobs around the limits you actually have.</p>
+
+      <div class="cards">
+        <article class="card wide">
+          <div>
+            <span class="label">Before the job</span>
+            <h3>A quote, in a choice window</h3>
+            <p>Above the threshold you set, or when you call it a big job, Claude does not start. A window offers <em>essential</em>, <em>good</em> or <em>max</em>: what each includes, its estimate and, once Quotient knows your limits, the share of them it would take. The pace is yours too: all today, a few days, or your own.</p>
+          </div>
+          <div class="table-wrap" tabindex="0" role="region" aria-label="Example quote table">
+            <table class="quote">
+              <caption>An example quote. 5-hour and Week: the share of each limit a level would take.</caption>
+              <thead><tr><th scope="col">Level</th><th scope="col">Includes</th><th scope="col" class="num">Estimate</th><th scope="col" class="num">5-hour</th><th scope="col" class="num">Week</th></tr></thead>
+              <tbody>
+                <tr><td>essential</td><td>async client, old tests pass</td><td class="num">60k</td><td class="num">5%</td><td class="num">1%</td></tr>
+                <tr class="chosen"><td>good <span class="vh">(chosen)</span></td><td>+ new tests, docs updated</td><td class="num">150k</td><td class="num">12%</td><td class="num">3%</td></tr>
+                <tr><td>max</td><td>+ edge cases, full review</td><td class="num">300k</td><td class="num">24%</td><td class="num">6%</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="card">
+          <span class="label">After the job</span>
+          <h3>The real cost after</h3>
+          <p>Read from Claude Code's own records and set next to the estimate. Each new quote is corrected by how far off the earlier ones were; until you have five jobs of your own, it starts from the shared average of everyone's real jobs.</p>
+          <div class="line"><span class="ok">Actual:</span> 142k tokens <span class="dim">(est. 150k)</span><br><span class="dim">factor updated</span></div>
+        </article>
+
+        <article class="card">
+          <span class="label">While you are away</span>
+          <h3>Installments, one a day</h3>
+          <p>A job too big for one go is split into daily pieces. At the time you choose, the PC wakes up, Claude Code does the day's piece, and the PC goes back to sleep; a notification tells you what it did. Waking is for Windows; macOS and Linux get the line to schedule it.</p>
+          <div class="line"><span class="dim">PACE:</span> days=4<br><span class="dim">Next installment:</span> 03:00</div>
+        </article>
+
+        <article class="card">
+          <span class="label">All week</span>
+          <h3>Your limits at a glance</h3>
+          <p>How much of the 5-hour and weekly limits you have used, and what is left, right in Claude Code's status line. Several jobs together never eat the share of the week you keep for yourself.</p>
+          <div class="line"><span class="acc">5-hour:</span> 31% used, 69% left<br><span class="acc">week:</span> 70% used, 30% left</div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" aria-labelledby="install-h">
+    <div class="wrap">
+      <h2 id="install-h">Install</h2>
+      <p class="intro">Two commands, typed in Claude Code.</p>
+      <div class="install">
+        <div>
+          <p class="where-label">In Claude Code:</p>
+          <pre class="term" tabindex="0" role="region" aria-label="Install commands"><code><span class="cmd">/plugin marketplace add Korvonordico/quotient-claude-tokens</span>
+<span class="cmd">/plugin install quotient@quotient</span></code></pre>
+          <dl class="cmds">
+            <dt>/quotient:setup</dt><dd>set Quotient up, or change its settings</dd>
+            <dt>/quotient:report</dt><dd>estimates against real costs, your limits, the weeks (add <code>page</code> for charts)</dd>
+            <dt>/quotient:rate &lt;job&gt;</dt><dd>split a big job into installments</dd>
+            <dt>/quotient:share</dt><dd>exactly what is shared, and turning it on or off</dd>
+            <dt>/quotient:help</dt><dd>every command, with what it does</dd>
+          </dl>
+        </div>
+        <ul class="notes">
+          <li><strong>Needs Python 3.8 or newer and <code>sh</code>.</strong> On Windows, <code>sh</code> comes with Git for Windows, which Claude Code already uses.</li>
+          <li><strong>The first time, a window asks four settings:</strong> from what size a job gets a quote, how much of the week to keep for yourself, the language, and whether Quotient may wake the PC for installments and put it back to sleep.</li>
+          <li><strong>Change them any time</strong> with <code>/quotient:setup</code>.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="runs" aria-labelledby="runs-h">
+    <div class="wrap">
+      <h2 id="runs-h">Made for Claude Code</h2>
+      <p class="intro">Quotient is a Claude Code plugin. It does not replace anything; it adds a step before a big job and a measurement after it.</p>
+      <div class="runs">
+        <div>
+          <h3>In Claude Code</h3>
+          <p>Hooks run its Python script at the start of a session, at each message and at the end of each reply. It reads Claude Code's transcripts only for numbers: token counts, the machine lines Claude writes, and which tools were called. Installments run Claude Code itself, in the background, in the job's folder.</p>
+        </div>
+        <div>
+          <h3>Hermes Agent too</h3>
+          <p>If you use <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> with your Claude login, its chats spend the same 5-hour and weekly limits. Quotient reads Hermes' token counters (read-only: numbers, model and chat title, never the text) and, with two shell hooks, quotes and measures jobs there as well.</p>
+          <p><a href="https://github.com/Korvonordico/quotient-claude-tokens#hermes-agent-too">How to add the hooks</a></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy" aria-labelledby="privacy-h">
+    <div class="wrap">
+      <h2 id="privacy-h">What leaves your computer</h2>
+      <div class="privacy">
+        <div>
+          <p>Everything Quotient records stays on your computer, in <code>~/.quotient</code>. After each finished job it sends one line of numbers for the shared average, so new users start from real jobs instead of from zero. Exactly this line, and nothing else:</p>
+          <pre class="term" tabindex="0" role="region" aria-label="The exact line that is shared"><code>{"v":1,"q":"0.9.7","family":"opus","estimate":225000,"actual":259000}</code></pre>
+          <p>No dates, no names, no text, no paths, no session or user ids. Turn it off with <code>/quotient:share off</code>; you still get the shared average.</p>
+          <p><a href="https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md">Read the full privacy note (PRIVACY.md)</a></p>
+        </div>
+        <ul class="facts" aria-label="What Quotient writes, sends, fetches and schedules">
+          <li><strong>Writes</strong> in <code>~/.quotient</code> and, for installments, a report page in the job's folder. Claude Code's settings only when you choose the status line or auto-compaction.</li>
+          <li><strong>Sends</strong> one line of numbers per finished job, unless sharing is off.</li>
+          <li><strong>Fetches</strong> the shared average once a day, from GitHub (or from the author's service when GitHub does not answer).</li>
+          <li><strong>Schedules</strong> Windows tasks for installments only after you choose them in the window.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Quotient · <a href="https://github.com/Korvonordico/quotient-claude-tokens/blob/main/LICENSE">MIT License</a> · © 2026 Francesco Candela (Korvonordico)</p>
+    <p>Not affiliated with Anthropic. · <a href="https://github.com/Korvonordico/quotient-claude-tokens/blob/main/README.it.md" hreflang="it" lang="it">Leggi in italiano</a></p>
+  </div>
+</footer>
+</body>
+</html>

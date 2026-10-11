@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520" role="img" aria-labelledby="title desc" xml:space="preserve" font-family="Consolas, Menlo, monospace" font-size="14">
+<title id="title">Quotient demo: a quote before an AI job, the real cost after</title>
+<desc id="desc">A terminal. The user asks Claude Code for a big job. Quotient shows a quote with three levels (essential 60k, good 150k, max 300k tokens) and the share of the 5-hour and weekly limits each would take. The user picks good; the work runs; Quotient reports the actual cost, 142k tokens against an estimate of 150k, and updates its correction factor. Then a job too big for this week is split into 4 installments that run nightly at 03:00, with progress from 25% to 100%.</desc>
+<defs><clipPath id="screen"><rect x="1" y="36" width="898" height="448"/></clipPath></defs>
+<style>text{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;font-size:14px;white-space:pre}
+.an{animation-duration:16.5s;animation-timing-function:linear;animation-iteration-count:infinite}
+#a1{animation-name:k1}
+#a2{animation-name:k2}
+#a3{animation-name:k3}
+#a4{animation-name:k4}
+#a5{animation-name:k5}
+#a6{animation-name:k6}
+#a7{animation-name:k7}
+#a8{animation-name:k8}
+#a9{animation-name:k9}
+#a10{animation-name:k10}
+#a11{animation-name:k11}
+#a12{animation-name:k12}
+#a13{animation-name:k13}
+#a14{animation-name:k14}
+#a15{animation-name:k15}
+#a16{animation-name:k16}
+#a17{animation-name:k17}
+#a18{animation-name:k18}
+#a19{animation-name:k19}
+#a20{animation-name:k20}
+#a21{animation-name:k21}
+#a22{animation-name:k22}
+#a23{animation-name:k23}
+#a24{animation-name:k24}
+#a25{animation-name:k25}
+#a26{animation-name:k26}
+#a27{animation-name:k27}
+#a28{animation-name:k28}
+#a29{animation-name:k29}
+#a30{animation-name:k30}
+#a31{animation-name:k31}
+#a32{animation-name:k32}
+#a33{animation-name:k33}
+#a34{animation-name:k34}
+#a35{animation-name:k35}
+#a36{animation-name:k36}
+@keyframes k1{0%{opacity:0}1.515%{opacity:0}2.242%{opacity:1}100%{opacity:1}}
+@keyframes k2{0%{opacity:0;transform:translateX(0.0px)}1.515%{opacity:0;transform:translateX(0.0px)}1.576%{opacity:1;transform:translateX(0.0px)}3.03%{opacity:1;transform:translateX(0.0px);animation-timing-function:steps(64,end)}11.515%{opacity:1;transform:translateX(537.6px)}13.333%{opacity:1;transform:translateX(537.6px)}13.455%{opacity:0;transform:translateX(537.6px)}100%{opacity:0;transform:translateX(537.6px)}}
+@keyframes k3{0%{opacity:0}13.333%{opacity:0}14.424%{opacity:1}100%{opacity:1}}
+@keyframes k4{0%{opacity:0}15.152%{opacity:0}16.242%{opacity:1}100%{opacity:1}}
+@keyframes k5{0%{opacity:0;transform:translateY(-22px)}23.636%{opacity:0;transform:translateY(-22px)}24.364%{opacity:1;transform:translateY(-22px)}27.273%{opacity:1;transform:translateY(-22px);animation-timing-function:ease-out}28.242%{opacity:1;transform:translateY(0px)}100%{opacity:1;transform:translateY(0px)}}
+@keyframes k6{0%{opacity:0}16.061%{opacity:0}17.152%{opacity:1}100%{opacity:1}}
+@keyframes k7{0%{opacity:0}16.97%{opacity:0}18.061%{opacity:1}100%{opacity:1}}
+@keyframes k8{0%{opacity:0}17.879%{opacity:0}18.97%{opacity:1}100%{opacity:1}}
+@keyframes k9{0%{opacity:0}19.091%{opacity:0}20.182%{opacity:1}100%{opacity:1}}
+@keyframes k10{0%{opacity:0}20.606%{opacity:0}21.697%{opacity:1}100%{opacity:1}}
+@keyframes k11{0%{opacity:0}30.303%{opacity:0}31.394%{opacity:1}100%{opacity:1}}
+@keyframes k12{0%{opacity:0}32.424%{opacity:0}33.515%{opacity:1}100%{opacity:1}}
+@keyframes k13{0%{opacity:0}35.152%{opacity:0}36.242%{opacity:1}100%{opacity:1}}
+@keyframes k14{0%{opacity:0}38.788%{opacity:0}39.879%{opacity:1}100%{opacity:1}}
+@keyframes k15{0%{opacity:0}42.424%{opacity:0}43.515%{opacity:1}100%{opacity:1}}
+@keyframes k16{0%{opacity:0}44.242%{opacity:0}45.333%{opacity:1}100%{opacity:1}}
+@keyframes k17{0%{opacity:0}56.364%{opacity:0}57.091%{opacity:1}100%{opacity:1}}
+@keyframes k18{0%{opacity:0;transform:translateX(0.0px)}56.364%{opacity:0;transform:translateX(0.0px)}56.424%{opacity:1;transform:translateX(0.0px)}57.879%{opacity:1;transform:translateX(0.0px);animation-timing-function:steps(53,end)}65.152%{opacity:1;transform:translateX(445.2px)}66.97%{opacity:1;transform:translateX(445.2px)}67.091%{opacity:0;transform:translateX(445.2px)}100%{opacity:0;transform:translateX(445.2px)}}
+@keyframes k19{0%{opacity:0}66.97%{opacity:0}68.061%{opacity:1}100%{opacity:1}}
+@keyframes k20{0%{opacity:0}69.091%{opacity:0}70.182%{opacity:1}100%{opacity:1}}
+@keyframes k21{0%{opacity:0}70.909%{opacity:0}72%{opacity:1}100%{opacity:1}}
+@keyframes k22{0%{opacity:0}72.727%{opacity:0}73.818%{opacity:1}100%{opacity:1}}
+@keyframes k23{0%{opacity:0}74.242%{opacity:0}75.333%{opacity:1}100%{opacity:1}}
+@keyframes k24{0%{opacity:0}75.455%{opacity:0}76.182%{opacity:1}100%{opacity:1}}
+@keyframes k25{0%{opacity:0}75.455%{opacity:0}76.061%{opacity:1}78.485%{opacity:1}78.848%{opacity:0}100%{opacity:0}}
+@keyframes k26{0%{opacity:0}78.485%{opacity:0}79.212%{opacity:1}100%{opacity:1}}
+@keyframes k27{0%{opacity:0}78.485%{opacity:0}79.091%{opacity:1}81.515%{opacity:1}81.879%{opacity:0}100%{opacity:0}}
+@keyframes k28{0%{opacity:0}81.515%{opacity:0}82.242%{opacity:1}100%{opacity:1}}
+@keyframes k29{0%{opacity:0}81.515%{opacity:0}82.121%{opacity:1}84.545%{opacity:1}84.909%{opacity:0}100%{opacity:0}}
+@keyframes k30{0%{opacity:0}84.545%{opacity:0}85.273%{opacity:1}100%{opacity:1}}
+@keyframes k31{0%{opacity:0}84.545%{opacity:0}85.152%{opacity:1}100%{opacity:1}}
+@keyframes k32{0%{opacity:0}86.97%{opacity:0}88.061%{opacity:1}100%{opacity:1}}
+@keyframes k33{0%{transform:translateY(0px)}53.939%{transform:translateY(0px);animation-timing-function:ease-in-out}57.576%{transform:translateY(-182px)}99.636%{transform:translateY(-182px)}100%{transform:translateY(0px)}}
+@keyframes k34{0%{opacity:1}96.97%{opacity:1}98.788%{opacity:0}100%{opacity:0}}
+@keyframes k35{0%{opacity:1}44.242%{opacity:1}46.061%{opacity:0}96.97%{opacity:0}98.788%{opacity:1}100%{opacity:1}}
+@keyframes k36{0%{opacity:0}44.242%{opacity:0}46.061%{opacity:1}96.97%{opacity:1}98.788%{opacity:0}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.an{animation:none!important}}</style>
+<rect x="0" y="0" width="900" height="520" rx="10" fill="#0d1117"/><path d="M0 10a10 10 0 0 1 10-10h880v0a10 10 0 0 1 10 10v26h-900z" fill="#161b22"/><path d="M0 484h900v26a10 10 0 0 1-10 10h-880a10 10 0 0 1-10-10z" fill="#161b22"/><line x1="0" y1="35" x2="900" y2="35" stroke="#30363d"/><line x1="0" y1="484" x2="900" y2="484" stroke="#30363d"/><circle cx="20" cy="18" r="6" fill="#ff5f57"/><circle cx="40" cy="18" r="6" fill="#febc2e"/><circle cx="60" cy="18" r="6" fill="#28c840"/><text x="450.0" y="22.0" textLength="165.6" lengthAdjust="spacing" font-size="12" text-anchor="middle" fill="#808a95">~/payments-api — claude</text>
+<g clip-path="url(#screen)"><g id="a34" class="an"><g id="a33" class="an"><g id="a1" class="an"><text x="28.0" y="66.0" textLength="554.4" lengthAdjust="spacing"><tspan fill="#e3b341" font-weight="700">&gt; </tspan><tspan fill="#e6edf3">Port the payments client to async and update its tests. Big job.</tspan></text></g><g id="a2" class="an" opacity="0"><rect x="43.8" y="50" width="554.0" height="23" fill="#0d1117"/><rect x="45.3" y="54" width="6.9" height="16" fill="#e3b341" opacity="0.9"/></g><g id="a3" class="an"><text x="28.0" y="96.0" textLength="378.0" lengthAdjust="spacing" fill="#808a95">QUOTE: essential=60000 good=150000 max=300000</text></g><g id="a4" class="an"><rect x="28" y="108" width="652" height="152" rx="8" fill="#11161d" stroke="#30363d"/><text x="58.0" y="134.0" textLength="39.5" lengthAdjust="spacing" font-size="11.5" fill="#808a95">LEVEL</text><text x="156.0" y="134.0" textLength="63.2" lengthAdjust="spacing" font-size="11.5" fill="#808a95">INCLUDES</text><text x="468.0" y="134.0" textLength="63.2" lengthAdjust="spacing" font-size="11.5" text-anchor="end" fill="#808a95">ESTIMATE</text><text x="568.0" y="134.0" textLength="71.1" lengthAdjust="spacing" font-size="11.5" text-anchor="end" fill="#808a95">OF 5-HOUR</text><text x="656.0" y="134.0" textLength="55.3" lengthAdjust="spacing" font-size="11.5" text-anchor="end" fill="#808a95">OF WEEK</text><line x1="29" y1="146" x2="679" y2="146" stroke="#262c35"/></g><g id="a5" class="an"><rect x="34" y="175" width="640" height="21" rx="4" fill="#e3b341" fill-opacity="0.15"/><text x="41.0" y="190.0" textLength="8.4" lengthAdjust="spacing" fill="#e3b341" font-weight="700">›</text></g><g id="a6" class="an"><text x="58.0" y="168.0" textLength="75.6" lengthAdjust="spacing" fill="#e6edf3" font-weight="700">essential</text><text x="156.0" y="168.0" textLength="235.2" lengthAdjust="spacing" fill="#a2abb6">async client, old tests pass</text><text x="468.0" y="168.0" textLength="25.2" lengthAdjust="spacing" text-anchor="end" fill="#e6edf3">60k</text><text x="568.0" y="168.0" textLength="16.8" lengthAdjust="spacing" text-anchor="end" fill="#e6edf3">5%</text><text x="656.0" y="168.0" textLength="16.8" lengthAdjust="spacing" text-anchor="end" fill="#e6edf3">1%</text></g><g id="a7" class="an"><text x="58.0" y="190.0" textLength="33.6" lengthAdjust="spacing" fill="#e6edf3" font-weight="700">good</text><text x="156.0" y="190.0" textLength="210.0" lengthAdjust="spacing" fill="#a2abb6">+ new tests, docs updated</text><text x="468.0" y="190.0" textLength="33.6" lengthAdjust="spacing" text-anchor="end" fill="#e6edf3">150k</text><text x="568.0" y="190.0" textLength="25.2" lengthAdjust="spacing" text-anchor="end" fill="#e6edf3">12%</text><text x="656.0" y="190.0" textLength="16.8" lengthAdjust="spacing" text-anchor="end" fill="#e6edf3">3%</text></g><g id="a8" class="an"><text x="58.0" y="212.0" textLength="25.2" lengthAdjust="spacing" fill="#e6edf3" font-weight="700">max</text><text x="156.0" y="212.0" textLength="210.0" lengthAdjust="spacing" fill="#a2abb6">+ edge cases, full review</text><text x="468.0" y="212.0" textLength="33.6" lengthAdjust="spacing" text-anchor="end" fill="#e6edf3">300k</text><text x="568.0" y="212.0" textLength="25.2" lengthAdjust="spacing" text-anchor="end" fill="#e6edf3">24%</text><text x="656.0" y="212.0" textLength="16.8" lengthAdjust="spacing" text-anchor="end" fill="#e6edf3">6%</text></g><g id="a9" class="an"><line x1="29" y1="224" x2="679" y2="224" stroke="#262c35"/><text x="58.0" y="246.0" textLength="31.6" lengthAdjust="spacing" font-size="11.5" fill="#808a95">PACE</text><text x="156.0" y="246.0" textLength="453.6" lengthAdjust="spacing"><tspan fill="#e6edf3">all today</tspan><tspan fill="#808a95">  ·  </tspan><tspan fill="#e6edf3">2 days, ~75k a day</tspan><tspan fill="#808a95">  ·  </tspan><tspan fill="#a2abb6">or write your own</tspan></text></g><g id="a10" class="an"><text x="28.0" y="281.0" textLength="525.0" lengthAdjust="spacing" font-size="12.5" fill="#808a95">Estimates are not guaranteed: they get closer with every finished job.</text></g><g id="a11" class="an"><text x="28.0" y="310.0" textLength="277.2" lengthAdjust="spacing"><tspan fill="#e3b341" font-weight="700">&gt; </tspan><tspan fill="#a2abb6">Level: </tspan><tspan fill="#e3b341" font-weight="700">good</tspan><tspan fill="#808a95">  ·  </tspan><tspan fill="#a2abb6">Pace: </tspan><tspan fill="#e6edf3">all today</tspan></text></g><g id="a12" class="an"><text x="28.0" y="332.0" textLength="218.4" lengthAdjust="spacing" fill="#808a95">CHOICE: good   PACE: today</text></g><g id="a13" class="an"><text x="28.0" y="360.0" textLength="285.6" lengthAdjust="spacing"><tspan fill="#56d364">● </tspan><tspan fill="#e6edf3">Working: </tspan><tspan fill="#a2abb6">14 files read, 9 edited</tspan></text></g><g id="a14" class="an"><text x="28.0" y="382.0" textLength="151.2" lengthAdjust="spacing"><tspan fill="#56d364">● </tspan><tspan fill="#e6edf3">Tests: </tspan><tspan fill="#a2abb6">48 passed</tspan></text></g><g id="a15" class="an"><text x="28.0" y="404.0" textLength="84.0" lengthAdjust="spacing" fill="#808a95">JOB: CLOSE</text></g><g id="a16" class="an"><text x="28.0" y="432.0" textLength="420.0" lengthAdjust="spacing"><tspan fill="#56d364" font-weight="700">✓ </tspan><tspan fill="#56d364" font-weight="700">Actual: </tspan><tspan fill="#e6edf3" font-weight="700">142k tokens</tspan><tspan fill="#a2abb6"> (est. 150k)</tspan><tspan fill="#a2abb6"> · factor updated</tspan></text></g><g id="a17" class="an" opacity="0"><text x="28.0" y="476.0" textLength="462.0" lengthAdjust="spacing"><tspan fill="#e3b341" font-weight="700">&gt; </tspan><tspan fill="#e6edf3">Now write the user guide: 12 chapters, with examples.</tspan></text></g><g id="a18" class="an" opacity="0"><rect x="43.8" y="460" width="461.6" height="23" fill="#0d1117"/><rect x="45.3" y="464" width="6.9" height="16" fill="#e3b341" opacity="0.9"/></g><g id="a19" class="an" opacity="0"><text x="28.0" y="506.0" textLength="403.2" lengthAdjust="spacing" fill="#808a95">QUOTE: essential=500000 good=1200000 max=2400000</text></g><g id="a20" class="an" opacity="0"><text x="28.0" y="534.0" textLength="571.2" lengthAdjust="spacing"><tspan fill="#f0883e" font-weight="700">! </tspan><tspan fill="#f0883e" font-weight="700">Too big for this week:</tspan><tspan fill="#e6edf3"> split into 4 installments, nightly at 03:00</tspan></text></g><g id="a21" class="an" opacity="0"><text x="28.0" y="556.0" textLength="537.6" lengthAdjust="spacing" fill="#a2abb6">  4 days, ~300k tokens a day · the PC wakes, works, sleeps again</text></g><g id="a22" class="an" opacity="0"><text x="28.0" y="578.0" textLength="226.8" lengthAdjust="spacing" fill="#808a95">CHOICE: good   PACE: days=4</text></g><g id="a23" class="an" opacity="0"><rect x="44.8" y="597" width="54" height="10" rx="2" fill="#262c35"/><rect x="104.8" y="597" width="54" height="10" rx="2" fill="#262c35"/><rect x="164.8" y="597" width="54" height="10" rx="2" fill="#262c35"/><rect x="224.8" y="597" width="54" height="10" rx="2" fill="#262c35"/></g><g id="a24" class="an" opacity="0"><rect x="44.8" y="597" width="54" height="10" rx="2" fill="#e3b341"/></g><g id="a25" class="an" opacity="0"><text x="294.8" y="606.0" textLength="218.4" lengthAdjust="spacing"><tspan fill="#e6edf3">installment 1 of 4</tspan><tspan fill="#808a95">  ·  </tspan><tspan fill="#e3b341" font-weight="700">25%</tspan></text></g><g id="a26" class="an" opacity="0"><rect x="104.8" y="597" width="54" height="10" rx="2" fill="#e3b341"/></g><g id="a27" class="an" opacity="0"><text x="294.8" y="606.0" textLength="218.4" lengthAdjust="spacing"><tspan fill="#e6edf3">installment 2 of 4</tspan><tspan fill="#808a95">  ·  </tspan><tspan fill="#e3b341" font-weight="700">50%</tspan></text></g><g id="a28" class="an" opacity="0"><rect x="164.8" y="597" width="54" height="10" rx="2" fill="#e3b341"/></g><g id="a29" class="an" opacity="0"><text x="294.8" y="606.0" textLength="218.4" lengthAdjust="spacing"><tspan fill="#e6edf3">installment 3 of 4</tspan><tspan fill="#808a95">  ·  </tspan><tspan fill="#e3b341" font-weight="700">75%</tspan></text></g><g id="a30" class="an" opacity="0"><rect x="224.8" y="597" width="54" height="10" rx="2" fill="#e3b341"/></g><g id="a31" class="an" opacity="0"><text x="294.8" y="606.0" textLength="226.8" lengthAdjust="spacing"><tspan fill="#e6edf3">installment 4 of 4</tspan><tspan fill="#808a95">  ·  </tspan><tspan fill="#56d364" font-weight="700">100%</tspan></text></g><g id="a32" class="an" opacity="0"><text x="28.0" y="636.0" textLength="646.8" lengthAdjust="spacing"><tspan fill="#56d364" font-weight="700">✓ </tspan><tspan fill="#e3b341">Quotient · </tspan><tspan fill="#e6edf3" font-weight="700">installment 4 of 'user-guide' done</tspan><tspan fill="#a2abb6"> · report waiting in this chat</tspan></text></g></g></g></g>
+<g id="a35" class="an" opacity="0"><text x="28.0" y="506.0" textLength="712.8" lengthAdjust="spacing" font-size="12"><tspan fill="#e3b341" font-weight="700">Quotient</tspan><tspan fill="#a2abb6"> · 5-hour: 31% used, 69% left, resets 19:30 · week: 70% used, 30% left, resets Mon 12 07:00</tspan></text></g><g id="a36" class="an"><text x="28.0" y="506.0" textLength="712.8" lengthAdjust="spacing" font-size="12"><tspan fill="#e3b341" font-weight="700">Quotient</tspan><tspan fill="#a2abb6"> · 5-hour: 42% used, 58% left, resets 19:30 · week: 73% used, 27% left, resets Mon 12 07:00</tspan></text></g>
+<rect x="0.5" y="0.5" width="899" height="519" rx="9.5" fill="none" stroke="#30363d"/>
+</svg>

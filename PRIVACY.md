@@ -10,6 +10,8 @@ Everything Quotient records: your quotes, the real costs, your limits, your sett
 
 An installment job also remembers which chat created it (the chat's id), so each installment's report comes back there; to tell you where the report waits, Quotient reads that chat's title from Claude Code's files on your computer. The notification at the end of an installment is shown by your own system (on Windows it stays in the notification center). None of this leaves your computer.
 
+If you use Hermes Agent, Quotient also reads Hermes' local session store, read-only: the token counters, the model and the title of each chat, never the text. This stays on your computer too.
+
 ## What is shared, and why
 
 To help everyone start from real numbers instead of from zero, Quotient shares **one line of numbers for each finished job**. Exactly this, and nothing else:
@@ -52,6 +54,10 @@ It is a best-effort average: anyone can send numbers. The service refuses ratios
 
 Once a day, at the start of a session, Quotient downloads `average.json` from the quotient-data repository on GitHub (`raw.githubusercontent.com`), or, if GitHub does not answer, the same file from the service. As with any download, GitHub or Cloudflare see the connection. Nothing else is sent with it, and only its numbers are kept. To stop the download too: `quotient config share.average_url ""` and `quotient config share.endpoint ""`.
 
+## What is read from Anthropic
+
+To show your plan limits, Quotient asks Anthropic how much of them you have used, with the same request Claude Code's `/usage` makes (`https://api.anthropic.com/api/oauth/usage`) and the login Claude Code keeps on your computer (`~/.claude/.credentials.json`). Nothing else of yours goes with it. Quotient keeps only the used percentages and the reset times, and never writes the login anywhere. It asks at most every 10 minutes and spends no tokens. To turn it off: `quotient config limits.live false`.
+
 ## How long
 
 Only the most recent 5,000 lines are kept; the average uses the most recent 500 jobs per family and 2,000 in all. Because the lines carry nothing that points to a person, they cannot be found and deleted one by one; if you want sharing to stop, turn it off.
@@ -70,6 +76,8 @@ Quotient è un plugin per Claude Code di Francesco Candela (Korvonordico). Gira 
 
 Un lavoro a rate ricorda anche quale chat l'ha creato (il codice della chat), così il resoconto di ogni rata torna lì; per dirti dove ti aspetta, Quotient legge il titolo di quella chat dai file di Claude Code sul tuo computer. La notifica alla fine di una rata la mostra il tuo sistema (su Windows resta nel centro notifiche). Niente di tutto questo esce dal tuo computer.
 
+Se usi Hermes Agent, Quotient legge anche il suo archivio locale delle sessioni, in sola lettura: i contatori dei token, il modello e il titolo di ogni chat, mai il testo. Anche questo resta sul tuo computer.
+
 **Cosa viene condiviso**: una riga di numeri per ogni lavoro finito, esattamente questa e nient'altro:
 
 ```json
@@ -85,5 +93,7 @@ Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e 
 **Cosa viene pubblicato**: al massimo una volta a settimana, e solo dopo almeno 20 lavori nuovi, la media (mediana di costo vero / stima, per famiglia di modello e in tutto, arrotondata a 2 decimali) va in `average.json`, in un progetto separato, [Korvonordico/quotient-data](https://github.com/Korvonordico/quotient-data), che contiene solo quel file: la chiave del servizio può scrivere lì e da nessun'altra parte, mai nel programma. Sotto i 30 lavori non si pubblica niente: così chi guarda solo il file non può riconoscere un singolo lavoro. Il limite, detto chiaro: il servizio non sa chi manda cosa, quindi chi manda apposta righe false potrebbe capire più o meno da che parte della media cade un lavoro vero, mai di chi è. È una media «al meglio»: chiunque può mandare numeri; per questo il servizio rifiuta i rapporti oltre x10 e i salti improvvisi con pochi lavori, e Quotient usa la media solo fra x0,25 e x4.
 
 **Cosa viene scaricato**: una volta al giorno, `average.json` da quotient-data su GitHub, o dal servizio se GitHub non risponde. Si tengono solo i numeri. Per fermare anche lo scaricamento: `quotient config share.average_url ""` e `quotient config share.endpoint ""`.
+
+**Cosa viene letto da Anthropic**: per mostrarti i limiti del piano, Quotient chiede ad Anthropic quanto ne hai usato, con la stessa richiesta di `/usage` di Claude Code (`https://api.anthropic.com/api/oauth/usage`) e il login che Claude Code tiene sul tuo computer (`~/.claude/.credentials.json`). Non ci va nient'altro di tuo. Quotient tiene solo le percentuali usate e gli orari di azzeramento, e non scrive mai il login da nessuna parte. Chiede al massimo ogni 10 minuti e non spende token. Per spegnerla: `quotient config limits.live false`.
 
 **Per quanto tempo**: si tengono solo le ultime 5.000 righe; la media usa gli ultimi 500 lavori per famiglia e 2.000 in tutto. Le righe non contengono niente che porti a una persona, quindi non si possono ritrovare e cancellare una per una: se vuoi che la condivisione si fermi, spegnila.

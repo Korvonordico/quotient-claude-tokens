@@ -1,0 +1,52 @@
+name: Feature request
+description: An idea to make Quotient more useful.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [ROADMAP.md](https://github.com/Korvonordico/quotient-claude-tokens/blob/main/ROADMAP.md) and the open issues first: the idea may already be planned or discussed.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way? A real case helps most.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: How should Quotient behave? What would you see in the chat, in the choice window or in the report?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Other ways to get the same result, including what you do today.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Quotes and the choice window
+        - Measuring and the correction factor
+        - Installments (rate)
+        - Plan limits and the week
+        - Long chats and re-reading
+        - Report
+        - Shared average and privacy
+        - Hermes Agent
+        - Documentation
+        - Other
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to work on it?
+      options:
+        - "Yes, I can open a pull request"
+        - "Maybe, with some guidance"
+        - "No"
