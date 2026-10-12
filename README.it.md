@@ -304,7 +304,7 @@ Quotient è gratuito, con licenza MIT. Se ti fa risparmiare una settimana di lim
 
 - metti una stella al progetto, e parlane a chi sbatte sempre contro i limiti;
 - apri una issue quando un preventivo è andato lontano dal vero: sono i casi veri a migliorarlo;
-- sostieni il lavoro: GitHub Sponsors <!-- TODO: add link --> · Ko-fi <!-- TODO: add link -->
+- sostieni il lavoro con una donazione: [PayPal](https://paypal.me/Khrosms)
 
 ## Autore
 
