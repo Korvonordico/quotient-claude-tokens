@@ -322,7 +322,7 @@ class TestLimits(Base):
 
 
 class TestSetup(Base):
-    """0.7: the first use asks for the settings; Claude Code's plugin dialog and /quotient:setup change them."""
+    """0.7: the first use asks for the settings; Claude Code's plugin dialog and /token-quotient:setup change them."""
 
     def test_first_use_opens_the_setup_window(self):
         text = self.run_hook(pv.hook_session, {})
@@ -534,11 +534,6 @@ class TestInstallments(Base):
         moment = pv.next_time(past.strftime("%H:%M"))
         self.assertGreater(moment, pv.datetime.now())
         self.assertLess((moment - pv.datetime.now()).total_seconds(), 86400 + 60)
-
-    def test_launcher_finds_the_newest_version(self):
-        text = open(pv.launcher(), encoding="utf-8").read()
-        self.assertIn("runpy.run_path", text)
-        self.assertIn("quotient.py", text)
 
     def test_after_the_installment_the_pc_sleeps_only_if_idle(self):
         self.new_job(quote=500000, days=2, after="sleep")
@@ -1108,7 +1103,7 @@ class TestSharing(Base):
         self.finished()
         self.assertFalse(os.path.exists(pv.outbox_path()))
         first = json.loads(self.run_hook(pv.hook_session, {}))
-        self.assertIn("/quotient:share off", first["systemMessage"])
+        self.assertIn("/token-quotient:share off", first["systemMessage"])
         self.assertIn("[Quotient", first["hookSpecificOutput"]["additionalContext"])
         second = self.run_hook(pv.hook_session, {})
         self.assertNotIn("systemMessage", second)

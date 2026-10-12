@@ -1,6 +1,6 @@
 ---
 description: The list of Quotient's commands, with what each one does
-allowed-tools: Bash(sh:*)
+allowed-tools: Bash(sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" commands)
 ---
 !`sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" commands`
 

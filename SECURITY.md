@@ -29,7 +29,8 @@ Quotient runs on your computer with your permissions, so these parts are the mos
 
 - the hooks and scripts that run at every session, message and reply (`hooks/`, `scripts/`);
 - installments: Windows Task Scheduler tasks that wake the PC and run Claude Code (`claude -p`) with the `acceptEdits` permission mode in the job's folder;
-- reading Claude Code's login to ask Anthropic for the plan limits (`scripts/limits_live.py`);
+- the small launchers in `~/.quotient` (`launcher.py` for the scheduled tasks, `statusline.sh` for the status line): each runs one exact file of the installed plugin, and a session start rewrites them after an update;
+- running Claude Code's own `/usage` command for the plan limits, without hooks and without saving a session (`scripts/limits_usage.py`); Quotient never reads the login itself;
 - writing to `~/.claude/settings.json` (the status line and `autoCompactWindow`);
 - anything that could send more than the one line of numbers described in [PRIVACY.md](PRIVACY.md);
 - the shared-average service in `server/` and what it accepts.

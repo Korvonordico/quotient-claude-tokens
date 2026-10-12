@@ -1,25 +1,31 @@
 # Changelog
 
-All notable changes to Quotient are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. The repository has no git tags yet, so each version links to the commit that released it.
+All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. The repository has no git tags yet, so each version links to the commit that released it.
 
-## [Unreleased]
-
-### Added
-
-- Hermes Agent as a second source: Quotient reads Hermes' local session store (read-only: token counters, model and chat title, never the text) and counts its Claude chats in the weeks and in the report. `quotient.py hermes` shows them; `config hermes false` turns it off.
-- Quotient inside Hermes Agent: the `hermes-hook` command, for Hermes' `pre_llm_call` and `post_llm_call` shell hooks, gives Claude the quote protocol and the real limits at each message, and measures quoted jobs from `CHOICE:` to `JOB: CLOSE` (or `JOB: DROP`), subagents included.
-- In a long Hermes chat, Claude is told to suggest `/compress` (at most twice per chat, a day apart).
-- The plan limits are read straight from Anthropic, with the same request as Claude Code's `/usage` and no tokens spent, at most every 10 minutes (`config limits.live false` turns it off).
-- `tick` command: reads Hermes' counters and the plan limits now, for a scheduled task.
-- ROADMAP.md, with the first idea: time estimates with a live timer and a correction factor for time.
+## [0.9.8] - 2026-10-12
 
 ### Changed
 
+- **New name: Token Quotient.** The plugin is now `token-quotient`, for Anthropic's plugin directory, where the name "quotient" was already taken. The commands are `/token-quotient:setup`, `report`, `rate`, `share` and `help`; install with `/plugin install token-quotient@token-quotient`. Your data in `~/.quotient` stays where it is. If you installed `quotient@quotient`, uninstall it and install `token-quotient@token-quotient`: with both, every turn would be counted twice.
+- The plan limits are read through Claude Code's own `/usage` command (`claude -p /usage`, without hooks and without saving a session), at most every 10 minutes and with no tokens spent. Quotient no longer reads Claude Code's login. The limits are there in the Claude desktop app too, where there is no status line.
+- The launchers in `~/.quotient`, for scheduled installments and for the status line, run one exact file of the installed plugin, and each session start rewrites them after an update. Before, they looked for the newest copy in any plugin folder.
+- The slash commands may run only their own script, with the arguments they need (`allowed-tools`), instead of any `sh` command.
 - GitHub Actions moved off Node 20 (`actions/checkout`, `actions/setup-python` and `actions/setup-node` v7).
+
+### Added
+
+- The plugin's icon, and its documentation, support and privacy links, for the directory listing.
+- Hermes Agent as a second source: Quotient reads Hermes' local session store (read-only: token counters, model and chat title, never the text) and counts its Claude chats in the weeks and in the report. `quotient.py hermes` shows them; `config hermes false` turns it off.
+- Quotient inside Hermes Agent: the `hermes-hook` command, for Hermes' `pre_llm_call` and `post_llm_call` shell hooks, gives Claude the quote protocol and the real limits at each message, and measures quoted jobs from `CHOICE:` to `JOB: CLOSE` (or `JOB: DROP`), subagents included.
+- In a long Hermes chat, Claude is told to suggest `/compress` (at most twice per chat, a day apart).
+- `tick` command: reads Hermes' counters and the plan limits now, for a scheduled task.
+- ROADMAP.md, with the first idea: time estimates with a live timer and a correction factor for time.
 
 ### Fixed
 
 - Claude Code's notices about background tasks (`<task-notification>`) are no longer counted as turns written by the user.
+- A scheduled installment finds Quotient's other files: before, the launcher ran without them, so the week's room left out Hermes' chats.
+- Commands that run Quotient through `run.sh` are counted in Quotient's own weight too.
 
 ## [0.9.7] - 2026-10-08
 
@@ -163,7 +169,7 @@ All notable changes to Quotient are listed here. The format follows [Keep a Chan
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
-[Unreleased]: https://github.com/Korvonordico/quotient-claude-tokens/compare/6fc9013...main
+[0.9.8]: https://github.com/Korvonordico/quotient-claude-tokens/compare/6fc9013...main
 [0.9.7]: https://github.com/Korvonordico/quotient-claude-tokens/commit/6fc9013
 [0.9.6]: https://github.com/Korvonordico/quotient-claude-tokens/commit/3091a62
 [0.9.5]: https://github.com/Korvonordico/quotient-claude-tokens/commit/12da94a

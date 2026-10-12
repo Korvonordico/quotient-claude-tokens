@@ -36,10 +36,10 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "0.9.7"
+VERSION = "0.9.8"
 
 DEFAULTS = {
-    # False until the user has set Quotient up (first-use window, /quotient:setup, or Claude Code's plugin settings).
+    # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
     "configured": False,
     # Below this many weighted tokens no quote is asked for.
     "threshold": 300000,
@@ -88,7 +88,7 @@ DEFAULTS = {
     # Path to the claude executable; empty means "find it".
     "claude_path": "",
     "limits": {
-        # Read the plan limits straight from Anthropic (the same request as Claude Code's /usage, no tokens spent),
+        # Read the plan limits through Claude Code's own /usage command (run in the background, no tokens spent),
         # at most once every this many seconds. live false: only the status line.
         "live": True,
         "every": 600,
@@ -132,7 +132,7 @@ DEFAULTS = {
         "average_url": "https://raw.githubusercontent.com/Korvonordico/quotient-data/main/average.json",
         "timeout": 3,
         # True once the user has been shown what is shared (a message at session start, the setup
-        # window, or /quotient:share). Nothing is queued before that.
+        # window, or /token-quotient:share). Nothing is queued before that.
         "notice_shown": False,
     },
 }
@@ -157,7 +157,8 @@ PROGRESS_RE = re.compile(r"^[\s>*_`#-]*(?:PROGRESS|AVANZAMENTO)[*_`]*\s*:[\s*_`~
 QUOTIENT_HEADERS = {"livello", "level", "ritmo", "pace", "prima rata", "first installment", "ogni giorno",
                     "every day", "dopo la rata", "after it", "soglia", "threshold", "riserva", "reserve",
                     "lingua", "language", "il pc", "the pc", "media condivisa", "shared average"}
-QUOTIENT_CMD_RE = re.compile(r"quotient[\\/]+quotient[\\/]+[\w.-]+[\\/]+scripts[\\/]+quotient\.py|"
+# Quotient run by Claude: the installed plugin's script (folder token-quotient, or quotient before 0.9.8) or the launcher
+QUOTIENT_CMD_RE = re.compile(r"[\\/](?:token-)?quotient[\\/]+[\w.-]+[\\/]+scripts[\\/]+(?:quotient\.py|run\.sh)|"
                              r"\.quotient[\\/]+launcher\.py", re.I)
 OPTION_RE = re.compile(r"([^\W\d][\w-]*)\s*=\s*~?\s*(\d[\d.,_]*)\s*([kKmM])?(?![\w])")
 DECLINE = {"none", "nessuna", "nessuno", "no", "annulla", "cancel"}
@@ -827,7 +828,7 @@ SHARE_FIELDS = ("v", "q", "family", "estimate", "actual")
 OUTBOX_MAX = 200
 NOTICE = ("Quotient shares anonymous numbers of each finished job (raw estimate and real cost, rounded; model "
           "family; Quotient version: no dates, no text, no ids) to build a shared average that helps everyone "
-          "start from real data. Turn it off any time with /quotient:share off or in the plugin settings: you "
+          "start from real data. Turn it off any time with /token-quotient:share off or in the plugin settings: you "
           "keep using the shared average. Details: "
           "https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md")
 
@@ -1014,7 +1015,7 @@ def share_status(cfg):
          "x0.25 and x4." % (avg["all"]["factor"], avg["all"]["jobs"],
                             " (published %s)" % avg["updated"] if avg.get("updated") else "", cfg["min_jobs"])
          if avg else "Shared average: not available yet."),
-        "Turn sharing %s with: share %s (or /quotient:share %s). Either way the shared average is downloaded "
+        "Turn sharing %s with: share %s (or /token-quotient:share %s). Either way the shared average is downloaded "
         "once a day; to stop that too: config share.average_url \"\" and config share.endpoint \"\"." % (
             ("off", "off", "off") if on else ("on", "on", "on")),
         "Details: https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md",
@@ -1396,14 +1397,14 @@ def setup_instructions(cfg):
             "back to sleep / wake it and hibernate it / wake it and leave it on / never touch the PC (installments run only if it "
             "is already on). Current values: threshold %s, reserve %d%%, language %s, wake %s, after %s. Then save them with: "
             "%s setup --threshold <n> --reserve <n> --lang it|en --wake yes|no --after sleep|hibernate|nothing  and tell the "
-            "user that /quotient:setup opens this window again whenever they want to change it.\n"
+            "user that /token-quotient:setup opens this window again whenever they want to change it.\n"
             "Then open a second choice window with one question, 'Media condivisa'/'Shared average': does the user "
             "take part in the shared average, which helps the program give everyone better first quotes? Say what it "
             "shares: only the raw estimate and the real cost (rounded), the model family and the Quotient version of "
             "each finished job; no dates, no text, no ids; and that people who do not take part still get the average. "
             "Options: take part (recommended, the default) / do not take part; the free field lets them write anything "
             "else (do what it asks if Quotient can, else explain the two options). Save with: %s setup --share yes|no "
-            "and say that /quotient:share on|off changes it any time.\n"
+            "and say that /token-quotient:share on|off changes it any time.\n"
             "In that same second window add a question 'Chat lunghe'/'Long chats': every call re-reads the whole chat, "
             "so a long chat costs more at every step. Options: keep the chat as it is (the default: Quotient offers a new "
             "chat when it pays) / let it compact itself at the size Quotient recommends from the user's numbers (now about "
@@ -1447,8 +1448,8 @@ def cmd_setup(args):
     if compact:
         out(apply_compact(cfg) + "\n")
     out("Quotient is set up: threshold %s wt, reserve %d%% of the week, report in %s, wake the PC for installments: %s, "
-        "after installments: %s, sharing anonymous numbers: %s.\nChange it any time with /quotient:setup "
-        "(sharing: /quotient:share).\n" % (
+        "after installments: %s, sharing anonymous numbers: %s.\nChange it any time with /token-quotient:setup "
+        "(sharing: /token-quotient:share).\n" % (
             fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"],
             "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], "on" if share_enabled(cfg) else "off"))
 
@@ -1459,6 +1460,10 @@ def hook_session():
     if os.environ.get("QUOTIENT_JOB"):
         return
     sync_plugin_options()
+    try:
+        refresh_launchers()
+    except Exception:  # a launcher that cannot be written must never stop a session
+        pass
     cfg = config()
     sid = data.get("session_id")
     # The shared average (once a day) and the waiting lines, within a few seconds at most.
@@ -2081,21 +2086,26 @@ def measured_turns(cfg=None):
 
 
 def refresh_limits(cfg=None, force=False):
-    """A fresh reading of the plan limits from Anthropic, when the last one is older than limits.every."""
+    """A fresh reading of the plan limits from Claude Code's own /usage, when the last one is older than
+    limits.every. No tokens are spent and Quotient never reads the login (see limits_usage.py)."""
     cfg = cfg or config()
     lim = cfg.get("limits") or {}
     if not lim.get("live", True) or os.environ.get("QUOTIENT_LIMITS_LIVE") == "0":
         return None
     last = read_jsonl(limits_path(), tail_bytes=4096)
-    if not force and last and time.time() - (last[-1].get("epoch") or 0) < lim.get("every", 600):
-        return None
+    every = lim.get("every", 600)
+    state_path = os.path.join(home(), "limits-state.json")
+    tried = load_json(state_path, {}).get("tried") or 0
+    if not force and ((last and time.time() - (last[-1].get("epoch") or 0) < every) or time.time() - tried < every):
+        return None      # read recently, or tried recently without an answer: Claude Code is not asked again yet
+    save_json(state_path, {"tried": round(time.time())})
     try:
-        import limits_live
-        snap = limits_live.fetch()
+        import limits_usage
+        snap = limits_usage.fetch(find_claude(cfg), cwd=home())
     except Exception:
         snap = None
     if snap:
-        record_limits(snap, "oauth")
+        record_limits(snap, "usage")
     return snap
 
 
@@ -2163,12 +2173,9 @@ def statusline():
 
 
 def setup_statusline(args):
-    """Writes a small launcher that always finds the installed version, and shows (or writes) the setting."""
-    launcher = os.path.join(home(), "statusline.sh")
-    with open(launcher, "w", encoding="utf-8", newline="\n") as f:
-        f.write('#!/bin/sh\n# Runs the status line of the newest installed Quotient.\n'
-                'dir=$(ls -d "$HOME"/.claude/plugins/cache/*/quotient/*/scripts 2>/dev/null | sort -V | tail -n 1)\n'
-                '[ -n "$dir" ] || dir="%s"\nexec sh "$dir/run.sh" statusline\n' % os.path.dirname(os.path.abspath(__file__)).replace("\\", "/"))
+    """Writes a small launcher that runs this installed version (session starts keep it current), and shows
+    (or writes) the setting."""
+    launcher = statusline_launcher()
     setting = {"type": "command", "command": 'sh "%s"' % launcher.replace("\\", "/")}
     path = os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
     if args.write:
@@ -2404,17 +2411,17 @@ def rate_set(args):
 
 COMMANDS = [
     # (command, English, Italian)
-    ("/quotient:setup", "set Quotient up, or change its four settings", "configura Quotient, o cambia le sue quattro impostazioni"),
-    ("/quotient:report", "estimates against real costs, plan limits, the weeks", "stime contro costi veri, limiti del piano, le settimane"),
-    ("/quotient:rate <job>", "split a big job into installments, with the choice window", "dividi un lavoro grande in rate, con la finestra di scelta"),
-    ("/quotient:help", "this list", "questa lista"),
+    ("/token-quotient:setup", "set Quotient up, or change its four settings", "configura Quotient, o cambia le sue quattro impostazioni"),
+    ("/token-quotient:report", "estimates against real costs, plan limits, the weeks", "stime contro costi veri, limiti del piano, le settimane"),
+    ("/token-quotient:rate <job>", "split a big job into installments, with the choice window", "dividi un lavoro grande in rate, con la finestra di scelta"),
+    ("/token-quotient:help", "this list", "questa lista"),
     ("report [--html]", "the report, from a terminal (--html: a page with charts, opened in the browser)",
      "il resoconto, dal terminale (--html: una pagina con i grafici, aperta nel browser)"),
     ("setup --threshold N --reserve N --lang it|en --after sleep|hibernate|nothing", "save the four settings", "salva le quattro impostazioni"),
     ("setup --compact keep|auto|<tokens>", "long chats: keep them as they are, or let them compact themselves at a size",
      "chat lunghe: lasciarle come sono, o farle compattare da sole a una grandezza"),
     ("config [key [value]]", "show every setting, or change one", "mostra tutte le impostazioni, o ne cambia una"),
-    ("/quotient:share [on|off]", "the shared average: exactly what is sent, and turning it on or off", "la media condivisa: cosa parte esattamente, e accenderla o spegnerla"),
+    ("/token-quotient:share [on|off]", "the shared average: exactly what is sent, and turning it on or off", "la media condivisa: cosa parte esattamente, e accenderla o spegnerla"),
     ("share status|on|off|send", "the same, from a terminal (send: send the waiting lines now)", "lo stesso, dal terminale (send: manda adesso le righe in attesa)"),
     ("tick", "read Hermes' counters and the plan limits now (a scheduled task can run it every few minutes)",
      "legge adesso i contatori di Hermes e i limiti del piano (un'attività pianificata può farlo ogni pochi minuti)"),
@@ -3656,27 +3663,45 @@ def check_time(value):
 
 
 def launcher():
-    """A small script outside the plugin folder that runs the newest installed Quotient.
+    """A small script outside the plugin folder that runs this copy of Quotient, by its exact path.
 
-    Scheduled tasks call it, so they keep working after the plugin updates and old
-    version folders are removed.
+    Scheduled tasks call it. It never looks for other copies: each session start writes it again with
+    the path of the version that is running (refresh_launchers), so tasks keep working after an update.
     """
     path = os.path.join(home(), "launcher.py")
-    fallback = os.path.abspath(__file__)
     code = (
-        "# Runs the newest installed Quotient (written by Quotient; scheduled tasks call it).\n"
-        "import glob, os, re, runpy, sys\n"
-        "def version(p):\n"
-        "    v = os.path.basename(os.path.dirname(os.path.dirname(p)))\n"
-        "    return tuple(int(x) if x.isdigit() else 0 for x in re.split(r'[.-]', v))\n"
-        "found = sorted(glob.glob(os.path.join(os.path.expanduser('~'), '.claude', 'plugins', 'cache', '*', 'quotient', '*', 'scripts', 'quotient.py')), key=version)\n"
-        "script = found[-1] if found else %r\n"
+        "# Runs Token Quotient from this exact file (written by Quotient; scheduled tasks call it).\n"
+        "import os, runpy, sys\n"
+        "script = %r\n"
+        "sys.path.insert(0, os.path.dirname(script))\n"
         "sys.argv = [script] + sys.argv[1:]\n"
-        "runpy.run_path(script, run_name='__main__')\n" % fallback)
+        "runpy.run_path(script, run_name='__main__')\n" % os.path.abspath(__file__))
     if load_text(path) != code:
         with open(path, "w", encoding="utf-8") as f:
             f.write(code)
     return path
+
+
+def statusline_launcher():
+    """The status line's small script: it runs this copy of Quotient by its exact path, like launcher()."""
+    path = os.path.join(home(), "statusline.sh")
+    code = ('#!/bin/sh\n# Runs the status line of Token Quotient from this exact folder (written by Quotient).\n'
+            'exec sh "%s/run.sh" statusline\n' % os.path.dirname(os.path.abspath(__file__)).replace("\\", "/"))
+    if load_text(path) != code:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(code)
+    return path
+
+
+def refresh_launchers():
+    """At a session start of the installed plugin: the launchers that exist point again at the version
+    that is running, so scheduled tasks and the status line follow updates (and the old folders can go)."""
+    if not os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        return  # a copy run by hand (or by Hermes from a clone) does not move them
+    if os.path.exists(os.path.join(home(), "launcher.py")):
+        launcher()
+    if os.path.exists(os.path.join(home(), "statusline.sh")):
+        statusline_launcher()
 
 
 def load_text(path):

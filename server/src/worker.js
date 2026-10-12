@@ -266,7 +266,7 @@ table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:.3rem .6rem;t
 <h2>How the average is made</h2>
 <p>${escapeHtml(METHOD)}</p>
 ${table}
-<p>The same file is published in its own repository, <a href="${DATA_URL}">quotient-data</a> (<a href="${DATA_URL}/blob/main/average.json">average.json</a>, with its history): the service's key can write only there, never in Quotient's code. The code of this service is in <a href="${REPO_URL}/tree/main/server">server/</a>. Sharing can be turned off in Quotient (<code>/quotient:share off</code>); people who turn it off still get the average. Details: <a href="${REPO_URL}/blob/main/PRIVACY.md">PRIVACY.md</a>.</p>
+<p>The same file is published in its own repository, <a href="${DATA_URL}">quotient-data</a> (<a href="${DATA_URL}/blob/main/average.json">average.json</a>, with its history): the service's key can write only there, never in Quotient's code. The code of this service is in <a href="${REPO_URL}/tree/main/server">server/</a>. Sharing can be turned off in Quotient (<code>/token-quotient:share off</code>); people who turn it off still get the average. Details: <a href="${REPO_URL}/blob/main/PRIVACY.md">PRIVACY.md</a>.</p>
 </body></html>`;
   return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" } });
 }

@@ -1,4 +1,4 @@
-# Quotient: preventivi dei token e limiti di utilizzo per Claude Code
+# Token Quotient: preventivi dei token e limiti di utilizzo per Claude Code
 
 Sapere quanto costa un lavoro di [Claude Code](https://code.claude.com) prima di cominciarlo, e far stare i lavori grandi nei limiti delle 5 ore e della settimana.
 
@@ -8,15 +8,15 @@ Sapere quanto costa un lavoro di [Claude Code](https://code.claude.com) prima di
 
 *[Read in English](README.md)*
 
-![Demo di Quotient](docs/demo.svg)
+![Demo di Token Quotient](docs/demo.svg)
 
 ## Perché
 
 Con un abbonamento a Claude un lavoro si paga in limiti di utilizzo: una finestra di 5 ore e un tetto settimanale. Claude Code non ti dice quanto costerà un lavoro prima di cominciarlo, quindi lo scopri alla cassa. Un refactoring grosso o una ricerca lunga possono arrivare al limite delle 5 ore a metà strada, o consumare buona parte della settimana.
 
-Quotient ti dà prima il prezzo, ti fa scegliere, misura quanto è costato davvero e impara dalla differenza. I lavori troppo grandi per oggi possono andare a rate, una al giorno, anche di notte.
+Token Quotient (in breve Quotient) ti dà prima il prezzo, ti fa scegliere, misura quanto è costato davvero e impara dalla differenza. I lavori troppo grandi per oggi possono andare a rate, una al giorno, anche di notte.
 
-Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol dire preventivo, e in matematica il *quotient* è il quoziente, il risultato di una divisione, come un lavoro grande diviso in rate.
+Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol dire preventivo, e in matematica il *quotient* è il quoziente, il risultato di una divisione, come un lavoro grande diviso in rate. *Token*, perché quel prezzo si conta in token.
 
 ## Cosa fa
 
@@ -33,7 +33,7 @@ Inoltre Quotient:
 - misura a parte quanto Claude spende per rileggere una chat lunga, e propone una chat nuova quando conviene (vedi [Lavoro e rilettura](#lavoro-e-rilettura-perché-una-chat-lunga-costa-di-più));
 - misura un lavoro come un lavoro solo anche quando passa da una chat all'altra;
 - misura il suo stesso peso, così vedi quanto costa accanto a quanto aiuta;
-- apre il resoconto come pagina con i grafici (`/quotient:report page`, un file sul tuo PC);
+- apre il resoconto come pagina con i grafici (`/token-quotient:report page`, un file sul tuo PC);
 - ha modi di lavorare pronti per i lavori lunghi a rate: un libro, una ricerca, una revisione di codice (`rate templates`);
 - funziona anche dentro [Hermes Agent](#per-cominciare-hermes-agent).
 
@@ -43,12 +43,14 @@ In Claude Code:
 
 ```
 /plugin marketplace add Korvonordico/quotient-claude-tokens
-/plugin install quotient@quotient
+/plugin install token-quotient@token-quotient
 ```
+
+L'avevi installato come `quotient@quotient`, prima della versione 0.9.8? Togli prima quello, poi aggiungi di nuovo il marketplace: `/plugin uninstall quotient@quotient` e `/plugin marketplace remove quotient`. I tuoi dati in `~/.quotient` restano.
 
 Serve Python 3.8 o più recente (solo la libreria standard, niente da installare) e `sh`, che su Windows arriva con Git for Windows, già usato da Claude Code.
 
-La prima volta una finestra chiede quattro impostazioni: da che grandezza un lavoro riceve il preventivo, quanta parte della settimana tenere per te, la lingua, e se Quotient può svegliare il PC per le rate e rimetterlo a dormire. Una seconda finestra ti chiede se vuoi partecipare alla media condivisa (sì, no, o quello che scrivi tu). Le cambi quando vuoi con `/quotient:setup`.
+La prima volta una finestra chiede quattro impostazioni: da che grandezza un lavoro riceve il preventivo, quanta parte della settimana tenere per te, la lingua, e se Quotient può svegliare il PC per le rate e rimetterlo a dormire. Una seconda finestra ti chiede se vuoi partecipare alla media condivisa (sì, no, o quello che scrivi tu). Le cambi quando vuoi con `/token-quotient:setup`.
 
 Poi lavori come sempre. Sotto la soglia Claude lavora e basta; sopra, o quando dici «è un lavoro grosso», ricevi prima un preventivo.
 
@@ -95,11 +97,11 @@ Nella chat:
 
 | Comando | Cosa fa |
 |---|---|
-| `/quotient:setup` | configura Quotient, o cambia le sue impostazioni |
-| `/quotient:report` | stime contro costi veri, i tuoi limiti, le settimane; `/quotient:report page` lo apre come pagina con i grafici |
-| `/quotient:rate <lavoro>` | dividi un lavoro grande in rate |
-| `/quotient:share [on\|off]` | la media condivisa: cosa parte esattamente, e accenderla o spegnerla |
-| `/quotient:help` | tutti i comandi, con quello che fanno |
+| `/token-quotient:setup` | configura Quotient, o cambia le sue impostazioni |
+| `/token-quotient:report` | stime contro costi veri, i tuoi limiti, le settimane; `/token-quotient:report page` lo apre come pagina con i grafici |
+| `/token-quotient:rate <lavoro>` | dividi un lavoro grande in rate |
+| `/token-quotient:share [on\|off]` | la media condivisa: cosa parte esattamente, e accenderla o spegnerla |
+| `/token-quotient:help` | tutti i comandi, con quello che fanno |
 
 Gli altri comandi li usa Claude per te quando scegli nelle finestre.
 
@@ -170,7 +172,7 @@ Quotient registra quanto hai usato del limite delle 5 ore e di quello settimanal
 Quotient · 5 ore: usato 31%, resta 69%, si azzera 19:30 · settimana: usato 6%, resta 94%, si azzera lun 12 07:00
 ```
 
-Prende questi numeri da quello che Claude Code passa alla riga di stato, e anche direttamente da Anthropic, con la stessa richiesta di `/usage` di Claude Code e senza spendere token (al massimo ogni 10 minuti; si spegne con `config limits.live false`). `tick` li legge subito, per un'attività pianificata.
+Prende questi numeri da quello che Claude Code passa alla riga di stato, e anche dal comando `/usage` di Claude Code stesso, fatto girare in sottofondo senza spendere token (al massimo ogni 10 minuti; si spegne con `config limits.live false`). Così i limiti ci sono anche nell'app desktop di Claude, dove la riga di stato non c'è. `tick` li legge subito, per un'attività pianificata.
 
 Col tempo stima anche quanti token vale l'1% di ogni limite, così un preventivo può dire «questo prende circa l'8% della tua settimana». Anthropic non pubblica i limiti in token, quindi è una stima, con il suo margine.
 
@@ -195,7 +197,7 @@ Un plugin non può lanciare `/compact`, ma Claude Code sa riassumere da solo una
 - **Falla compattare da sola alla grandezza che consiglia Quotient**: dove rileggere la chat a ogni passo costa circa il doppio del lavoro di un passo, calcolato sui tuoi numeri (circa 600.000 token all'inizio).
 - **A una grandezza che scegli tu**, da 100.000 a 1.000.000 di token.
 
-Per le ultime due, Quotient scrive `autoCompactWindow` in `~/.claude/settings.json`, e riprende il suo valore se torni alla prima (se prima c'era un valore tuo, lo rimette). Un riassunto perde qualche dettaglio: quando la chat si avvicina alla grandezza, Quotient dice una volta a Claude di salvare nei file quello che non si deve perdere. Ogni compattazione viene misurata, e il resoconto dice quanto ha fatto risparmiare. La cambi quando vuoi con `/quotient:setup` o nelle impostazioni del plugin.
+Per le ultime due, Quotient scrive `autoCompactWindow` in `~/.claude/settings.json`, e riprende il suo valore se torni alla prima (se prima c'era un valore tuo, lo rimette). Un riassunto perde qualche dettaglio: quando la chat si avvicina alla grandezza, Quotient dice una volta a Claude di salvare nei file quello che non si deve perdere. Ogni compattazione viene misurata, e il resoconto dice quanto ha fatto risparmiare. La cambi quando vuoi con `/token-quotient:setup` o nelle impostazioni del plugin.
 
 ## Privacy
 
@@ -208,7 +210,7 @@ Una sola cosa esce dal tuo computer, e la puoi spegnere: dopo ogni lavoro finito
 ```
 
 - Niente date, nomi, testi, percorsi, codici di sessione o di persona. Il servizio che raccoglie le righe ([codice in `server/`](server/)) non tiene gli indirizzi IP.
-- La spegni con `/quotient:share off`, con l'impostazione del plugin *Condividi numeri anonimi*, oppure con `QUOTIENT_SHARE=0`. Anche da spenta ricevi la media condivisa. `/quotient:share` ti mostra esattamente cosa parte e quante righe aspettano.
+- La spegni con `/token-quotient:share off`, con l'impostazione del plugin *Condividi numeri anonimi*, oppure con `QUOTIENT_SHARE=0`. Anche da spenta ricevi la media condivisa. `/token-quotient:share` ti mostra esattamente cosa parte e quante righe aspettano.
 - Quotient inoltre scarica la media condivisa una volta al giorno, e legge l'uso del tuo piano da Anthropic con il login di Claude Code (dettagli qui sotto).
 
 Tutto nel dettaglio: [PRIVACY.md](PRIVACY.md).
@@ -230,7 +232,7 @@ Ogni copia di Quotient impara dai suoi errori, ma chi comincia non ne ha ancora.
 - **Sul tuo computer, sempre**: il suo programma in Python, tramite `sh`, all'inizio di ogni chat, a ogni messaggio, alla fine di ogni risposta, prima di una compattazione e prima di ogni strumento dentro una rata. Legge le trascrizioni delle tue chat che tiene Claude Code solo per dei numeri: i token di ogni chiamata, le righe per la macchina che scrive Claude, e quali strumenti Claude ha usato (per misurare il costo e il peso di Quotient stesso). Nessun testo di quelle chat viene mai mandato da nessuna parte.
 - **Scrive** solo in `~/.quotient/` (o in `QUOTIENT_HOME`), più una pagina con il resoconto di ogni rata nella cartella del lavoro. Le due eccezioni toccano `~/.claude/settings.json`, e solo quando le scegli tu: `setup-statusline --write` ci mette la riga di stato, e la scelta «compatta» per le chat lunghe ci scrive `autoCompactWindow` (che riprende quando torni a «tieni»).
 - **Per le rate, solo dopo che le hai scelte nella finestra**: attività dell'Utilità di pianificazione di Windows (`schtasks`) che partono all'ora che hai scelto e, se lo permetti, svegliano il PC; Claude Code stesso (`claude -p`) nella cartella del lavoro, con la modalità di permessi `acceptEdits`, senza richieste di permesso, e solo con gli strumenti che permetti in `rate.extra_args`; PowerShell per la notifica e per leggere quando parte la prossima rata; la sospensione o l'ibernazione dopo, se l'hai scelto e nessuno sta usando il PC. `rate check` legge (non cambia mai) l'impostazione dei timer di riattivazione con `powercfg`.
-- **Chiede ad Anthropic l'uso del tuo piano**, con la stessa richiesta di `/usage` di Claude Code e il login che Claude Code tiene sul tuo computer: al massimo ogni 10 minuti, senza spendere token. Quotient non scrive mai quel login da nessuna parte. Si spegne con `config limits.live false`.
+- **Usa il comando `/usage` di Claude Code** per leggere l'uso del tuo piano: risponde Claude Code stesso, sul tuo computer, con il suo login, e Quotient tiene solo le percentuali e gli orari di azzeramento. Al massimo ogni 10 minuti, senza spendere token; Quotient non legge mai il tuo login. Si spegne con `config limits.live false`.
 - **Con Hermes Agent** legge l'archivio locale delle sessioni di Hermes, in sola lettura: contatori dei token, modello e titolo della chat.
 - **Manda**, se la condivisione è accesa: una riga di numeri per ogni lavoro finito a `https://quotient-share.korvonordico.workers.dev`.
 - **Scarica**, una volta al giorno: `https://raw.githubusercontent.com/Korvonordico/quotient-data/main/average.json`, oppure `/v1/average` del servizio quando GitHub non risponde. Tutti e due sono dell'autore.
@@ -280,7 +282,7 @@ No. Quotient è un progetto open source indipendente di Francesco Candela. Non �
 Le percentuali usate e gli orari di azzeramento arrivano da Anthropic a ogni lettura, quindi restano giusti, e Quotient non presume mai quanti token valga un limite. La stima di quanto vale l'1% la impara da tutte le letture che ha registrato: dopo un cambio sbaglia per un po' e si sposta verso la nuova grandezza man mano che arrivano letture nuove. Se cambia la richiesta che c'è dietro `/usage`, la lettura diretta smette di funzionare finché Quotient non viene aggiornato, e restano le letture dalla riga di stato. Se cambiano le proporzioni dei prezzi delle API, i pesi sono impostazioni (per esempio `config weights.output 5`).
 
 **Quanto sono precisi i preventivi?**
-All'inizio poco. Ogni preventivo nuovo viene moltiplicato per un fattore di correzione: il rapporto mediano fra costo vero e stima negli ultimi 20 lavori finiti. Finché non hai 5 lavori, la media condivisa conta come 5 lavori accanto ai tuoi. `/quotient:report` mostra l'errore tipico prima della correzione e quello recente con la correzione, così vedi se si sta avvicinando.
+All'inizio poco. Ogni preventivo nuovo viene moltiplicato per un fattore di correzione: il rapporto mediano fra costo vero e stima negli ultimi 20 lavori finiti. Finché non hai 5 lavori, la media condivisa conta come 5 lavori accanto ai tuoi. `/token-quotient:report` mostra l'errore tipico prima della correzione e quello recente con la correzione, così vedi se si sta avvicinando.
 
 **Quotient consuma token anche lui?**
 Sì, un poco: circa 1.700 token di regole all'inizio di una chat e una riga di circa 270 token a ogni messaggio in una chat lunga. Restano nella chat e vengono rilette, quindi Quotient le misura e le mostra nel resoconto.

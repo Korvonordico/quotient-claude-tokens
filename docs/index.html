@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Quotient: know what an AI job costs before it starts</title>
-<meta name="description" content="Quotient is a Claude Code plugin: a token quote before a big AI job, the real cost after, and big jobs split into installments that respect your 5-hour and weekly usage limits.">
+<title>Token Quotient: know what an AI job costs before it starts</title>
+<meta name="description" content="Token Quotient is a Claude Code plugin: a token quote before a big AI job, the real cost after, and big jobs split into installments that respect your 5-hour and weekly usage limits.">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#0b0d11" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#faf8f3" media="(prefers-color-scheme: light)">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Quotient: know what an AI job costs before it starts">
+<meta property="og:title" content="Token Quotient: know what an AI job costs before it starts">
 <meta property="og:description" content="A Claude Code plugin: a token quote before a big job, the real cost after, and installments that respect your usage limits.">
 <meta property="og:image" content="https://raw.githubusercontent.com/Korvonordico/quotient-claude-tokens/main/docs/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -160,9 +160,9 @@ footer a:hover{color:var(--text)}
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="wrap top">
-  <a class="brand" href="#main" aria-label="Quotient, top of the page">
+  <a class="brand" href="#main" aria-label="Token Quotient, top of the page">
     <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0d1117"/><circle cx="16" cy="8.5" r="2.6" fill="#e3b341"/><rect x="7" y="14.4" width="18" height="3.2" rx="1.6" fill="#e3b341"/><circle cx="16" cy="23.5" r="2.6" fill="#e3b341"/></svg>
-    Quotient
+    Token Quotient
   </a>
   <nav aria-label="Page">
     <a href="#features" class="hide-sm">Features</a>
@@ -176,7 +176,7 @@ footer a:hover{color:var(--text)}
   <div class="wrap hero">
     <div class="hero-main">
       <p class="kicker" aria-hidden="true"><b>QUOTE:</b> essential=60000 good=150000 max=300000</p>
-      <h1>Quotient</h1>
+      <h1>Token Quotient</h1>
       <p class="tagline">Know what an AI job costs before it starts.</p>
     </div>
     <div class="hero-side">
@@ -253,19 +253,19 @@ footer a:hover{color:var(--text)}
         <div>
           <p class="where-label">In Claude Code:</p>
           <pre class="term" tabindex="0" role="region" aria-label="Install commands"><code><span class="cmd">/plugin marketplace add Korvonordico/quotient-claude-tokens</span>
-<span class="cmd">/plugin install quotient@quotient</span></code></pre>
+<span class="cmd">/plugin install token-quotient@token-quotient</span></code></pre>
           <dl class="cmds">
-            <dt>/quotient:setup</dt><dd>set Quotient up, or change its settings</dd>
-            <dt>/quotient:report</dt><dd>estimates against real costs, your limits, the weeks (add <code>page</code> for charts)</dd>
-            <dt>/quotient:rate &lt;job&gt;</dt><dd>split a big job into installments</dd>
-            <dt>/quotient:share</dt><dd>exactly what is shared, and turning it on or off</dd>
-            <dt>/quotient:help</dt><dd>every command, with what it does</dd>
+            <dt>/token-quotient:setup</dt><dd>set Quotient up, or change its settings</dd>
+            <dt>/token-quotient:report</dt><dd>estimates against real costs, your limits, the weeks (add <code>page</code> for charts)</dd>
+            <dt>/token-quotient:rate &lt;job&gt;</dt><dd>split a big job into installments</dd>
+            <dt>/token-quotient:share</dt><dd>exactly what is shared, and turning it on or off</dd>
+            <dt>/token-quotient:help</dt><dd>every command, with what it does</dd>
           </dl>
         </div>
         <ul class="notes">
           <li><strong>Needs Python 3.8 or newer and <code>sh</code>.</strong> On Windows, <code>sh</code> comes with Git for Windows, which Claude Code already uses.</li>
           <li><strong>The first time, a window asks four settings:</strong> from what size a job gets a quote, how much of the week to keep for yourself, the language, and whether Quotient may wake the PC for installments and put it back to sleep.</li>
-          <li><strong>Change them any time</strong> with <code>/quotient:setup</code>.</li>
+          <li><strong>Change them any time</strong> with <code>/token-quotient:setup</code>.</li>
         </ul>
       </div>
     </div>
@@ -274,7 +274,7 @@ footer a:hover{color:var(--text)}
   <section id="runs" aria-labelledby="runs-h">
     <div class="wrap">
       <h2 id="runs-h">Made for Claude Code</h2>
-      <p class="intro">Quotient is a Claude Code plugin. It does not replace anything; it adds a step before a big job and a measurement after it.</p>
+      <p class="intro">Token Quotient (Quotient for short) is a Claude Code plugin. It does not replace anything; it adds a step before a big job and a measurement after it.</p>
       <div class="runs">
         <div>
           <h3>In Claude Code</h3>
@@ -296,7 +296,7 @@ footer a:hover{color:var(--text)}
         <div>
           <p>Everything Quotient records stays on your computer, in <code>~/.quotient</code>. After each finished job it sends one line of numbers for the shared average, so new users start from real jobs instead of from zero. Exactly this line, and nothing else:</p>
           <pre class="term" tabindex="0" role="region" aria-label="The exact line that is shared"><code>{"v":1,"q":"0.9.7","family":"opus","estimate":225000,"actual":259000}</code></pre>
-          <p>No dates, no names, no text, no paths, no session or user ids. Turn it off with <code>/quotient:share off</code>; you still get the shared average.</p>
+          <p>No dates, no names, no text, no paths, no session or user ids. Turn it off with <code>/token-quotient:share off</code>; you still get the shared average.</p>
           <p><a href="https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md">Read the full privacy note (PRIVACY.md)</a></p>
         </div>
         <ul class="facts" aria-label="What Quotient writes, sends, fetches and schedules">
@@ -312,7 +312,7 @@ footer a:hover{color:var(--text)}
 
 <footer>
   <div class="wrap">
-    <p>Quotient · <a href="https://github.com/Korvonordico/quotient-claude-tokens/blob/main/LICENSE">MIT License</a> · © 2026 Francesco Candela (Korvonordico)</p>
+    <p>Token Quotient · <a href="https://github.com/Korvonordico/quotient-claude-tokens/blob/main/LICENSE">MIT License</a> · © 2026 Francesco Candela (Korvonordico)</p>
     <p>Not affiliated with Anthropic. · <a href="https://github.com/Korvonordico/quotient-claude-tokens/blob/main/README.it.md" hreflang="it" lang="it">Leggi in italiano</a></p>
   </div>
 </footer>

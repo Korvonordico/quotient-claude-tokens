@@ -2,7 +2,7 @@
 
 *Italiano più sotto.*
 
-Quotient is a Claude Code plugin by Francesco Candela (Korvonordico). It runs on your computer. This page says exactly what leaves it.
+Token Quotient (Quotient for short) is a Claude Code plugin by Francesco Candela (Korvonordico). It runs on your computer. This page says exactly what leaves it.
 
 ## What stays on your computer
 
@@ -28,13 +28,13 @@ To help everyone start from real numbers instead of from zero, Quotient shares *
 | `estimate` | the raw estimate, in weighted tokens, rounded to 3 significant digits |
 | `actual` | the real cost of the work, in weighted tokens, rounded to 3 significant digits (from 0.9.5 without re-reading what the chat held when the job started, which the estimate is not about; the version in `q` tells the two apart) |
 
-No date or time, no names, no text, no file paths, no session or user ids, no account. `quotient export` prints the lines your jobs produce; `/quotient:share` shows the state, the exact form of the line and how many lines are waiting.
+No date or time, no names, no text, no file paths, no session or user ids, no account. `quotient export` prints the lines your jobs produce; `/token-quotient:share` shows the state, the exact form of the line and how many lines are waiting.
 
 **When**: the line waits on your computer and leaves at the start of your next Claude Code session (or at the end of a background installment), never in the middle of a reply. Nothing is queued before you have been told: the first time, Claude Code shows you a message saying what is shared and how to turn it off.
 
 **Where**: to a small service run on Cloudflare Workers by the author, whose code is public in [`server/`](server/). It accepts only lines of exactly that shape; anything else is refused.
 
-**You choose, and you can change it any time**: the first-use window asks whether you take part (yes by default). To change it: `/quotient:share off`, `quotient share off`, the plugin setting *Share anonymous numbers*, or the environment variable `QUOTIENT_SHARE=0`. When it is off nothing is sent, and lines that were waiting are deleted. **You still download and use the shared average.** Installments that run in the background read the setting from Quotient's own file, so `/quotient:share off` covers them; the environment variable covers them only if it is set in Windows itself.
+**You choose, and you can change it any time**: the first-use window asks whether you take part (yes by default). To change it: `/token-quotient:share off`, `quotient share off`, the plugin setting *Share anonymous numbers*, or the environment variable `QUOTIENT_SHARE=0`. When it is off nothing is sent, and lines that were waiting are deleted. **You still download and use the shared average.** Installments that run in the background read the setting from Quotient's own file, so `/token-quotient:share off` covers them; the environment variable covers them only if it is set in Windows itself.
 
 ## What the service keeps
 
@@ -56,7 +56,7 @@ Once a day, at the start of a session, Quotient downloads `average.json` from th
 
 ## What is read from Anthropic
 
-To show your plan limits, Quotient asks Anthropic how much of them you have used, with the same request Claude Code's `/usage` makes (`https://api.anthropic.com/api/oauth/usage`) and the login Claude Code keeps on your computer (`~/.claude/.credentials.json`). Nothing else of yours goes with it. Quotient keeps only the used percentages and the reset times, and never writes the login anywhere. It asks at most every 10 minutes and spends no tokens. To turn it off: `quotient config limits.live false`.
+To show your plan limits, Quotient runs Claude Code's own `/usage` command (`claude -p /usage`, without hooks and without saving a session). Claude Code answers it with its own login, as it does when you type `/usage`; Quotient never reads your login or any other credential, and sends nothing itself. It keeps only the used percentages and the reset times. It asks at most every 10 minutes and spends no tokens. To turn it off: `quotient config limits.live false`.
 
 ## How long
 
@@ -70,7 +70,7 @@ Open an issue at https://github.com/Korvonordico/quotient-claude-tokens/issues.
 
 # Privacy (italiano)
 
-Quotient è un plugin per Claude Code di Francesco Candela (Korvonordico). Gira sul tuo computer. Questa pagina dice esattamente cosa ne esce.
+Token Quotient (in breve Quotient) è un plugin per Claude Code di Francesco Candela (Korvonordico). Gira sul tuo computer. Questa pagina dice esattamente cosa ne esce.
 
 **Resta sul tuo computer** tutto quello che Quotient registra: preventivi, costi veri, limiti, impostazioni, lavori a rate, lavori lasciati aperti in una chat e la pagina con i grafici (`report.html`), in `~/.quotient/`. Per misurare i costi Quotient legge dalle trascrizioni di Claude Code solo numeri (i token di ogni chiamata), le righe per la macchina che scrive Claude e i nomi degli strumenti usati; non manda mai il testo delle conversazioni, i tuoi file, la memoria o la cronologia.
 
@@ -86,7 +86,7 @@ Se usi Hermes Agent, Quotient legge anche il suo archivio locale delle sessioni,
 
 Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e il costo vero del lavoro in token pesati (dalla 0.9.5 senza la rilettura di quello che la chat conteneva quando il lavoro è cominciato, che la stima non riguarda), arrotondati a 3 cifre. Niente date né orari, niente nomi, testi, percorsi, codici di sessione o di persona, niente account. La riga parte all'inizio della sessione successiva, mai a metà di una risposta, e niente parte prima che tu sia avvisato: la prima volta Claude Code ti mostra un messaggio che dice cosa viene condiviso e come spegnerlo. Va a un piccolo servizio su Cloudflare Workers, il cui codice è pubblico in [`server/`](server/), che accetta solo righe di quella forma.
 
-**Scegli tu, e puoi cambiare idea quando vuoi**: la finestra del primo uso ti chiede se partecipi (di serie sì). Per cambiarlo: `/quotient:share off`, l'impostazione del plugin *Condividi numeri anonimi*, oppure `QUOTIENT_SHARE=0`. Da spento non parte niente, e le righe in attesa vengono cancellate. **La media condivisa la scarichi e la usi lo stesso.**
+**Scegli tu, e puoi cambiare idea quando vuoi**: la finestra del primo uso ti chiede se partecipi (di serie sì). Per cambiarlo: `/token-quotient:share off`, l'impostazione del plugin *Condividi numeri anonimi*, oppure `QUOTIENT_SHARE=0`. Da spento non parte niente, e le righe in attesa vengono cancellate. **La media condivisa la scarichi e la usi lo stesso.**
 
 **Il servizio non tiene il tuo indirizzo IP**: il suo codice non lo legge, e il registro delle richieste è spento (Cloudflare lo accende di serie nei servizi nuovi; qui è spento). Cloudflare, che fa girare il servizio, trasporta la connessione come ogni rete: vedi la [sua informativa](https://www.cloudflare.com/privacypolicy/). Due contatori, uno per il minuto e uno per il giorno in corso, servono solo a fermare le inondazioni e vengono sovrascritti: nessuna storia degli orari d'arrivo. Cloudflare tiene anche dei punti di ripristino automatici del database per un tempo limitato, dai quali chi gestisce il servizio potrebbe in teoria capire più o meno quando è arrivata una riga.
 
@@ -94,6 +94,6 @@ Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e 
 
 **Cosa viene scaricato**: una volta al giorno, `average.json` da quotient-data su GitHub, o dal servizio se GitHub non risponde. Si tengono solo i numeri. Per fermare anche lo scaricamento: `quotient config share.average_url ""` e `quotient config share.endpoint ""`.
 
-**Cosa viene letto da Anthropic**: per mostrarti i limiti del piano, Quotient chiede ad Anthropic quanto ne hai usato, con la stessa richiesta di `/usage` di Claude Code (`https://api.anthropic.com/api/oauth/usage`) e il login che Claude Code tiene sul tuo computer (`~/.claude/.credentials.json`). Non ci va nient'altro di tuo. Quotient tiene solo le percentuali usate e gli orari di azzeramento, e non scrive mai il login da nessuna parte. Chiede al massimo ogni 10 minuti e non spende token. Per spegnerla: `quotient config limits.live false`.
+**Cosa viene letto da Anthropic**: per mostrarti i limiti del piano, Quotient fa girare il comando `/usage` di Claude Code stesso (`claude -p /usage`, senza hook e senza salvare una sessione). Risponde Claude Code con il suo login, come quando scrivi `/usage`; Quotient non legge mai il tuo login né altre credenziali, e non manda niente da sé. Tiene solo le percentuali usate e gli orari di azzeramento. Chiede al massimo ogni 10 minuti e non spende token. Per spegnerla: `quotient config limits.live false`.
 
 **Per quanto tempo**: si tengono solo le ultime 5.000 righe; la media usa gli ultimi 500 lavori per famiglia e 2.000 in tutto. Le righe non contengono niente che porti a una persona, quindi non si possono ritrovare e cancellare una per una: se vuoi che la condivisione si fermi, spegnila.

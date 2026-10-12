@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in Quotient does not work as it should, or a quote was far off.
+description: Something in Token Quotient does not work as it should, or a quote was far off.
 title: "[Bug]: "
 labels: ["bug"]
 body:
@@ -75,7 +75,7 @@ body:
     id: output
     attributes:
       label: Output and errors
-      description: Error messages, or the relevant lines of `/quotient:report` or `rate status`. Remove anything private first.
+      description: Error messages, or the relevant lines of `/token-quotient:report` or `rate status`. Remove anything private first.
       render: text
   - type: checkboxes
     id: checks

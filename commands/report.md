@@ -1,7 +1,9 @@
 ---
 description: Estimates against real costs, Quotient's own weight, and how the error is changing (add "page" for charts)
 argument-hint: [page]
-allowed-tools: Bash(sh:*)
+allowed-tools:
+  - Bash(sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" report)
+  - Bash(sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" report --html)
 ---
 !`sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" report`
 

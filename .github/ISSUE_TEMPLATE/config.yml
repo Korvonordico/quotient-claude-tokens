@@ -3,6 +3,6 @@ contact_links:
   - name: Security problem
     url: https://github.com/Korvonordico/quotient-claude-tokens/blob/main/SECURITY.md
     about: Please report security problems privately, as described in SECURITY.md, not as a public issue.
-  - name: What Quotient reads, keeps and sends
+  - name: What Token Quotient reads, keeps and sends
     url: https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md
     about: Questions about data and the shared average are often answered in PRIVACY.md.

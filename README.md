@@ -1,4 +1,4 @@
-# Quotient: token cost quotes and usage limits for Claude Code
+# Token Quotient: cost quotes and usage limits for Claude Code
 
 Know what a [Claude Code](https://code.claude.com) job will cost before it starts, and fit big jobs into your 5-hour and weekly limits.
 
@@ -8,15 +8,15 @@ Know what a [Claude Code](https://code.claude.com) job will cost before it start
 
 *[Leggi in italiano](README.it.md)*
 
-![Quotient demo](docs/demo.svg)
+![Token Quotient demo](docs/demo.svg)
 
 ## Why
 
 With a Claude subscription you pay for a job in usage limits: a 5-hour window and a weekly cap. Claude Code does not tell you what a job will cost before it starts, so you find out at the till. A big refactor or a long research task can hit the 5-hour limit halfway through, or use up most of your week.
 
-Quotient gives you the price first, lets you choose, measures what the job really cost, and learns from the difference. Jobs too big for today can run in daily installments, at night if you like.
+Token Quotient (Quotient for short) gives you the price first, lets you choose, measures what the job really cost, and learns from the difference. Jobs too big for today can run in daily installments, at night if you like.
 
-The name holds both halves: it starts like *quote*, the price agreed before a job, and in mathematics the quotient is the result of a division, like a big job divided into installments.
+The name holds both halves: *quotient* starts like *quote*, the price agreed before a job, and in mathematics a quotient is the result of a division, like a big job divided into installments. *Token*, because that price is counted in tokens.
 
 ## What it does
 
@@ -33,7 +33,7 @@ It also:
 - measures apart what Claude spends re-reading a long chat, and offers a new chat when that saves (see [Work and re-reading](#work-and-re-reading-why-a-long-chat-costs-more));
 - measures a job as one job even when it moves from one chat to another;
 - measures its own weight, so you can see what it costs next to what it helps;
-- opens the report as a page with charts (`/quotient:report page`, a local file);
+- opens the report as a page with charts (`/token-quotient:report page`, a local file);
 - has ready-made ways of working for long installment jobs: a book, a research, a code review (`rate templates`);
 - works inside [Hermes Agent](#quick-start-hermes-agent) too.
 
@@ -43,12 +43,14 @@ In Claude Code:
 
 ```
 /plugin marketplace add Korvonordico/quotient-claude-tokens
-/plugin install quotient@quotient
+/plugin install token-quotient@token-quotient
 ```
+
+Installed it as `quotient@quotient`, before version 0.9.8? Remove that one first, then add the marketplace again: `/plugin uninstall quotient@quotient` and `/plugin marketplace remove quotient`. Your data in `~/.quotient` stays.
 
 You need Python 3.8 or newer (standard library only, nothing else to install) and `sh`, which on Windows comes with Git for Windows, already used by Claude Code.
 
-The first time, a window asks for four settings: from what size a job gets a quote, how much of the week to keep for yourself, the language, and whether Quotient may wake the PC for installments and put it back to sleep. A second window asks whether you want to take part in the shared average (yes, no, or anything else you write). Change them later with `/quotient:setup`.
+The first time, a window asks for four settings: from what size a job gets a quote, how much of the week to keep for yourself, the language, and whether Quotient may wake the PC for installments and put it back to sleep. A second window asks whether you want to take part in the shared average (yes, no, or anything else you write). Change them later with `/token-quotient:setup`.
 
 Then work as usual. Under the threshold Claude just works; above it, or when you say "this is a big job", you get a quote first.
 
@@ -95,11 +97,11 @@ In the chat:
 
 | Command | What it does |
 |---|---|
-| `/quotient:setup` | set Quotient up, or change its settings |
-| `/quotient:report` | estimates against real costs, your limits, the weeks; `/quotient:report page` opens it as a page with charts |
-| `/quotient:rate <job>` | split a big job into installments |
-| `/quotient:share [on\|off]` | the shared average: exactly what is sent, and turning it on or off |
-| `/quotient:help` | every command, with what it does |
+| `/token-quotient:setup` | set Quotient up, or change its settings |
+| `/token-quotient:report` | estimates against real costs, your limits, the weeks; `/token-quotient:report page` opens it as a page with charts |
+| `/token-quotient:rate <job>` | split a big job into installments |
+| `/token-quotient:share [on\|off]` | the shared average: exactly what is sent, and turning it on or off |
+| `/token-quotient:help` | every command, with what it does |
 
 Claude runs the other commands for you when you choose in the windows.
 
@@ -170,7 +172,7 @@ Quotient records how much of the 5-hour and weekly limits you have used and when
 Quotient · 5-hour: 31% used, 69% left, resets 19:30 · week: 6% used, 94% left, resets Mon 12 07:00
 ```
 
-It takes these numbers from what Claude Code passes to the status line, and also straight from Anthropic, with the same request as Claude Code's `/usage` and no tokens spent (at most every 10 minutes; off with `config limits.live false`). `tick` reads them now, for a scheduled task.
+It takes these numbers from what Claude Code passes to the status line, and also from Claude Code's own `/usage` command, run in the background with no tokens spent (at most every 10 minutes; off with `config limits.live false`). So the limits are there in the Claude desktop app too, where there is no status line. `tick` reads them now, for a scheduled task.
 
 Over time it also estimates how many tokens 1% of each limit holds, so a quote can say "this takes about 8% of your week". Anthropic does not publish the limits in tokens, so this is an estimate, with its margin.
 
@@ -195,7 +197,7 @@ A plugin cannot run `/compact`, but Claude Code can summarize a chat by itself w
 - **Let it compact itself at the size Quotient recommends**: where re-reading the chat at every call costs about twice the work of a call, from your own numbers (about 600,000 tokens at the start).
 - **At a size you choose**, from 100,000 to 1,000,000 tokens.
 
-For the last two, Quotient writes `autoCompactWindow` in `~/.claude/settings.json`, and takes its own value back if you return to the first (a value you had set yourself is put back). A summary loses some details: when the chat gets close to the size, Quotient tells Claude once to save to files what must not be lost. Each compaction is measured, and the report says what it saved. Change it any time with `/quotient:setup` or in the plugin settings.
+For the last two, Quotient writes `autoCompactWindow` in `~/.claude/settings.json`, and takes its own value back if you return to the first (a value you had set yourself is put back). A summary loses some details: when the chat gets close to the size, Quotient tells Claude once to save to files what must not be lost. Each compaction is measured, and the report says what it saved. Change it any time with `/token-quotient:setup` or in the plugin settings.
 
 ## Privacy
 
@@ -208,7 +210,7 @@ One thing leaves your computer, and you can turn it off: after each finished job
 ```
 
 - No dates, no names, no text, no paths, no session or user ids. The service that collects the lines ([code in `server/`](server/)) does not keep IP addresses.
-- Turn it off with `/quotient:share off`, the plugin setting *Share anonymous numbers*, or `QUOTIENT_SHARE=0`. With sharing off you still get the shared average. `/quotient:share` shows exactly what is sent and how many lines are waiting.
+- Turn it off with `/token-quotient:share off`, the plugin setting *Share anonymous numbers*, or `QUOTIENT_SHARE=0`. With sharing off you still get the shared average. `/token-quotient:share` shows exactly what is sent and how many lines are waiting.
 - Quotient also downloads the shared average once a day, and reads your plan usage from Anthropic with Claude Code's own login (details below).
 
 Everything in detail: [PRIVACY.md](PRIVACY.md).
@@ -230,7 +232,7 @@ Each copy of Quotient learns from its own errors, but a new user has no errors y
 - **On your computer, always**: its Python script, through `sh`, at the start of each session, at each message, at the end of each reply, before a compaction, and before each tool call inside an installment. It reads Claude Code's transcripts of your chats only for numbers: the token counts of each call, the machine lines Claude writes, and which tools Claude called (to measure the cost and Quotient's own weight). No text from them is ever sent anywhere.
 - **It writes** only in `~/.quotient/` (or `QUOTIENT_HOME`), plus a report page for each installment in the job's own folder. The two exceptions touch `~/.claude/settings.json`, and only when you choose them: `setup-statusline --write` puts the status line there, and the long-chat choice "compact" writes `autoCompactWindow` there (taken back when you choose "keep" again).
 - **For installments, only after you choose them in the window**: Windows Task Scheduler tasks (`schtasks`) that run at the time you chose and, if you allow it, wake the PC; Claude Code itself (`claude -p`) in the job's folder, with the permission mode `acceptEdits`, no permission prompts, and only the tools you allow in `rate.extra_args`; PowerShell for the notification and to read when the next installment runs; sleep or hibernation afterwards, if you chose so and nobody is using the PC. `rate check` reads (never changes) the wake-timer setting with `powercfg`.
-- **It asks Anthropic for your plan usage**, with the same request as Claude Code's `/usage` and the login Claude Code keeps on your computer: at most every 10 minutes, with no tokens spent. Quotient never writes that login anywhere. Off with `config limits.live false`.
+- **It runs Claude Code's own `/usage` command** to read your plan usage: Claude Code answers it locally, with its own login, and Quotient keeps only the percentages and the reset times. At most every 10 minutes, with no tokens spent; Quotient never reads your login. Off with `config limits.live false`.
 - **With Hermes Agent**, it reads Hermes' local session store, read-only: token counters, model and chat title.
 - **It sends**, unless sharing is off: one line of numbers per finished job to `https://quotient-share.korvonordico.workers.dev`.
 - **It fetches**, once a day: `https://raw.githubusercontent.com/Korvonordico/quotient-data/main/average.json`, or the service's `/v1/average` when GitHub does not answer. Both belong to the author.
@@ -280,7 +282,7 @@ No. Quotient is an independent open-source project by Francesco Candela. It is n
 The used percentages and reset times come from Anthropic at every reading, so they stay correct, and Quotient never assumes how many tokens a limit holds. Its estimate of the size of 1% is learned from all the readings it has recorded, so after a change it is off for a while and moves toward the new size as new readings come in. If the request behind `/usage` changes, the live reading stops working until Quotient is updated, and the status line readings remain. If the API price ratios change, the weights are settings (for example `config weights.output 5`).
 
 **How accurate are the quotes?**
-Rough at first. Each new quote is multiplied by a correction factor: the median ratio of real to estimated cost over your last 20 finished jobs. Until you have 5 jobs, the shared average counts as 5 jobs next to yours. `/quotient:report` shows the typical miss before correction and the recent miss with it, so you can see whether it is getting closer.
+Rough at first. Each new quote is multiplied by a correction factor: the median ratio of real to estimated cost over your last 20 finished jobs. Until you have 5 jobs, the shared average counts as 5 jobs next to yours. `/token-quotient:report` shows the typical miss before correction and the recent miss with it, so you can see whether it is getting closer.
 
 **Does Quotient use tokens itself?**
 Yes, a little: about 1,700 tokens of rules at the start of a session and a line of about 270 tokens at each message in a long chat. Both stay in the chat and are re-read, so Quotient measures them and shows them in the report.

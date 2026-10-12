@@ -1,4 +1,4 @@
-# Contributing to Quotient
+# Contributing to Token Quotient
 
 Bug reports, quotes that were far off, documentation fixes and pull requests are all welcome. This page says how to run the tests, what the code expects, and how a change gets in.
 
@@ -7,7 +7,7 @@ Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md). Security
 ## Issues first
 
 - **A bug**: open an issue with the bug form. Say what happened, what you expected, and how to reproduce it. Paste numbers and error messages, never chat text or anything private.
-- **A quote that was far off**: that is useful data. Open a bug with the level you chose, the estimate and the real cost from `/quotient:report`.
+- **A quote that was far off**: that is useful data. Open a bug with the level you chose, the estimate and the real cost from `/token-quotient:report`.
 - **A feature**: open an issue with the feature form before writing code, so we can agree on the shape first. Check [ROADMAP.md](ROADMAP.md) too.
 
 ## Project layout
@@ -17,9 +17,9 @@ Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md). Security
 | `scripts/quotient.py` | the plugin itself: hooks, quotes, measuring, the report, installments (Python, standard library only) |
 | `scripts/run.sh` | finds Python 3.8 or newer and runs `quotient.py`; the hooks and slash commands go through it |
 | `scripts/hermes_source.py`, `scripts/hermes_hooks.py` | Hermes Agent: reading its token counters, and the shell hooks |
-| `scripts/limits_live.py` | reads the plan limits from Anthropic |
+| `scripts/limits_usage.py` | reads the plan limits through Claude Code's own `/usage` command |
 | `hooks/hooks.json` | the Claude Code hooks: `SessionStart`, `UserPromptSubmit`, `Stop`, `PreCompact` |
-| `commands/` | the slash commands: `/quotient:setup`, `report`, `rate`, `share`, `help` |
+| `commands/` | the slash commands: `/token-quotient:setup`, `report`, `rate`, `share`, `help` |
 | `templates/` | ready-made ways of working for installment jobs: book, research, code review |
 | `server/` | the shared-average service (Cloudflare Worker, JavaScript), see [server/README.md](server/README.md) |
 | `data/` | the average shipped with the plugin |

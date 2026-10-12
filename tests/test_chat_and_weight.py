@@ -226,7 +226,11 @@ class TestWeight(ChatBase):
         cmd = {"name": "Bash", "input": {"command": '"py" "C:/Users/x/.claude/plugins/cache/quotient/quotient/0.9.5/scripts/quotient.py" rate week'}}
         launcher = {"name": "PowerShell", "input": {"command": "py C:/Users/x/.quotient/launcher.py rate run book"}}
         dev = {"name": "Bash", "input": {"command": "python -m unittest discover -s tests"}}
+        renamed = {"name": "Bash", "input": {"command": 'sh "C:/Users/x/.claude/plugins/cache/token-quotient/token-quotient/0.9.8/scripts/run.sh" rate week'}}
+        official = {"name": "Bash", "input": {"command": '"py" "/home/x/.claude/plugins/cache/claude-plugins-official/token-quotient/0.9.8/scripts/quotient.py" report'}}
         usage_read = {"name": "mcp__ccd_session_mgmt__get_usage", "input": {}}
+        self.assertTrue(pv.quotient_action(renamed, ""))
+        self.assertTrue(pv.quotient_action(official, ""))
         self.assertTrue(pv.quotient_action(mine, ""))
         self.assertFalse(pv.quotient_action(other, ""))
         self.assertTrue(pv.quotient_action(cmd, ""))
@@ -483,6 +487,10 @@ class TestCompact(ChatBase):
         big.call("a", usage(read=600000, output=10))
         self.run_hook(pv.hook_precompact, {"session_id": "s1", "transcript_path": big.path, "trigger": "auto"})
         self.assertEqual(pv.load_json(pv.session_path("s1"), {})["compacting"]["before"], 600000)
+        # the summary happened a while ago: the test must not depend on the second it runs in
+        state = pv.load_json(pv.session_path("s1"), {})
+        state["compacting"]["ts"] = "2026-01-01T00:00:00+00:00"
+        pv.save_json(pv.session_path("s1"), state)
         self.t.user("go on")
         self.t.call("b", usage(read=150000, output=10))
         self.stop()
@@ -493,7 +501,7 @@ class TestCompact(ChatBase):
                         {"ts": "2099-01-01T00:00:00+00:00", "session": "s1", "wt": 1, "calls": 4})
         summary = pv.compaction_summary()
         self.assertEqual((summary["count"], summary["auto"]), (1, 1))
-        self.assertAlmostEqual(summary["saved"], 450000 * 0.1 * 4)
+        self.assertAlmostEqual(summary["saved"], 450000 * 0.1 * (1 + 4))  # the reply right after it, and a later one
         self.assertIn("Compactions: 1 (1 automatic)", self.run_hook(pv.report, {}))
 
     def test_first_use_window_asks_about_long_chats(self):
