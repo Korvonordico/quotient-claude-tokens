@@ -44,14 +44,20 @@ class UsageText(unittest.TestCase):
 
     def test_claude_runs_without_hooks_and_without_saving_a_session(self):
         answer = json.dumps({"type": "result", "is_error": False, "result": SAMPLE, "total_cost_usd": 0})
-        with mock.patch.object(lu.subprocess, "run", return_value=mock.Mock(stdout=answer.encode("utf-8"))) as run, \
+        seen = {}
+
+        def answered(*a, **k):
+            seen["nested"] = os.environ.get("CLAUDECODE")
+            return mock.Mock(stdout=answer.encode("utf-8"))
+        with mock.patch.object(lu.subprocess, "run", side_effect=answered) as run, \
                 mock.patch.dict(os.environ, {"CLAUDECODE": "1"}):
             snap = lu.fetch("claude.exe")
+            self.assertEqual(os.environ.get("CLAUDECODE"), "1")  # put back after the call
         cmd = run.call_args[0][0]
         self.assertEqual(cmd[:3], ["claude.exe", "-p", "/usage"])
         self.assertIn("--no-session-persistence", cmd)
         self.assertEqual(json.loads(cmd[cmd.index("--settings") + 1]), {"disableAllHooks": True})
-        self.assertNotIn("CLAUDECODE", run.call_args[1]["env"])
+        self.assertIsNone(seen["nested"])
         self.assertEqual(snap["seven_day"], 80.0)
 
     def test_errors_give_no_reading(self):

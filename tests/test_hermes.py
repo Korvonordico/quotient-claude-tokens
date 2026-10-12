@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
@@ -100,15 +101,15 @@ class HermesHooks(unittest.TestCase):
         self.q = tempfile.mkdtemp()
         self.h = fake_hermes([
             ("chat1", "cli", "claude-opus-5-5", 1000.0, 2000.0, None, "work", "anthropic", 10, 100, 10000, 1000)])
-        self.env = dict(os.environ, QUOTIENT_HOME=self.q, HERMES_HOME=self.h, QUOTIENT_LIMITS_LIVE="0",
-                        QUOTIENT_SHARE="0")
+        self.vars = {"QUOTIENT_HOME": self.q, "HERMES_HOME": self.h, "QUOTIENT_LIMITS_LIVE": "0", "QUOTIENT_SHARE": "0"}
 
     def hook(self, event, response=None):
         import subprocess
         payload = {"hook_event_name": event, "session_id": "chat1", "extra": {"assistant_response": response or "",
                                                                                "model": "claude-opus-5-5"}}
-        r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "quotient.py"), "hermes-hook"],
-                           input=json.dumps(payload), capture_output=True, text=True, env=self.env, timeout=60)
+        with mock.patch.dict(os.environ, self.vars):
+            r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "quotient.py"), "hermes-hook"],
+                               input=json.dumps(payload), capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout or "{}")
 

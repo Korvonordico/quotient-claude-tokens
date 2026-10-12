@@ -441,11 +441,16 @@ class TestWeek(Base):
         self.job("big", 5000000, 5)   # more than the 40% (4M wt) there is
         args = mock.Mock(force=True)
         args.name = "big"
+        seen = {}
+
+        def too_long(*a, **k):
+            seen["cap"] = os.environ.get("QUOTIENT_CAP")
+            raise pv.subprocess.TimeoutExpired("c", 1)
         with mock.patch.object(pv, "find_claude", return_value="claude"), \
-                mock.patch.object(pv.subprocess, "run", side_effect=pv.subprocess.TimeoutExpired("c", 1)) as run:
+                mock.patch.object(pv.subprocess, "run", side_effect=too_long):
             said = self.run_hook(lambda: pv.run_installment(args), {})
         self.assertIn("shortened to 4.00M", said)
-        self.assertEqual(run.call_args.kwargs["env"]["QUOTIENT_CAP"], "4000000")
+        self.assertEqual(seen["cap"], "4000000")
 
 
 class TestInstallments(Base):
@@ -829,10 +834,15 @@ class TestReports(Base):
         uri = pv.page_uri(page)
         self.assertTrue(uri.startswith("file:///") and " " not in uri and "%20" in uri)
         notify = self.toast.temp_original
-        with mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+        seen = {}
+
+        def shown(*a, **k):
+            seen["link"] = os.environ.get("QUOTIENT_TOAST_LINK")
+            return mock.Mock(returncode=0)
+        with mock.patch.object(pv.subprocess, "run", side_effect=shown) as run:
             self.assertTrue(notify(title, body, link=uri))
         if os.name == "nt":
-            self.assertEqual(run.call_args.kwargs["env"]["QUOTIENT_TOAST_LINK"], uri)
+            self.assertEqual(seen["link"], uri)
             self.assertIn("activationType='protocol'", run.call_args.args[0][-1])
         # a page that cannot be written never stops the installment
         cfg = pv.config()
@@ -841,7 +851,12 @@ class TestReports(Base):
 
     def test_the_notification_can_be_turned_off_and_leaves_no_file(self):
         notify = self.toast.temp_original
-        with mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+        seen = {}
+
+        def shown(*a, **k):
+            seen["text"] = (os.environ.get("QUOTIENT_TOAST_TITLE"), os.environ.get("QUOTIENT_TOAST_BODY"))
+            return mock.Mock(returncode=0)
+        with mock.patch.object(pv.subprocess, "run", side_effect=shown) as run:
             pv.store(("rate", "notify"), False)
             self.assertFalse(notify("t", "b"))
             run.assert_not_called()
@@ -851,8 +866,8 @@ class TestReports(Base):
             self.assertEqual(set(os.listdir(pv.home())), before)
         if os.name == "nt":
             self.assertEqual(run.call_args.args[0][0], "powershell.exe")
-            env = run.call_args.kwargs["env"]
-            self.assertEqual((env["QUOTIENT_TOAST_TITLE"], env["QUOTIENT_TOAST_BODY"]), ("Quotient · «x»", "b & <c>"))
+            self.assertEqual(seen["text"], ("Quotient · «x»", "b & <c>"))
+            self.assertIsNone(os.environ.get("QUOTIENT_TOAST_TITLE"))  # only for the notification
             self.assertIn("SecurityElement]::Escape", run.call_args.args[0][-1])
         with mock.patch.object(pv.subprocess, "run", side_effect=OSError("no powershell")):
             self.assertFalse(notify("t", "b"))   # never an error for the installment
@@ -1132,6 +1147,18 @@ class TestSharing(Base):
         self.assertEqual(pv.http("GET", "http://localhost/x"), (None, b""))
         self.assertEqual(pv.http("GET", "file:///C:/Windows/win.ini"), (None, b""))
 
+    def test_variables_for_a_program_are_put_back_after(self):
+        with mock.patch.dict(os.environ, {"QUOTIENT_T1": "before"}):
+            os.environ.pop("QUOTIENT_T2", None)
+            with pv.variables(QUOTIENT_T1="inside", QUOTIENT_T2="new"):
+                self.assertEqual((os.environ["QUOTIENT_T1"], os.environ["QUOTIENT_T2"]), ("inside", "new"))
+            self.assertEqual(os.environ["QUOTIENT_T1"], "before")
+            self.assertNotIn("QUOTIENT_T2", os.environ)
+            with self.assertRaises(ValueError), pv.variables(QUOTIENT_T1=None):
+                self.assertNotIn("QUOTIENT_T1", os.environ)
+                raise ValueError("an error inside")
+            self.assertEqual(os.environ["QUOTIENT_T1"], "before")
+
     def test_the_shipped_average_is_valid(self):
         with open(os.path.join(HERE, "..", "data", "average.json"), encoding="utf-8") as f:
             self.assertIsNotNone(pv.check_average(json.load(f)))
@@ -1140,10 +1167,9 @@ class TestSharing(Base):
 class TestLauncher(unittest.TestCase):
     @unittest.skipUnless(shutil.which("sh"), "needs sh")
     def test_run_sh_passes_stdin(self):
-        with tempfile.TemporaryDirectory() as home:
+        with tempfile.TemporaryDirectory() as home, mock.patch.dict(os.environ, {"QUOTIENT_HOME": home}):
             proc = subprocess.run(["sh", os.path.join(SCRIPTS, "run.sh"), "hook-prompt"],
-                                  input=json.dumps({"session_id": "z"}).encode("utf-8"),
-                                  capture_output=True, env=dict(os.environ, QUOTIENT_HOME=home))
+                                  input=json.dumps({"session_id": "z"}).encode("utf-8"), capture_output=True)
         self.assertIn("[Quotient", proc.stdout.decode("utf-8"))
 
 

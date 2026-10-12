@@ -64,13 +64,16 @@ def fetch(claude, cwd=None, timeout=25):
         return None
     cmd = [claude, "-p", "/usage", "--output-format", "json", "--no-session-persistence",
            "--settings", json.dumps({"disableAllHooks": True})]
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}  # not seen as a session inside a session
     flags = 0x08000000 if os.name == "nt" else 0                        # CREATE_NO_WINDOW: no console flashes
+    nested = os.environ.pop("CLAUDECODE", None)  # not seen as a session inside a session; put back after
     try:
-        proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, timeout=timeout, creationflags=flags)
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, timeout=timeout, creationflags=flags)
         out = proc.stdout.decode("utf-8", "replace").strip()
     except Exception:
         return None
+    finally:
+        if nested is not None:
+            os.environ["CLAUDECODE"] = nested
     text = out
     for line in reversed(out.splitlines()):
         try:

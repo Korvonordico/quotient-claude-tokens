@@ -586,9 +586,14 @@ class TestNight097(ChatBase):
     def test_live_check(self):
         good = mock.Mock(stdout=b'{"result": "OK", "is_error": false, "total_cost_usd": 0.0012}', stderr=b"")
         bad = mock.Mock(stdout=b'{"result": "Failed to authenticate: OAuth session expired", "is_error": true}', stderr=b"")
-        with mock.patch.object(pv.subprocess, "run", return_value=good) as run:
+        seen = {}
+
+        def checked(*a, **k):
+            seen["check"] = os.environ.get("QUOTIENT_CHECK")
+            return good
+        with mock.patch.object(pv.subprocess, "run", side_effect=checked) as run:
             self.assertIn("OK", pv.live_check(pv.config(), "claude.exe"))
-        self.assertEqual(run.call_args.kwargs["env"]["QUOTIENT_CHECK"], "1")
+        self.assertEqual(seen["check"], "1")
         self.assertIn("haiku", run.call_args.args[0])
         with mock.patch.object(pv.subprocess, "run", return_value=bad):
             self.assertIn("not logged in", pv.live_check(pv.config(), "claude.exe"))

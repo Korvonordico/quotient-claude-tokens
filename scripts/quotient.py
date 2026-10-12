@@ -20,6 +20,7 @@ Commands:
 """
 
 import argparse
+import contextlib
 import csv
 import glob
 import json
@@ -265,6 +266,26 @@ def save_settings(values):
         node[keys[-1]] = value
     user["configured"] = True
     save_json(path, user)
+
+
+@contextlib.contextmanager
+def variables(**changes):
+    """A few environment variables for the programs started inside (None removes one). They inherit the rest
+    as any program started by another does: Quotient never collects the environment itself."""
+    before = {name: os.environ.get(name) for name in changes}
+    try:
+        for name, value in changes.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        yield
+    finally:
+        for name, value in before.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def plugin_options():
@@ -3206,17 +3227,19 @@ def notify(title, body, link=None):
     if not config()["rate"].get("notify", True):
         return False
     try:
+        changes = {}
         if os.name == "nt":
-            env = dict(os.environ, QUOTIENT_TOAST_TITLE=title, QUOTIENT_TOAST_BODY=body, QUOTIENT_TOAST_APP=TOAST_APP,
-                       QUOTIENT_TOAST_LINK=link or "")
+            changes = {"QUOTIENT_TOAST_TITLE": title, "QUOTIENT_TOAST_BODY": body, "QUOTIENT_TOAST_APP": TOAST_APP,
+                       "QUOTIENT_TOAST_LINK": link or ""}
             cmd = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", TOAST_SCRIPT]
         elif sys.platform == "darwin":
             def quoted(s):
                 return '"%s"' % s.replace("\\", "\\\\").replace('"', '\\"')
-            env, cmd = None, ["osascript", "-e", "display notification %s with title %s" % (quoted(body), quoted(title))]
+            cmd = ["osascript", "-e", "display notification %s with title %s" % (quoted(body), quoted(title))]
         else:
-            env, cmd = None, ["notify-send", title, body]
-        return subprocess.run(cmd, env=env, capture_output=True, timeout=30).returncode == 0
+            cmd = ["notify-send", title, body]
+        with variables(**changes):
+            return subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0
     except Exception:
         return False
 
@@ -3564,11 +3587,10 @@ def run_installment(args):
     if job.get("usd_per_wt"):
         cmd += ["--max-budget-usd", "%.2f" % (cap * job["usd_per_wt"] * rc["usd_cap_margin"])]
     cmd += list(rc["extra_args"])
-    env = dict(os.environ, QUOTIENT_JOB=args.name, QUOTIENT_CAP=str(cap))
     started = now_iso()
     try:
-        proc = subprocess.run(cmd, cwd=job["dir"], env=env, capture_output=True,
-                              timeout=rc["timeout_minutes"] * 60)
+        with variables(QUOTIENT_JOB=args.name, QUOTIENT_CAP=str(cap)):
+            proc = subprocess.run(cmd, cwd=job["dir"], capture_output=True, timeout=rc["timeout_minutes"] * 60)
         stdout = proc.stdout.decode("utf-8", "replace")
         stderr = proc.stderr.decode("utf-8", "replace")
     except subprocess.TimeoutExpired:
@@ -3931,8 +3953,8 @@ def live_check(cfg, claude):
     cmd = [claude, "-p", (prefix + " " if prefix else "") + "Reply with the single word OK.", "--model", "haiku",
            "--max-turns", "1", "--output-format", "json"]
     try:
-        proc = subprocess.run(cmd, cwd=home(), env=dict(os.environ, QUOTIENT_CHECK="1"), capture_output=True,
-                              timeout=180)
+        with variables(QUOTIENT_CHECK="1"):
+            proc = subprocess.run(cmd, cwd=home(), capture_output=True, timeout=180)
         result = {}
         for line in reversed(proc.stdout.decode("utf-8", "replace").strip().splitlines()):
             try:
