@@ -1,2 +1,0 @@
-# Wrangler's local state for the service (only used when the service is deployed, never by the plugin).
-.wrangler/

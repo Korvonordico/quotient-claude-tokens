@@ -11,7 +11,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 - The plugin's settings are read by their full names (`CLAUDE_PLUGIN_OPTION_THRESHOLD` and the other seven, written out one by one in `plugin_options()`), so it is plain that Quotient reads eight settings and no credential. Before, each name was put together at run time.
 - The programs Quotient starts get their few extra variables written out by name, only while they run, and inherit the rest as any program does: `QUOTIENT_JOB` and `QUOTIENT_CAP` for an installment, `QUOTIENT_CHECK` for the login check, the four `QUOTIENT_TOAST_` ones for a Windows notification; for `/usage`, `CLAUDECODE` is taken away while it runs. Before, Quotient handed them a copy of the whole environment. They receive the same environment as before.
 - `plugin.json` no longer names the icon, and no test opens it: the directory still finds the icon in its usual place, next to `plugin.json`. The directory's check holds for review an image that code points to, because a program pointed at it could run its bytes.
-- `.wrangler/` (the deploy state of the shared-average service) is ignored only in `server/`. Listed at the top of the repository, the directory's check read it as the plugin reading Wrangler's login folder.
+- `.gitignore` no longer lists `.wrangler/` (the deploy state of the shared-average service, kept out of git on the deploying machine only): listed there, the directory's check read it as the plugin reading Wrangler's login folder.
 - Tests use `http://localhost` instead of `example.com` as an address Quotient must refuse, and set their variables with `mock.patch.dict` instead of copying the environment.
 
 ## [0.9.8] - 2026-10-12
