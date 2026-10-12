@@ -1129,7 +1129,7 @@ class TestSharing(Base):
         self.assertAlmostEqual(pv.learning(pv.config())["factor"], 4.0)
 
     def test_only_https_addresses(self):
-        self.assertEqual(pv.http("GET", "http://example.com/x"), (None, b""))
+        self.assertEqual(pv.http("GET", "http://localhost/x"), (None, b""))
         self.assertEqual(pv.http("GET", "file:///C:/Windows/win.ini"), (None, b""))
 
     def test_the_shipped_average_is_valid(self):

@@ -4,7 +4,6 @@ own /usage (never the login), launchers that run one exact file, commands that m
 import json
 import os
 import re
-import struct
 import time
 import unittest
 from datetime import datetime
@@ -122,21 +121,21 @@ class Launchers(Base):
 
 
 class Manifest(unittest.TestCase):
-    def test_the_name_the_version_and_the_icon(self):
+    def test_the_name_and_the_version(self):
+        # 0.9.9: plugin.json no longer names the icon and no code opens it. The directory takes it from its
+        # usual place, and an image named by code was held for review ("could run its bytes as code").
         plugin = json.load(open(os.path.join(ROOT, ".claude-plugin", "plugin.json"), encoding="utf-8"))
         market = json.load(open(os.path.join(ROOT, ".claude-plugin", "marketplace.json"), encoding="utf-8"))
         self.assertEqual(plugin["name"], "token-quotient")
         self.assertEqual(plugin["displayName"], "Token Quotient")
         self.assertEqual(market["plugins"][0]["name"], "token-quotient")
         self.assertEqual(plugin["version"], pv.VERSION)
-        icon = os.path.join(ROOT, plugin["icon"])
-        with open(icon, "rb") as f:
-            head = f.read(24)
-        self.assertEqual(head[:8], b"\x89PNG\r\n\x1a\n")
-        width, height = struct.unpack(">II", head[16:24])
-        self.assertEqual(width, height)
-        self.assertTrue(512 <= width <= 2048)
-        self.assertLess(os.path.getsize(icon), 2 * 1024 * 1024)
+        self.assertNotIn("icon", plugin)
+
+    def test_every_plugin_setting_is_read_by_its_full_name(self):
+        plugin = json.load(open(os.path.join(ROOT, ".claude-plugin", "plugin.json"), encoding="utf-8"))
+        self.assertEqual(set(pv.plugin_options()), set(pv.OPTIONS))
+        self.assertEqual({key.upper() for key in plugin["userConfig"]}, set(pv.OPTIONS))
 
     def test_commands_may_run_only_their_own_script(self):
         prefix = 'sh "${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" '

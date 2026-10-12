@@ -2,6 +2,17 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [0.9.9] - 2026-10-12
+
+For the second check of Anthropic's plugin directory. Nothing changes in what Quotient does.
+
+### Changed
+
+- The plugin's settings are read by their full names (`CLAUDE_PLUGIN_OPTION_THRESHOLD` and the other seven, written out one by one in `plugin_options()`), so it is plain that Quotient reads eight settings and no credential. Before, each name was put together at run time.
+- `plugin.json` no longer names the icon, and no test opens it: the directory takes it from `.claude-plugin/icon.png`, where it stays. The directory's check holds for review an image that code points to, because a program pointed at it could run its bytes.
+- `.wrangler/` (the deploy state of the shared-average service) is ignored only in `server/`. Listed at the top of the repository, the directory's check read it as the plugin reading Wrangler's login folder.
+- A test uses `http://localhost` instead of `example.com` as an address Quotient must refuse.
+
 ## [0.9.8] - 2026-10-12
 
 ### Changed
@@ -169,6 +180,7 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[0.9.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v0.9.9
 [0.9.8]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v0.9.8
 [0.9.7]: https://github.com/Korvonordico/quotient-claude-tokens/commit/6fc9013
 [0.9.6]: https://github.com/Korvonordico/quotient-claude-tokens/commit/3091a62

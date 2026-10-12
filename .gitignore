@@ -1,5 +1,4 @@
 __pycache__/
 *.pyc
 *.tmp
-.wrangler/
 node_modules/

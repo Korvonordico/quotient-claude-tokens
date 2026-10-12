@@ -36,7 +36,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "0.9.8"
+VERSION = "0.9.9"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -267,6 +267,21 @@ def save_settings(values):
     save_json(path, user)
 
 
+def plugin_options():
+    """The plugin's settings, as Claude Code passes them to hooks. Each variable is written out in full, so it
+    is plain which ones Quotient reads: these eight, all of them settings, none of them a credential."""
+    return {
+        "THRESHOLD": os.environ.get("CLAUDE_PLUGIN_OPTION_THRESHOLD"),
+        "RESERVE_PERCENT": os.environ.get("CLAUDE_PLUGIN_OPTION_RESERVE_PERCENT"),
+        "LANG": os.environ.get("CLAUDE_PLUGIN_OPTION_LANG"),
+        "AFTER": os.environ.get("CLAUDE_PLUGIN_OPTION_AFTER"),
+        "WAKE": os.environ.get("CLAUDE_PLUGIN_OPTION_WAKE"),
+        "SHARE": os.environ.get("CLAUDE_PLUGIN_OPTION_SHARE"),
+        "COMPACT": os.environ.get("CLAUDE_PLUGIN_OPTION_COMPACT"),
+        "COMPACT_AT": os.environ.get("CLAUDE_PLUGIN_OPTION_COMPACT_AT"),
+    }
+
+
 def sync_plugin_options():
     """Claude Code passes the plugin's settings to hooks as CLAUDE_PLUGIN_OPTION_<KEY>; scheduled runs
     do not get them, so they are copied into config.json, where every part of Quotient reads.
@@ -275,8 +290,9 @@ def sync_plugin_options():
     path = os.path.join(home(), "config.json")
     seen = load_json(path, {}).get("plugin_seen") or {}
     values, now_seen = {}, dict(seen)
+    given = plugin_options()
     for key, (keys, kind) in OPTIONS.items():
-        raw = os.environ.get("CLAUDE_PLUGIN_OPTION_" + key)
+        raw = given.get(key)
         if raw in (None, "") or seen.get(key) == raw:
             continue
         try:
