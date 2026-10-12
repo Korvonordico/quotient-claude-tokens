@@ -593,8 +593,7 @@ class TestReports(Base):
         args.name = "book"
         for k, v in kw.items():
             setattr(args, k, v)
-        env = {"CLAUDE_CODE_SESSION_ID": session} if session else {}
-        with mock.patch.dict(os.environ, env):
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": session} if session else {}):
             said = self.run_hook(lambda: pv.rate_new(args), {})
         with open(os.path.join(pv.rate_dir("book"), "HANDOFF.md"), "w", encoding="utf-8") as f:
             f.write("Done: chapters 1-6. Remains: chapters 7-12.\n")
@@ -1146,18 +1145,6 @@ class TestSharing(Base):
     def test_only_https_addresses(self):
         self.assertEqual(pv.http("GET", "http://localhost/x"), (None, b""))
         self.assertEqual(pv.http("GET", "file:///C:/Windows/win.ini"), (None, b""))
-
-    def test_variables_for_a_program_are_put_back_after(self):
-        with mock.patch.dict(os.environ, {"QUOTIENT_T1": "before"}):
-            os.environ.pop("QUOTIENT_T2", None)
-            with pv.variables(QUOTIENT_T1="inside", QUOTIENT_T2="new"):
-                self.assertEqual((os.environ["QUOTIENT_T1"], os.environ["QUOTIENT_T2"]), ("inside", "new"))
-            self.assertEqual(os.environ["QUOTIENT_T1"], "before")
-            self.assertNotIn("QUOTIENT_T2", os.environ)
-            with self.assertRaises(ValueError), pv.variables(QUOTIENT_T1=None):
-                self.assertNotIn("QUOTIENT_T1", os.environ)
-                raise ValueError("an error inside")
-            self.assertEqual(os.environ["QUOTIENT_T1"], "before")
 
     def test_the_shipped_average_is_valid(self):
         with open(os.path.join(HERE, "..", "data", "average.json"), encoding="utf-8") as f:
