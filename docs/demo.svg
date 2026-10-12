@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520" role="img" aria-labelledby="title desc" xml:space="preserve" font-family="Consolas, Menlo, monospace" font-size="14">
-<title id="title">Quotient demo: a quote before an AI job, the real cost after</title>
+<title id="title">Token Quotient demo: a quote before an AI job, the real cost after</title>
 <desc id="desc">A terminal. The user asks Claude Code for a big job. Quotient shows a quote with three levels (essential 60k, good 150k, max 300k tokens) and the share of the 5-hour and weekly limits each would take. The user picks good; the work runs; Quotient reports the actual cost, 142k tokens against an estimate of 150k, and updates its correction factor. Then a job too big for this week is split into 4 installments that run nightly at 03:00, with progress from 25% to 100%.</desc>
 <defs><clipPath id="screen"><rect x="1" y="36" width="898" height="448"/></clipPath></defs>
 <style>text{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;font-size:14px;white-space:pre}

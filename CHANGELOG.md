@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. The repository has no git tags yet, so each version links to the commit that released it.
+All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
 ## [0.9.8] - 2026-10-12
 
@@ -169,7 +169,7 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
-[0.9.8]: https://github.com/Korvonordico/quotient-claude-tokens/compare/6fc9013...main
+[0.9.8]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v0.9.8
 [0.9.7]: https://github.com/Korvonordico/quotient-claude-tokens/commit/6fc9013
 [0.9.6]: https://github.com/Korvonordico/quotient-claude-tokens/commit/3091a62
 [0.9.5]: https://github.com/Korvonordico/quotient-claude-tokens/commit/12da94a
