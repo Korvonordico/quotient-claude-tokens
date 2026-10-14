@@ -185,13 +185,13 @@ footer a:hover{color:var(--text)}
         <a class="btn primary" href="#install">Install</a>
         <a class="btn" href="https://github.com/Korvonordico/quotient-claude-tokens">GitHub</a>
       </div>
-      <p class="meta">MIT licensed · version 0.9.7 · needs Python 3.8 or newer</p>
+      <p class="meta">MIT licensed · version 1.0.1 · needs Python 3.8 or newer</p>
     </div>
   </div>
 
   <div class="wrap demo">
     <figure>
-      <img src="demo.svg" width="900" height="520" alt="Animated terminal. The user asks Claude Code for a big job. Quotient shows a quote with three levels: essential 60k, good 150k and max 300k tokens, each with the share of the 5-hour and weekly limits it would take. The user picks good and the work runs. Quotient reports the actual cost, 142k tokens against an estimate of 150k, and updates its correction factor. Then a job too big for this week is split into 4 installments that run nightly at 03:00, with progress going from 25% to 100%.">
+      <img src="demo.svg" width="900" height="600" alt="Animated terminal. The user asks Claude Code for a big job. Quotient shows a quote with three levels, essential, good and max, each with its work, chat part and total and its share of the 5-hour and weekly limits; the user picks good and Quotient reports the real cost against the estimate. Then a job too big for one day is paced over 4 days, about 400k a day: each night at 03:00 the PC wakes, works up to the day's cap and goes back to sleep, and the report waits in the chat.">
       <figcaption>One loop: a quote before the job, your choice, the real cost after, and a job too big for this week split into nightly installments. Estimates are not guaranteed: at the start they can be quite far off, and they get closer with each finished job.</figcaption>
     </figure>
   </div>
@@ -295,7 +295,7 @@ footer a:hover{color:var(--text)}
       <div class="privacy">
         <div>
           <p>Everything Quotient records stays on your computer, in <code>~/.quotient</code>. After each finished job it sends one line of numbers for the shared average, so new users start from real jobs instead of from zero. Exactly this line, and nothing else:</p>
-          <pre class="term" tabindex="0" role="region" aria-label="The exact line that is shared"><code>{"v":1,"q":"0.9.7","family":"opus","estimate":225000,"actual":259000}</code></pre>
+          <pre class="term" tabindex="0" role="region" aria-label="The exact line that is shared"><code>{"v":1,"q":"1.0.1","family":"opus","estimate":225000,"actual":259000}</code></pre>
           <p>No dates, no names, no text, no paths, no session or user ids. Turn it off with <code>/token-quotient:share off</code>; you still get the shared average.</p>
           <p><a href="https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md">Read the full privacy note (PRIVACY.md)</a></p>
         </div>
