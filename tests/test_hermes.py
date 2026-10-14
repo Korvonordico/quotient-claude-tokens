@@ -10,6 +10,7 @@ from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+os.environ["QUOTIENT_TIMER_WINDOW"] = "0"   # the tests never open the stopwatch window
 import hermes_source as hs  # noqa: E402
 
 W = {"input": 1.0, "cache_write_5m": 1.25, "cache_write_1h": 2.0, "cache_read": 0.1, "output": 5.0}

@@ -36,7 +36,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -120,6 +120,11 @@ DEFAULTS = {
         "reserve_calls": 2,
         "reserve_max_share": 0.4,
         "extra_args": [],
+    },
+    # The time of a job (1.1.0): while a quoted job runs, a small always-on-top stopwatch shows its working time
+    # against the expected one (it needs tkinter). False: no window; the time is measured anyway.
+    "timer": {
+        "window": True,
     },
     "share": {
         # On by default and declared (first-use window, README, PRIVACY.md): after each finished job, one line
@@ -871,6 +876,354 @@ def learning(cfg, kind="chat"):
             "shared": shared_n if use_shared and shared else 0}
 
 
+# ---------------------------------------------------------------- time
+# 15/10/2026 (1.1.0): a quote says how long a job will take, a stopwatch shows the time while it runs, and the real
+# time is compared with the expected one at the end. The time is the agent's WORKING time: the user's turns and the
+# waits of the choice window do not count. How long work takes is learned from the finished jobs, like the factor.
+
+def fmt_duration(seconds):
+    """A duration for people: '40 s', '12 min', '1 h 05 min' (the same in Italian)."""
+    if seconds is None:
+        return "?"
+    s = max(0, int(round(seconds)))
+    if s < 60:
+        return "%d s" % s
+    m = int(round(s / 60.0))
+    if m < 60:
+        return "%d min" % m
+    h, m = divmod(m, 60)
+    return "%d h %02d min" % (h, m)
+
+
+def minutes_per_million(cfg, kind="chat"):
+    """How long a job of this kind takes per million wt of work: (median minutes of its recent jobs that measured
+    their time, how many), or None under 3 of them. Each finished job adds its own time, so it learns by itself."""
+    rows = [j for j in finished_jobs() if kind_of(j) == kind and (j.get("seconds") or 0) > 0 and work_of(j) > 0]
+    rows = rows[-cfg["history_window"]:]
+    if len(rows) < 3:
+        return None
+    return median([j["seconds"] / 60.0 / work_of(j) * 1e6 for j in rows]), len(rows)
+
+
+def expected_seconds(cfg, raw, kind="chat", factor=None):
+    """Expected working time of a job: its corrected work (raw x factor) x the minutes per 1M wt of its kind, or
+    None until Quotient has measured the time of 3 jobs of that kind."""
+    mpm = minutes_per_million(cfg, kind)
+    if not mpm or not raw:
+        return None
+    if factor is None:
+        factor = learning(cfg, kind)["factor"]
+    return raw * factor / 1e6 * mpm[0] * 60.0
+
+
+def time_misses(kind=None):
+    """How far the expected times were from the real ones, for the jobs that had both (x2 too long or too short
+    both give 2)."""
+    return [miss(j["seconds"] / j["predicted_seconds"]) for j in finished_jobs()
+            if (kind is None or kind_of(j) == kind) and j.get("seconds") and j.get("predicted_seconds")]
+
+
+def time_text(cfg):
+    """'about 14 min per 1M wt of work (installments 6 min)', or '' while it is not known."""
+    chat, rate = minutes_per_million(cfg), minutes_per_million(cfg, "rate")
+    if not chat and not rate:
+        return ""
+    text = "about %s per 1M wt of work" % fmt_duration(chat[0] * 60) if chat else "installments about %s per 1M wt of work" % fmt_duration(rate[0] * 60)
+    if chat and rate:
+        text += " (installments %s)" % fmt_duration(rate[0] * 60)
+    return text
+
+
+ASK_TOOLS = ("AskUserQuestion",)
+
+
+def claude_active_seconds(entries, since, until):
+    """The agent's working time in a Claude Code transcript between two moments: the time between consecutive
+    entries, without the user's turns (a prompt starts a turn: the wait before it was the user's) and without the
+    waits of the choice window (the answer to AskUserQuestion comes when the user has chosen)."""
+    asks = set()
+    for e in entries:
+        if e.get("type") == "assistant":
+            for b in (e.get("message") or {}).get("content") or []:
+                if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ASK_TOOLS:
+                    asks.add(b.get("id"))
+    total, prev = 0.0, since
+    for e in entries:
+        if e.get("isSidechain"):
+            continue
+        ts = ts_epoch(e.get("timestamp")) if e.get("timestamp") else 0
+        if not ts or ts < since - 1 or ts > until + 1:
+            continue
+        ts = min(max(ts, since), until)
+        content = (e.get("message") or {}).get("content") if e.get("type") == "user" else None
+        answer = isinstance(content, list) and any(
+            isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in asks for b in content)
+        if is_turn_start(e) or answer:
+            prev = ts
+            continue
+        total += max(0.0, ts - prev)
+        prev = ts
+    return total + max(0.0, until - prev)
+
+
+def closed_note(row):
+    """For the agent, at the user's next message after a quoted job closed: what it cost and how long it took."""
+    corrected = (row.get("raw_estimate") or 0) * (row.get("factor_used") or 1.0)
+    text = ("The last quoted job (level '%s') is closed: real cost %s wt (work %s + chat part %s) against a corrected "
+            "estimate of %s wt of work" % (row.get("choice"), fmt(row.get("actual") or 0), fmt(work_of(row)),
+                                           fmt(row.get("chat") or 0), fmt(corrected)))
+    if row.get("seconds"):
+        text += "; working time %s" % fmt_duration(row["seconds"])
+        if row.get("predicted_seconds"):
+            text += " against about %s expected" % fmt_duration(row["predicted_seconds"])
+    return text + ". Tell the user in one line, in their language."
+
+
+# The stopwatch: a small file the hooks keep (run while the agent works, pause on the user's turn, end when the job
+# closes) and, unless it is off, a small always-on-top window that reads it every second.
+
+def timer_path():
+    return os.path.join(home(), "timer.json")
+
+
+def timer_state():
+    return load_json(timer_path(), {})
+
+
+def timer_seconds(st, now=None):
+    """What the stopwatch shows: the finished stretches plus the running one."""
+    secs = float(st.get("done") or 0)
+    if st.get("state") == "run" and st.get("since"):
+        secs += max(0.0, (now if now is not None else time.time()) - float(st["since"]))
+    return secs
+
+
+def timer_put(cfg, state, done, predicted=None, label=None, start=False):
+    """Set the stopwatch: 'run' (the agent works), 'pause' (the user's turn) or 'end' (the job is closed). `done` is
+    the working time measured so far; a new stopwatch (start) forgets the old one."""
+    now = time.time()
+    st = {"started": now} if start else timer_state()
+    st.update(state=state, done=round(float(done or 0), 1), since=now if state == "run" else None, ts=now)
+    if start or predicted is not None:
+        st["predicted"] = round(predicted) if predicted else None
+    if label is not None:
+        st["label"] = label
+    save_json(timer_path(), st)
+    if state != "end":
+        timer_window_open(cfg)
+    return st
+
+
+def timer_started_in(begin, end):
+    """When the agent started the stopwatch with `timer start` (the work begins after the choice), if that happened
+    between two moments; else None."""
+    st = timer_state()
+    at = st.get("started") or 0
+    return at if st.get("by") == "command" and begin - 2 <= at <= end + 2 else None
+
+
+def timer_window_on(cfg):
+    if os.environ.get("QUOTIENT_TIMER_WINDOW", "").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    return bool((cfg.get("timer") or {}).get("window", True))
+
+
+def timer_window_open(cfg):
+    """Start the stopwatch window unless it is off, already open, closed by the user for this job, or impossible
+    here (without tkinter the window writes timer-window.unavailable once and is not tried again)."""
+    if not timer_window_on(cfg):
+        return False
+    if timer_state().get("hidden") or os.path.exists(os.path.join(home(), "timer-window.unavailable")):
+        return False
+    alive = os.path.join(home(), "timer-window.alive")
+    try:
+        if time.time() - float(load_json(alive, {}).get("ts") or 0) < 4:
+            return False
+    except (TypeError, ValueError):
+        pass
+    save_json(alive, {"ts": time.time(), "starting": True})
+    exe, kw = sys.executable, {}
+    if os.name == "nt":
+        quiet = os.path.join(os.path.dirname(exe), "pythonw.exe")
+        exe = quiet if os.path.isfile(quiet) else exe
+        kw["creationflags"] = 0x00000008 | 0x00000200   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    else:
+        kw["start_new_session"] = True
+    try:
+        # never the hook's own pipes: Hermes and Claude Code wait for them to close
+        subprocess.Popen([exe, os.path.abspath(__file__), "timer-window"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, **kw)
+        return True
+    except OSError:
+        return False
+
+
+def timer_window():
+    """The small always-on-top stopwatch (command `timer-window`, started by Quotient). It shows the working time of
+    the open job against the expected one, stops on the user's turn, and closes itself 30 s after the job ends.
+    Closing it by hand hides it until the next job."""
+    alive = os.path.join(home(), "timer-window.alive")
+    try:
+        import tkinter as tk
+    except Exception:
+        save_json(os.path.join(home(), "timer-window.unavailable"), {"ts": now_iso(), "python": sys.executable})
+        return
+    other = load_json(alive, {})
+    if not other.get("starting") and time.time() - float(other.get("ts") or 0) < 3:
+        return  # another window is open
+    save_json(alive, {"ts": time.time(), "pid": os.getpid()})
+    it = config().get("lang") == "it"
+    c = {"bg": "#0d1117", "fg": "#e6edf3", "muted": "#a2abb6", "green": "#56d364", "amber": "#e3b341",
+         "track": "#30363d"}
+    root = tk.Tk()
+    root.title("Quotient")
+    root.configure(bg=c["bg"])
+    root.resizable(False, False)
+    for attribute in ("-topmost", "-toolwindow"):
+        try:
+            root.attributes(attribute, True)
+        except tk.TclError:
+            pass
+    width, height = 260, 108
+    root.geometry("%dx%d+%d+%d" % (width, height, root.winfo_screenwidth() - width - 24,
+                                   root.winfo_screenheight() - height - 96))
+    top = tk.Label(root, bg=c["bg"], fg=c["muted"], font=("Segoe UI", 9), anchor="w")
+    top.pack(fill="x", padx=12, pady=(8, 0))
+    clock = tk.Label(root, bg=c["bg"], fg=c["fg"], font=("Consolas", 24, "bold"), anchor="w")
+    clock.pack(fill="x", padx=12)
+    bar = tk.Canvas(root, width=width - 24, height=6, bg=c["track"], highlightthickness=0, bd=0)
+    bar.pack(padx=12, pady=(2, 4))
+    fill = bar.create_rectangle(0, 0, 0, 6, fill=c["green"], width=0)
+    low = tk.Label(root, bg=c["bg"], fg=c["muted"], font=("Segoe UI", 9), anchor="w")
+    low.pack(fill="x", padx=12)
+
+    def close():
+        st = timer_state()
+        if st:
+            st["hidden"] = True
+            save_json(timer_path(), st)
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", close)
+
+    def tick():
+        now = time.time()
+        save_json(alive, {"ts": now, "pid": os.getpid()})
+        st = timer_state()
+        state, age = st.get("state"), now - float(st.get("ts") or 0)
+        if not st or st.get("hidden") or (state == "end" and age > 30) or age > 12 * 3600:
+            root.destroy()
+            return
+        secs = timer_seconds(st, now)
+        s = int(secs)
+        clock["text"] = "%d:%02d:%02d" % (s // 3600, s // 60 % 60, s % 60) if s >= 3600 else "%02d:%02d" % (s // 60, s % 60)
+        pred = st.get("predicted")
+        top["text"] = (("Quotient · lavoro «%s»" if it else "Quotient · job '%s'") % st["label"]) if st.get("label") else "Quotient"
+        over = bool(pred) and secs > pred
+        bar.coords(fill, 0, 0, (width - 24) * (min(1.0, secs / pred) if pred else 0), 6)
+        bar.itemconfigure(fill, fill=c["amber"] if over else c["green"])
+        expected = (("previsti circa %s" if it else "about %s expected") % fmt_duration(pred) if pred else
+                    ("tempo previsto dopo 3 lavori misurati" if it else "expected time after 3 measured jobs"))
+        if state == "end":
+            low["text"] = ("finito · " if it else "done · ") + expected
+            clock["fg"] = c["amber"] if pred and secs > pred * 1.1 else c["green"]
+        elif state == "pause":
+            low["text"] = ("in pausa, tocca a te · " if it else "paused, your turn · ") + expected
+            clock["fg"] = c["muted"]
+        else:
+            low["text"] = expected
+            clock["fg"] = c["amber"] if over else c["fg"]
+        root.after(1000, tick)
+
+    tick()
+    root.mainloop()
+    try:
+        os.remove(alive)
+    except OSError:
+        pass
+
+
+def cmd_timer(args):
+    """`timer start --raw N`: the agent starts the stopwatch when the work begins (after the choice); `timer show`;
+    `timer stop` (hides it)."""
+    cfg = config()
+    if args.what == "start":
+        kind = "rate" if args.kind == "rate" else "chat"
+        predicted = expected_seconds(cfg, args.raw, kind) if args.raw else None
+        st = timer_put(cfg, "run", 0, predicted, args.level or None, start=True)
+        st["by"] = "command"
+        save_json(timer_path(), st)
+        out("Stopwatch started%s.\n" % (": about %s expected" % fmt_duration(predicted) if predicted else
+                                       " (no expected time yet: Quotient learns it after 3 measured jobs)"))
+    elif args.what == "stop":
+        st = timer_state()
+        if st:
+            st["hidden"] = True
+            save_json(timer_path(), st)
+        out("Stopwatch hidden until the next job.\n")
+    else:
+        st = timer_state()
+        out(("%s · %s of about %s\n" % (st.get("state"), fmt_duration(timer_seconds(st)), fmt_duration(st.get("predicted"))))
+            if st else "No stopwatch.\n")
+
+
+def job_time_from_logs(job, home_hermes=None):
+    """The working time of a job measured before 1.1.0, from what is still on disk: an installment job from its runs
+    (each runs alone, start to end); a Hermes job from its chat's messages; a Claude Code job from its transcript.
+    The job's first turn counts from its start (the CHOICE line comes at its end). None when nothing is left."""
+    sid = str(job.get("session") or "")
+    begin, end = ts_epoch(job.get("started")), ts_epoch(job.get("finished"))
+    if not begin or not end or end < begin:
+        return None
+    if sid.startswith("rate:"):
+        runs = read_jsonl(os.path.join(rate_dir(sid[5:]), "runs.jsonl"))
+        spans = [ts_epoch(r.get("finished")) - ts_epoch(r.get("started")) for r in runs
+                 if r.get("started") and r.get("finished") and begin - 60 <= ts_epoch(r.get("started")) <= end + 60]
+        return float(sum(s for s in spans if s > 0)) or None
+    if sid.startswith("hermes:"):
+        import hermes_source as hs
+        chat = sid[7:]
+        first = hs.last_user_message(chat, begin + 5, home_hermes) or begin
+        return hs.active_seconds(chat, min(first, begin), end, home_hermes)
+    transcript = find_transcript(sid) if sid else None
+    if not transcript:
+        return None
+    entries = [e for e in read_jsonl(transcript) if not e.get("isSidechain")]
+    starts = [ts_epoch(e.get("timestamp")) for e in entries if is_turn_start(e)]
+    first = max([s for s in starts if s <= begin + 5] or [0])
+    if not first:
+        return None
+    return claude_active_seconds(entries, first, end)
+
+
+def backfill_time(deadline=None, home_hermes=None):
+    """Jobs measured before 1.1.0 have no time: work it out once from the logs (`job_time_from_logs`), so the
+    expected times start from real data. Each job is looked at once (`time_checked`). Returns how many got a time."""
+    path = os.path.join(home(), "jobs.jsonl")
+    jobs = read_jsonl(path)
+    todo = [j for j in jobs if j.get("seconds") is None and not j.get("time_checked")]
+    if not todo:
+        return 0
+    filled = 0
+    for job in todo:
+        if deadline and time.time() > deadline:
+            break
+        job["time_checked"] = True
+        try:
+            secs = job_time_from_logs(job, home_hermes)
+        except Exception:  # a log that cannot be read leaves the job without a time
+            secs = None
+        if secs and secs > 0:
+            job["seconds"], job["seconds_from"] = round(secs), "logs"
+            filled += 1
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        for j in jobs:
+            f.write(json.dumps(j, ensure_ascii=False) + "\n")
+    os.replace(tmp, path)
+    return filled
+
+
 # ---------------------------------------------------------------- sharing
 
 SHARE_FIELDS = ("v", "q", "family", "estimate", "actual")
@@ -1108,6 +1461,9 @@ def calibration(cfg, learned):
     rate = learning(cfg, "rate")["factor"]
     steps = steps_per_million(cfg)
     measured = " A job takes about %d steps per 1M wt of work (from %d jobs)." % (round(steps[0]), steps[1]) if steps else ""
+    timing = time_text(cfg)
+    if timing:
+        measured += " Working time: %s." % timing
     return ("Correction factor from %d finished job(s)%s: x%.2f%s (for installments x%.2f); typical miss before "
             "correction %s, recent miss with it %s.%s" % (
                 n, " plus %d shared" % shared if shared else "", learned["factor"],
@@ -1126,13 +1482,13 @@ def protocol(cfg, factor):
         "HOW:",
         "1) Estimate the WORK at three levels sized to it: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate. Levels: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f; for installments x%.2f). The chat part of each level = its steps x the per-step re-read of the CHAT PART line: take the steps from the measured steps per 1M wt of work (on the corrected work) when Quotient gives them, plus one per message you expect from the user; do not guess them." % (fmt(big), factor, learning(cfg, "rate")["factor"]),
         "2) Write one machine line with your RAW estimates, always in English: QUOTE: essential=<n> good=<n> max=<n>",
-        "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate (with a CHAT PART line: work + chat part = total). 'Ritmo'/'Pace': all today, plus two installment plans that fit the job, plus 'in a new chat' when the CHAT PART line offers it. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
+        "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate (with a CHAT PART line: work + chat part = total), and, when the Quotient line gives the working time per 1M wt of work, its expected TIME (its corrected work x that time, e.g. 'circa 25 minuti'; for installments, the time of each day). 'Ritmo'/'Pace': all today, plus two installment plans that fit the job, plus 'in a new chat' when the CHAT PART line offers it. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
         "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
-        "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>`. If today: do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`.",
+        "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>`. If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there; a small window shows it, paused while it is the user's turn), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % cmd,
         "Machine lines (QUOTE, CHOICE, PACE, JOB, LIMITS) go in the LAST message of your reply, the one after your last tool call: a progress note written in the middle of a reply may be kept only as a summary, and then Quotient never sees them. Write QUOTE and CHOICE once: later replies of the same job carry only the JOB line.",
         "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at 03:00), 'Ogni giorno'/'Every day' (the daily time; free field) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: whoever turned the PC on, it sleeps only when nobody is using it, after a 2-minute warning). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely. Each installment's report comes back to the chat that ran `rate new`, at the user's next message there (other chats get a one-line notice, twice at most); `rate here <name>` run in another chat moves the reports there." % (cmd, cmd),
         "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them, and how many wt 1% holds when it can estimate it. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
-        "In the window, for each level add what share of the 5-hour and weekly limits it would take and what would be left, when Quotient gives the size of 1%; if a level does not fit in what is left of the 5-hour window, say so and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left.",
+        "In the window, for each level add what share of the 5-hour and weekly limits it would take and what would be left, when Quotient gives the size of 1%; if a level does not fit in what is left of the 5-hour window, say so and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left; at the next message Quotient gives the job's real cost and working time against the expected ones: tell them in one line.",
         "WEEK: before creating installments, run `%s rate week`: it adds up all open installment jobs until the weekly limit resets, against what is left minus a reserve for normal use (%d%%). If the new job would not fit with the others, say so in the window and offer: keep all, slow some down (`rate set <name> --daily <n>`), pause some (`rate pause <name>`), or pace the new one over more days." % (run_cmd(), cfg["week"]["reserve_percent"]),
         "Every decision Quotient needs from the user goes through the choice window, with a free field.",
     ]) + "\n"
@@ -1183,6 +1539,25 @@ def handoff_text(folder, limit=2500):
     return text[:limit].rstrip() + "\n[... the rest is in the file]" if len(text) > limit else text
 
 
+def run_seconds(run):
+    """How long one installment ran: its own count (1.1.0), else from its start and end."""
+    if run.get("seconds") is not None:
+        return run["seconds"]
+    if run.get("started") and run.get("finished"):
+        return round(max(0.0, ts_epoch(run["finished"]) - ts_epoch(run["started"])))
+    return 0
+
+
+def installment_seconds(cfg, job, cap=None):
+    """Expected time of one installment of a job: the work that fits in its cap (the cap also pays for re-reading
+    each installment's start) x the minutes per 1M wt of the installments. None until 3 were timed."""
+    mpm = minutes_per_million(cfg, "rate")
+    cap = cap or job.get("daily_cap")
+    if not mpm or not cap:
+        return None
+    return cap / (1 + (job.get("overhead_at_quote") or 0)) / 1e6 * mpm[0] * 60.0
+
+
 def remaining(job, runs):
     """What is left of an installment job, from the last PROGRESS line the installments wrote: (percent
     done, weighted tokens left, installments left), or None when no installment gave it. The cost of what
@@ -1204,13 +1579,17 @@ def report_lines(name, job, runs, told, folder):
     for i, r in enumerate(runs[told:], start=told + 1):
         cap = r.get("cap") or job.get("daily_cap") or 0
         wt = r.get("wt") or 0
-        lines.append("- installment %d: %s-%s, %s wt of a %s wt cap (%d%%)%s%s" % (
+        took = run_seconds(r)
+        lines.append("- installment %d: %s-%s, %s wt of a %s wt cap (%d%%)%s%s%s" % (
             i, when(ts_epoch(r.get("started")), "en"), (r.get("finished") or "")[11:16], fmt(wt), fmt(cap),
             round(100.0 * wt / cap) if cap else 0,
             ", about %s of the week" % percent(wt / per_point, "en") if per_point and wt else "",
+            ", %s of work%s" % (fmt_duration(took), " (about %s expected)" % fmt_duration(r["predicted_seconds"])
+                                if r.get("predicted_seconds") else "") if took else "",
             "; FAILED: %s" % str(r["error"])[:200] if r.get("error") else ""))
     spent = sum(r.get("wt") or 0 for r in runs)
-    total = "So far: %d installment(s), %s wt." % (len(runs), fmt(spent))
+    total = "So far: %d installment(s), %s wt, %s of work." % (len(runs), fmt(spent),
+                                                                 fmt_duration(sum(run_seconds(r) for r in runs)))
     if job.get("quote"):
         expected = job["quote"] * (job.get("factor_at_quote") or 1.0)
         total += " Corrected quote %s wt (raw %s): %d%% of it spent" % (fmt(expected), fmt(job["quote"]), round(100.0 * spent / expected))
@@ -1532,6 +1911,10 @@ def hook_session():
         backfill_chat(time.time() + 5)
     except Exception:  # an old job that cannot be read keeps its whole cost as work
         pass
+    try:
+        backfill_time(time.time() + 5)
+    except Exception:  # an old job whose logs cannot be read stays without a time
+        pass
     text = protocol(cfg, learning(cfg)["factor"])
     if not cfg.get("configured"):
         text += setup_instructions(cfg)
@@ -1590,10 +1973,20 @@ def hook_prompt():
             lines.append(alert)
     job = state.get("job")
     pending = state.get("pending")
+    closed_told = state.get("last_closed") if not scheduled else None
+    if closed_told:
+        lines.append(closed_told)
     if job:
+        timing = ""
+        if job.get("seconds") is not None:
+            timing = "; working time so far %s%s" % (fmt_duration(job.get("seconds")), " of about %s expected" % (
+                fmt_duration(job["predicted_seconds"])) if job.get("predicted_seconds") else "")
         lines.append("A job is in progress (level '%s', raw estimate %s wt, spent so far %s wt, of which %s re-reading "
-                     "the older chat). If it is not finished at the end of this reply, end it with the line: JOB: CONTINUES" % (
-                         job.get("choice"), fmt(job.get("raw_estimate")), fmt(job.get("actual")), fmt(job.get("chat") or 0)))
+                     "the older chat%s). If it is not finished at the end of this reply, end it with the line: JOB: CONTINUES" % (
+                         job.get("choice"), fmt(job.get("raw_estimate")), fmt(job.get("actual")), fmt(job.get("chat") or 0),
+                         timing))
+        if not scheduled:
+            timer_put(cfg, "run", job.get("seconds") or 0, job.get("predicted_seconds"), job.get("choice"))
     elif pending:
         lines.append("A quote waits for the user's choice (raw: %s). If this message chooses, write `CHOICE: <level>` and `PACE: ...` as the protocol says, then go on." % (
             ", ".join("%s=%s" % (k, fmt(v)) for k, v in pending["options"].items())))
@@ -1612,6 +2005,8 @@ def hook_prompt():
     state = load_json(session_path(sid), {})
     state["q_chars"] = state.get("q_chars", 0) + len(text)
     state["q_new"] = state.get("q_new", 0) + len(text)
+    if closed_told:
+        state.pop("last_closed", None)
     if told:
         state["unquoted"] = None
         state["unquoted_told"] = told.get("ts") or True
@@ -1660,6 +2055,7 @@ def chat_hint(cfg, ctx, fresh):
 
 
 def close_job(job, cfg=None):
+    cfg = cfg or config()
     job["finished"] = now_iso()
     job.pop("waiting", None)
     job["chat"] = round(job.get("chat") or 0)
@@ -1667,8 +2063,13 @@ def close_job(job, cfg=None):
     job["work"] = max(0, round(job["actual"] - job["chat"]))
     job["ratio"] = round(work_of(job) / job["raw_estimate"], 4) if job.get("raw_estimate") else None
     job["family"] = main_family(job.get("families") or {})
+    for key in ("seconds", "predicted_seconds"):
+        if job.get(key) is not None:
+            job[key] = round(job[key])
     append_jsonl(os.path.join(home(), "jobs.jsonl"), job)
-    queue_share(job, cfg or config())
+    queue_share(job, cfg)
+    if job.get("seconds") is not None:
+        timer_put(cfg, "end", job["seconds"], job.get("predicted_seconds"), job.get("choice"))
 
 
 # ---------------------------------------------------------------- jobs that move from chat to chat
@@ -1832,6 +2233,18 @@ def hook_stop():
     # for the same turn, and only the part not yet counted is added.
     seen = state.get("turn") or {}
     repeat = seen.get("start") == start_ts
+    now_ep = time.time()
+    # the turn's working time ends at its last entry (the hook runs a moment after it)
+    stamps = [ts_epoch(e.get("timestamp")) for e in turn if e.get("timestamp")]
+    now_ep = max(stamps) if stamps else now_ep
+    start_ep = ts_epoch(start_ts) if start_ts else now_ep
+    # The working time of this turn not counted yet: a Stop hook run again for the same turn adds only what came
+    # after the last one.
+    turn_from = seen.get("end") if repeat and seen.get("end") else start_ep
+
+    def turn_seconds(since):
+        return claude_active_seconds(turn, max(since, turn_from), now_ep)
+
     base = seen.get("base") if repeat and seen.get("base") else (prompt_tokens(main[0]["usage"]) if main else 0)
     new_chars = seen.get("q_new", 0) if repeat else state.get("q_new", 0)
     q_text, q_actions, q_actions_wt = quotient_weight(cfg, main, text, state.get("q_chars", 0), new_chars)
@@ -1841,7 +2254,7 @@ def hook_stop():
         seen = dict(seen, cost=seen.get("counted", 0))  # a turn counted by 0.9.1
     delta = {k: max(0, v - ((seen.get(k) or 0) if repeat else 0)) for k, v in now.items()}
     cost = delta["cost"]
-    state["turn"] = dict(now, start=start_ts, counted=total, base=base, q_new=new_chars,
+    state["turn"] = dict(now, start=start_ts, counted=total, base=base, q_new=new_chars, end=now_ep,
                          job_chat=seen.get("job_chat", 0) if repeat else 0, job_older=seen.get("job_older", 0) if repeat else 0)
     state["q_new"] = 0
     compacting = state.pop("compacting", None)
@@ -1894,15 +2307,18 @@ def hook_stop():
         job["chat"] = (job.get("chat") or 0) + job_chat_now(job)
         job["calls"] = (job.get("calls") or 0) + (0 if repeat else calls)
         job["turns"] = (job.get("turns") or 0) + (0 if repeat else 1)
+        job["seconds"] = (job.get("seconds") or 0) + turn_seconds(turn_from)
         if not repeat:
             add_families(job, families)
         if quote or not continues:
             close_job(job, cfg)
             state["closed"] = {"options": job.get("options"), "choice": job.get("choice")}
+            state["last_closed"] = closed_note(job)
             state["job"] = None
             note_chat_job(sid, None)
         else:
             note_chat_job(sid, job, path)
+            timer_put(cfg, "pause", job["seconds"], job.get("predicted_seconds"), job.get("choice"))
     elif choice and (same_turn or pending):
         source = {"options": quote, "factor": learning(cfg)["factor"], "quote_cost": 0} if same_turn else pending
         state["pending"] = None
@@ -1914,6 +2330,7 @@ def hook_stop():
                 "choice": choice, "raw_estimate": raw, "factor_used": source.get("factor", 1.0),
                 "quote_cost": source.get("quote_cost", 0), "actual": cost, "turns": 1, "calls": calls,
                 "families": dict(families), "fresh": fresh, "base": base, "chat": 0,
+                "seconds": 0, "predicted_seconds": expected_seconds(cfg, raw, factor=source.get("factor", 1.0)),
             }
             if pace == "new-chat":
                 # chosen here, done in a new chat: this chat only made the quote. What re-reading this chat
@@ -1925,12 +2342,17 @@ def hook_stop():
             else:
                 job["chat"] = job_chat_now(job)
                 job["chats"] = [sid]
+                # the work starts after the choice: at `timer start` if the agent ran it in this turn
+                by_command = timer_started_in(start_ep, now_ep)
+                job["seconds"] = turn_seconds(by_command or start_ep)
                 if continues:
                     state["job"] = job
                     note_chat_job(sid, job, path)
+                    timer_put(cfg, "pause", job["seconds"], job["predicted_seconds"], choice, start=not by_command)
                 else:
                     close_job(job, cfg)
                     state["closed"] = {"options": job.get("options"), "choice": job.get("choice")}
+                    state["last_closed"] = closed_note(job)
     elif pending and not repeat:
         pending["age"] = pending.get("age", 0) + 1
         if pending["age"] > cfg["pending_ttl_turns"]:
@@ -2228,7 +2650,13 @@ def statusline():
     if snap:
         record_limits(snap, "statusline")
     line = limits_line(config().get("lang"))
-    out("Quotient · " + (line or ("limiti non ancora letti" if config().get("lang") == "it" else "limits not read yet")) + "\n")
+    text = "Quotient · " + (line or ("limiti non ancora letti" if config().get("lang") == "it" else "limits not read yet"))
+    st = timer_state()
+    if st.get("state") in ("run", "pause") and time.time() - float(st.get("ts") or 0) < 12 * 3600:
+        # the stopwatch of the open job (1.1.0)
+        text += " · ⏱ %s%s" % (fmt_duration(timer_seconds(st)), " / ~%s" % fmt_duration(st["predicted"])
+                               if st.get("predicted") else "")
+    out(text + "\n")
 
 
 def setup_statusline(args):
@@ -2487,6 +2915,11 @@ COMMANDS = [
     ("hermes", "Hermes Agent chats (same Claude login, same limits): read its token counters now",
      "le chat di Hermes Agent (stesso login di Claude, stessi limiti): legge adesso i suoi contatori dei token"),
     ("export", "the exact line sharing sends for each finished job", "la riga esatta che la condivisione manda per ogni lavoro finito"),
+    ("timer start --raw N [--level L] / timer show / timer stop",
+     "the stopwatch of a quoted job: start it when the work begins (the agent does it), see it, or hide it",
+     "il cronometro di un lavoro col preventivo: farlo partire quando comincia il lavoro (lo fa l'agente), vederlo, o nasconderlo"),
+    ("backfill-time", "work out the time of the jobs measured before 1.1.0, from the logs (done by itself once)",
+     "ricava dai registri il tempo dei lavori misurati prima della 1.1.0 (lo fa da sola una volta)"),
     ("setup-statusline [--write]", "show the plan limits in the status line", "mostra i limiti del piano nella riga di stato"),
     ("rate new <job> --dir <folder> --task-file <file> --quote N (--days N | --daily N) [--template book|research|code-review]",
      "create a job in installments (a template gives it a tested way of working)",
@@ -3400,10 +3833,11 @@ def installment_toast(name, job, runs, cfg, page=None):
     if job.get("status") == "done":
         spent = sum(r.get("wt") or 0 for r in runs)
         title = ("Quotient · «%s» è finito" if it else "Quotient · '%s' is finished") % name
-        body = (("%d rata, " if n == 1 else "%d rate, ") + "%s token pesati in tutto%s. " if it else
-                "%d installment(s), %s weighted tokens in all%s. ") % (
+        body = (("%d rata, " if n == 1 else "%d rate, ") + "%s token pesati in tutto%s, %s di lavoro. " if it else
+                "%d installment(s), %s weighted tokens in all%s, %s of work. ") % (
             n, amount(spent, cfg.get("lang")),
-            ((" (preventivo %s)" if it else " (quote %s)") % amount(job["quote"], cfg.get("lang"))) if job.get("quote") else "")
+            ((" (preventivo %s)" if it else " (quote %s)") % amount(job["quote"], cfg.get("lang"))) if job.get("quote") else "",
+            fmt_duration(sum(run_seconds(r) for r in runs)))
     elif run.get("error"):
         title = ("Quotient · rata %d di «%s» non riuscita" if it else "Quotient · installment %d of '%s' failed") % (n, name)
         if str(run["error"]).startswith(LOGIN_ERROR[:40]):
@@ -3421,6 +3855,10 @@ def installment_toast(name, job, runs, cfg, page=None):
         body = ("%s–%s · %s token pesati su %s" if it else "%s–%s · %s weighted tokens of %s") % (
             (run.get("started") or "")[11:16], (run.get("finished") or "")[11:16],
             amount(run.get("wt"), cfg.get("lang")), amount(run.get("cap") or job.get("daily_cap"), cfg.get("lang")))
+        if run_seconds(run):
+            body += (" · %s di lavoro%s" if it else " · %s of work%s") % (
+                fmt_duration(run_seconds(run)), ((" (previsti circa %s)" if it else " (about %s expected)") % fmt_duration(
+                    run["predicted_seconds"])) if run.get("predicted_seconds") else "")
         if per_point and run.get("wt"):
             body += (" · %s della settimana (stima)" if it else " · %s of the week (estimate)") % percent(
                 run["wt"] / per_point, cfg.get("lang"))
@@ -3514,11 +3952,16 @@ def rate_new(args):
         # the chat that created the job: each installment's report comes back to it
         "session": chat_id(),
     }
+    whole = expected_seconds(cfg, args.quote, "rate", factor) if args.quote else None
+    job["predicted_seconds"] = round(whole) if whole else None
+    each = installment_seconds(cfg, job)
     save_json(os.path.join(folder, "job.json"), job)
-    out("Job '%s' ready: %s wt per installment%s, working in %s\nJob files: %s\n"
+    timing = ("Expected time: about %s per installment%s (from the installments timed so far).\n" % (
+        fmt_duration(each), ", about %s in all" % fmt_duration(whole) if whole else "") if each else "")
+    out("Job '%s' ready: %s wt per installment%s, working in %s\nJob files: %s\n%s"
         "Run one installment now: %s rate run %s\nOnce today at a time: %s rate once %s --time HH:MM\n"
         "Every day: %s rate schedule %s --time HH:MM\n%s" % (
-            args.name, fmt(daily), ", about %d installment(s)" % days if days else "", job["dir"], folder,
+            args.name, fmt(daily), ", about %d installment(s)" % days if days else "", job["dir"], folder, timing,
             run_cmd(), args.name, run_cmd(), args.name, run_cmd(), args.name,
             "Each installment's report will come back to this chat.\n" if job["session"] else ""))
 
@@ -3696,10 +4139,15 @@ def run_installment(args):
         low = said.lower()
         error = (LOGIN_ERROR if "logged in" in low or "/login" in said or "authenticate" in low or "oauth" in low
                  else (said.strip()[-300:] or "error"))
-    run = {"started": started, "finished": now_iso(), "session": sid, "wt": wt, "calls": calls,
+    finished_at = now_iso()
+    expected_run = installment_seconds(cfg, job, cap)
+    run = {"started": started, "finished": finished_at, "session": sid, "wt": wt, "calls": calls,
            "found_asleep": getattr(args, "woke", None) if isinstance(getattr(args, "woke", None), bool) else None,
            "chat": chat, "fresh": fresh, "usd": usd, "error": error, "done": done, "cap": cap,
-           "progress": 100.0 if done else parse_progress(handoff)}
+           "progress": 100.0 if done else parse_progress(handoff),
+           # 1.1.0: an installment works alone, so its time is its whole run
+           "seconds": round(max(0.0, ts_epoch(finished_at) - ts_epoch(started))),
+           "predicted_seconds": round(expected_run) if expected_run else None}
     # Read the job again: a chat may have changed it while the installment worked (`rate here`, `rate set`).
     job = load_json(os.path.join(folder, "job.json"), None) or job
     add_families(job, families)
@@ -3720,7 +4168,9 @@ def run_installment(args):
                 "chat": chat_total, "older": 0, "work": max(0, total - chat_total),
                 "calls": sum(r.get("calls") or 0 for r in runs) + (calls or 0),
                 "turns": len(runs) + 1, "ratio": round(max(0, total - chat_total) / job["quote"], 4),
-                "family": main_family(job.get("families") or {})}
+                "family": main_family(job.get("families") or {}),
+                "seconds": sum(run_seconds(r) for r in runs) + run["seconds"],
+                "predicted_seconds": job.get("predicted_seconds")}
             append_jsonl(os.path.join(home(), "jobs.jsonl"), finished)
             now_cfg = config()  # read again: sharing may have been turned off during the installment
             queue_share(finished, now_cfg)
@@ -4111,6 +4561,13 @@ def main(argv=None):
     sub.add_parser("hermes", help="Hermes Agent chats: same Claude login, same limits")
     sub.add_parser("hermes-hook", help="(Hermes shell hook) pre_llm_call / post_llm_call, JSON on stdin")
     sub.add_parser("tick", help="read Hermes' counters and the plan limits now (for a scheduled task, every few minutes)")
+    p = sub.add_parser("timer", help="the stopwatch of a quoted job: start it when the work begins, show it, or hide it")
+    p.add_argument("what", nargs="?", choices=("start", "show", "stop"), default="show")
+    p.add_argument("--raw", type=int, help="raw estimate of the chosen level, for the expected time")
+    p.add_argument("--level", help="the chosen level, shown in the window")
+    p.add_argument("--kind", choices=("chat", "rate"), default="chat")
+    sub.add_parser("timer-window", help="(internal) the stopwatch window")
+    sub.add_parser("backfill-time", help="work out the time of jobs measured before 1.1.0 from the logs")
     p = sub.add_parser("config")
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
@@ -4198,6 +4655,12 @@ def main(argv=None):
         measured_turns(cfg)
         snap = refresh_limits(cfg, force=True)
         out(json.dumps({"limits": snap, "hermes": cfg.get("hermes", True)}) + "\n")
+    elif args.cmd == "timer":
+        cmd_timer(args)
+    elif args.cmd == "timer-window":
+        timer_window()
+    elif args.cmd == "backfill-time":
+        out("Jobs given a time from the logs: %d\n" % backfill_time())
     elif args.cmd == "hermes":
         cfg = config()
         t = TEXT.get(cfg.get("lang"), TEXT["en"])

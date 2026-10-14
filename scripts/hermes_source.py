@@ -128,6 +128,57 @@ def sync(quotient_home, weights, home=None, now=None):
     return added
 
 
+def messages(sid, since, until, home=None):
+    """(time, role, tool name) of a chat's messages between two moments, oldest first: only when they were written
+    and by whom, never their text. None if the session store cannot be read."""
+    path = db_path(home)
+    if not sid or not os.path.isfile(path):
+        return None
+    uri = "file:" + path.replace("\\", "/") + "?mode=ro"
+    try:
+        con = sqlite3.connect(uri, uri=True, timeout=5)
+    except sqlite3.Error:
+        return None
+    try:
+        cols = {r[1] for r in con.execute("pragma table_info(messages)")}
+        if not {"session_id", "role", "timestamp"} <= cols:
+            return None
+        tool = "tool_name" if "tool_name" in cols else "NULL"
+        rows = con.execute("select timestamp, role, %s from messages where session_id = ? and timestamp >= ? "
+                           "and timestamp <= ? order by timestamp, id" % tool, (sid, since, until)).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+    return [(float(t), r, n) for t, r, n in rows if t is not None]
+
+
+def last_user_message(sid, before, home=None):
+    """When the user last wrote in a chat, at or before a moment (the start of that turn), or None."""
+    rows = messages(sid, before - 7 * 86400, before, home) or []
+    users = [t for t, role, _ in rows if role == "user"]
+    return users[-1] if users else None
+
+
+def active_seconds(sid, since, until, home=None):
+    """The agent's working time in a chat between two moments: the time between its consecutive messages, without
+    the user's turns (a user message starts a new turn: the wait before it was the user's) and without the waits of
+    the choice window (a clarify result arrives when the user has chosen). The stretch after the last message up to
+    `until` counts (the last answer is written as the turn ends). None if the messages cannot be read."""
+    rows = messages(sid, since - 1, until + 1, home)
+    if rows is None:
+        return None
+    total, prev = 0.0, since
+    for ts, role, tool in rows:
+        ts = min(max(ts, since), until)
+        if role == "user" or (role == "tool" and tool == "clarify"):
+            prev = ts
+            continue
+        total += max(0.0, ts - prev)
+        prev = ts
+    return total + max(0.0, until - prev)
+
+
 def read_log(quotient_home):
     rows = []
     try:

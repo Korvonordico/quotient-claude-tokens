@@ -69,7 +69,7 @@ def _context_per_call(state_chat, totals, calls):
     return totals["cache_read_tokens"] / calls if calls else 0    # first look: the chat's average so far
 
 
-def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None):
+def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None, timing=""):
     lang = cfg.get("lang")
     limits = q.limits_line(lang) or ("limiti non letti" if lang == "it" else "limits not read")
     chat = q.fmt(ctx * cfg["weights"]["cache_read"]) if ctx else "?"
@@ -78,6 +78,8 @@ def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None):
     if steps:
         measured = "; a job takes about %d steps per 1M wt of work%s" % (
             round(steps[0]), " (installments %d)" % round(steps_rate[0]) if steps_rate else "")
+    if timing:
+        measured += "; working time %s" % timing
     return ("[Quotient %s] %s · factor x%.2f%s · threshold %s wt · CHAT PART: each step re-reads about %s tokens "
             "(%s wt)%s. Big job: quote first (QUOTE / CHOICE / JOB: CLOSE in the last message)." % (
                 q.VERSION, limits, factor, rate_part, q.fmt(cfg["threshold"]), q.fmt(ctx), chat, measured))
@@ -102,15 +104,22 @@ def pre_llm_call(q, payload):
     ctx = _context_per_call(chat, totals, calls)
     chat["ctx"] = ctx
     chat["last"] = dict(totals, calls=calls)
-    chat["turn_start"] = dict(totals, calls=calls, at=q.now_iso())     # where this reply starts: see post_llm_call
+    # where this reply starts: see post_llm_call (the epoch for the working time, 1.1.0)
+    chat["turn_start"] = dict(totals, calls=calls, at=q.now_iso(), epoch=time.time())
+    if not chat.get("told"):
+        try:
+            q.backfill_time(time.time() + 4)   # once: the time of the jobs measured before 1.1.0
+        except Exception:
+            pass
     factor = q.learning(cfg)["factor"]
     rate = q.learning(cfg, "rate")["factor"]
     steps, steps_rate = q.steps_per_million(cfg), q.steps_per_million(cfg, "rate")
+    timing = q.time_text(cfg)
     if not chat.get("told"):
         chat["told"] = True
-        text = hermes_protocol(q, cfg, factor) + short_line(q, cfg, factor, ctx, rate, steps, steps_rate)
+        text = hermes_protocol(q, cfg, factor) + short_line(q, cfg, factor, ctx, rate, steps, steps_rate, timing)
     else:
-        text = short_line(q, cfg, factor, ctx, rate, steps, steps_rate)
+        text = short_line(q, cfg, factor, ctx, rate, steps, steps_rate, timing)
     open_job = chat.get("job")
     # Long chats (the lesson of M33: re-reading the chat is most of the cost). Two notices at most, a day apart.
     big = (cfg.get("chat") or {}).get("hermes_compress_at", 250000)
@@ -122,8 +131,16 @@ def pre_llm_call(q, payload):
                      q.fmt(ctx), q.fmt(ctx * cfg["weights"]["cache_read"])))
     if open_job:
         spent = hs.weigh_hermes({k: totals[k] - open_job["start"][k] for k in hs.COUNTERS}, cfg["weights"])
-        text += " Open job: %s, about %s wt spent of %s (raw)." % (open_job["choice"], q.fmt(spent),
-                                                                   q.fmt(open_job["raw_estimate"]))
+        text += " Open job: %s, about %s wt spent of %s (raw)" % (open_job["choice"], q.fmt(spent),
+                                                                  q.fmt(open_job["raw_estimate"]))
+        if open_job.get("seconds") is not None:
+            text += ", working time so far %s%s" % (q.fmt_duration(open_job["seconds"]), " of about %s expected" % (
+                q.fmt_duration(open_job["predicted_seconds"])) if open_job.get("predicted_seconds") else "")
+        text += "."
+        q.timer_put(cfg, "run", open_job.get("seconds") or 0, open_job.get("predicted_seconds"), open_job["choice"])
+    note = chat.pop("last_closed", None)
+    if note:
+        text += " " + note
     _save(q, state)
     return {"context": text}
 
@@ -140,9 +157,17 @@ def _close(q, cfg, chat, totals, calls, how):
            "factor_used": job["factor"], "quote_cost": 0, "actual": round(actual), "chat": chat_part,
            "turns": job.get("turns", 1), "families": {q.family_of(job.get("model") or ""): round(actual)},
            "calls": d_calls, "ctx": round(job.get("ctx") or 0), "closed_by": how}
+    if job.get("seconds") is not None:
+        row["seconds"] = job["seconds"]
+        row["predicted_seconds"] = job.get("predicted_seconds")
     if how == "drop":
+        st = q.timer_state()
+        if st:                           # an abandoned job: the stopwatch goes away
+            st["hidden"] = True
+            q.save_json(q.timer_path(), st)
         return None
     q.close_job(row, cfg)
+    chat["last_closed"] = q.closed_note(row)
     return row
 
 
@@ -161,10 +186,20 @@ def post_llm_call(q, payload):
     pace = q.parse_pace(text)
     move = parse_end(text)
     closed = None
+    now = time.time()
+    t0 = float((chat.get("turn_start") or {}).get("epoch") or now)
+    created, by_command = False, None
+
+    def worked(since):
+        """The agent's working time in this reply from a moment on: the waits of the clarify window left out."""
+        secs = hs.active_seconds(sid, since, now)
+        return max(0.0, now - since) if secs is None else secs
+
     if q.same_quote(quote, choice, chat.get("job") or chat.get("closed")):
         quote = choice = None
     if chat.get("job"):
         chat["job"]["turns"] = chat["job"].get("turns", 1) + 1
+        chat["job"]["seconds"] = (chat["job"].get("seconds") or 0) + worked(t0)
         if move:
             closed = _close(q, cfg, chat, totals, calls, move)
         elif quote:                      # a new quote ends the job before it
@@ -189,13 +224,23 @@ def post_llm_call(q, payload):
                 # the first reply of a chat: nothing was measured before it, so what one call re-reads is taken
                 # from this reply (before, the chat part of such a job stayed at zero)
                 ctx = max(0, totals["cache_read_tokens"] - begin["cache_read_tokens"]) / (calls - start_calls)
+            factor = q.learning(cfg)["factor"]
+            # its time: from `timer start` if the agent started the stopwatch in this reply, else from the reply's start
+            by_command = q.timer_started_in(t0, now)
             chat["job"] = {"session": sid, "started": start.get("at") or q.now_iso(), "options": pending,
-                           "choice": choice, "raw_estimate": pending[choice], "factor": q.learning(cfg)["factor"],
+                           "choice": choice, "raw_estimate": pending[choice], "factor": factor,
                            "start": begin, "start_calls": start_calls, "ctx": ctx,
-                           "model": extra.get("model") or ""}
+                           "model": extra.get("model") or "", "seconds": worked(by_command or t0),
+                           "predicted_seconds": q.expected_seconds(cfg, pending[choice], factor=factor)}
+            created = True
             chat.pop("quote", None)
             if move and not closed:      # chosen, done and closed in the same reply
                 closed = _close(q, cfg, chat, totals, calls, move)
+    job = chat.get("job")
+    if job and job.get("seconds") is not None:
+        # the job goes on after this reply: the stopwatch waits for the user
+        q.timer_put(cfg, "pause", job["seconds"], job.get("predicted_seconds"), job["choice"],
+                    start=created and not by_command)
     chat.pop("turn_start", None)
     _save(q, state)
     return {"closed": closed} if closed else {}

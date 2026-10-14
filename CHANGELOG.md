@@ -2,6 +2,20 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.1.0] - 2026-10-15
+
+### Added
+
+- **How long a job takes.** A quote now also says how long each level should take: its corrected work times the minutes a million weighted tokens of work took in your last 20 jobs (median; installments apart; shown once 3 jobs have a time). Like the correction factor, it learns from every finished job.
+- **A stopwatch while the job runs.** Claude starts it when the work begins (`timer start`); a small always-on-top window shows the working time against the expected one, pauses while it is the user's turn, and closes half a minute after the job ends. The same stopwatch is in Claude Code's status line. `config timer.window false` turns the window off; the time is measured anyway.
+- **The real time after.** Every quoted job records its working time (`seconds`) and the expected one (`predicted_seconds`): the time the agent works, without the user's turns and without the wait of the choice window (`AskUserQuestion` in Claude Code, `clarify` in Hermes, read from the message times, never the text). At the next message Claude gets the job's real cost and time against the expected ones, to tell the user in one line.
+- **Installments with a time.** `rate new` says how long each installment should take; each installment records how long it ran, and its report and notification say it.
+- **Old jobs get their time once** from what is still on disk (Claude Code transcripts, Hermes message times, the installments' runs): `backfill-time`, run by itself at the start of a session.
+
+### Fixed
+
+- The demo's texts were all drawn at 16 px: a CSS rule overrode their sizes, and the smaller ones only had their letters squeezed together. The demo now has the time in the quote, the stopwatch, and the time of each night.
+
 ## [1.0.1] - 2026-10-14
 
 ### Fixed
@@ -208,6 +222,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.1.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.0.0
 [0.9.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v0.9.9
