@@ -8,7 +8,7 @@ Sapere quanto costa un lavoro di [Claude Code](https://code.claude.com) prima di
 
 *[Read in English](README.md)*
 
-![Demo di Token Quotient](docs/demo.svg)
+![Demo di Token Quotient](docs/demo.it.svg)
 
 ## Perché
 
