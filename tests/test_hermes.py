@@ -189,6 +189,16 @@ class HermesHooks(unittest.TestCase):
         self.hook("post_llm_call", "Finito.\nJOB: CLOSE")
         self.assertEqual([j["actual"] for j in self.jobs()], [2000])
 
+    def test_installments_and_new_chats_are_not_a_job_of_this_chat(self):
+        # 14/10/2026: a level chosen for installments opened a job measuring the chat that only quoted it
+        self.hook("pre_llm_call")
+        self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000\nCHOICE: max\nPACE: days=1")
+        self.assertIsNone(self.state().get("job"))
+        self.hook("post_llm_call", "QUOTE: essential=5000 good=8000 max=9000\nCHOICE: good\nPACE: new chat")
+        self.assertIsNone(self.state().get("job"))
+        self.hook("post_llm_call", "Fatto.\nJOB: CLOSE")
+        self.assertEqual(self.jobs(), [])
+
     def test_choice_and_close_in_the_same_reply(self):
         self.hook("pre_llm_call")
         update(self.h, "chat1", output_tokens=300)
