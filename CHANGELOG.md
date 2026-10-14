@@ -2,6 +2,27 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.0.0] - 2026-10-14
+
+Quotes that learn from the right numbers. On 14/10/2026 the correction factor had fallen to x0.14 and the typical miss had grown to x5: the jobs were measured wrong, not quoted wrong.
+
+### Fixed
+
+- **A QUOTE written again no longer cuts a job into pieces.** An agent that wrote its `QUOTE` and `CHOICE` lines again at every message made Quotient close the job and open a new one each time: in Hermes 4 jobs became 57, each with the whole estimate and a sliver of the work, and the factor fell to x0.14; in Claude Code the job closed before its end. The same numbers (and the same level) are now the same job, open or just closed; a quote with other numbers is still a new job. The protocol says to write `QUOTE` and `CHOICE` once.
+- **Hermes: the job starts where the reply with the choice started**, as in Claude Code. The `CHOICE` line comes at the end of a reply, after its work, so a job chosen and done in the same reply counted almost nothing.
+- **Hermes: `CHOICE` and `JOB: CLOSE` in the same reply** close the job at once; before, it stayed open.
+- **Hermes: a job in the first reply of a chat has its chat part.** Nothing had been measured before it, so the re-reading counted as work.
+
+### Added
+
+- **Installments have their own correction factor**, learned from installments alone once there are 5 of them: they behave differently from chat jobs (their raw estimates were right on the median, and the chat jobs' factor made them wrong by up to x27). It sets the daily cap of `rate new` and the week plan, and is shown next to the other factor in the report, in the prompt line and in the protocol.
+- **Measured steps.** Quotient counts the steps (calls) of each job, Hermes too, and gives the median steps per million weighted tokens of work; the protocol tells the agent to work out the chat part of a quote from them, plus one step per message expected from the user, instead of guessing.
+
+### Changed
+
+- **After an installment, the PC goes back to sleep whoever turned it on** (the user: waking it and putting it to sleep are independent). It still never sleeps under someone using it: it waits until nobody has touched keyboard and mouse for 10 minutes, up to 6 hours (`rate.after_wait_hours`), then shows a notification and waits 2 more minutes; a touch keeps the PC on. Before, a PC that was already on stayed on.
+- Jobs already cut into pieces are not repaired automatically.
+
 ## [0.9.9] - 2026-10-12
 
 For the second check of Anthropic's plugin directory. Nothing changes in what Quotient does.
@@ -181,6 +202,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.0.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.0.0
 [0.9.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v0.9.9
 [0.9.8]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v0.9.8
 [0.9.7]: https://github.com/Korvonordico/quotient-claude-tokens/commit/6fc9013

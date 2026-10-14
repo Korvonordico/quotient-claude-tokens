@@ -36,7 +36,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "0.9.9"
+VERSION = "1.0.0"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -633,6 +633,14 @@ def parse_choice(text):
     return match.group(1).lower() if match else None
 
 
+def same_quote(quote, choice, job):
+    """True when a QUOTE line is the open (or just closed) job's quote written again: same numbers, and the same
+    level if a CHOICE comes with it. Then it is the same job, not a new one. 14/10/2026: an agent that wrote its
+    QUOTE and CHOICE lines again at every message cut 4 jobs into 57 pieces, each with the whole estimate and a
+    sliver of the work, and the correction factor fell to x0.14."""
+    return bool(quote) and bool(job) and quote == job.get("options") and (not choice or choice == job.get("choice"))
+
+
 # ---------------------------------------------------------------- learning
 
 def finished_jobs():
@@ -813,14 +821,38 @@ def median(values):
     return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2
 
 
-def learning(cfg):
-    """The correction factor: from your own jobs, or, until you have enough of them, together with the shared ones."""
+def kind_of(job):
+    """'rate' for an installment job, 'chat' for the others. The two are learned apart (14/10/2026): the chat jobs'
+    factor, applied to installments, made their corrected estimates wrong by up to x27 and their daily caps too low,
+    while their raw estimates were right on the median."""
+    return "rate" if str(job.get("session") or "").startswith("rate:") else "chat"
+
+
+def steps_per_million(cfg, kind="chat"):
+    """How many steps (calls) a job of this kind takes per million wt of work: (median of its recent jobs that
+    counted them, how many), or None under 3 of them. 14/10/2026: the chat part of a quote is steps x what each step
+    re-reads, and the steps were guessed, far too few (the user's messages in between, the checks)."""
+    rows = [j for j in finished_jobs() if kind_of(j) == kind and j.get("calls") and work_of(j) > 0]
+    rows = rows[-cfg["history_window"]:]
+    if len(rows) < 3:
+        return None
+    return median([j["calls"] / work_of(j) * 1e6 for j in rows]), len(rows)
+
+
+def learning(cfg, kind="chat"):
+    """The correction factor of one kind of job (chat jobs or installments): from your own jobs of that kind; with
+    fewer than min_jobs of them, from all your jobs; until you have min_jobs jobs in all, with the shared ones too."""
     jobs = finished_jobs()
     window = cfg["history_window"]
     shared, shared_n = shared_prior(cfg, jobs)
+
+    def own(k, done):
+        same = [j for j in done if kind_of(j) == k]
+        return same if len(same) >= cfg["min_jobs"] else done
+
     rows = []
     for i, job in enumerate(jobs):
-        before = factor_from((shared if i < cfg["min_jobs"] else []) + jobs[:i], window)
+        before = factor_from((shared if i < cfg["min_jobs"] else []) + own(kind_of(job), jobs[:i]), window)
         corrected = job["raw_estimate"] * before
         work = max(work_of(job), 1)
         rows.append({
@@ -833,8 +865,9 @@ def learning(cfg):
             "miss_corrected": miss(work / corrected),
         })
     use_shared = len(jobs) < cfg["min_jobs"]
-    basis = (shared if use_shared else []) + jobs
-    return {"jobs": jobs, "rows": rows, "factor": factor_from(basis, window),
+    basis = (shared if use_shared else []) + own(kind, jobs)
+    return {"jobs": jobs, "rows": rows, "factor": factor_from(basis, window), "kind": kind,
+            "kind_jobs": sum(1 for j in jobs if kind_of(j) == kind),
             "shared": shared_n if use_shared and shared else 0}
 
 
@@ -1072,9 +1105,15 @@ def calibration(cfg, learned):
     if n == 0:
         return "No finished jobs yet, so the correction factor is x1 and the first estimates will be rough."
     rows = learned["rows"]
-    return "Correction factor from %d finished job(s)%s: x%.2f%s; typical miss before correction %s, recent miss with it %s." % (
-        n, " plus %d shared" % shared if shared else "", learned["factor"], " (still uncertain)" if n < cfg["min_jobs"] else "",
-        fmt_miss(median([r["miss_raw"] for r in rows])), fmt_miss(median([r["miss_corrected"] for r in rows[-5:]])))
+    rate = learning(cfg, "rate")["factor"]
+    steps = steps_per_million(cfg)
+    measured = " A job takes about %d steps per 1M wt of work (from %d jobs)." % (round(steps[0]), steps[1]) if steps else ""
+    return ("Correction factor from %d finished job(s)%s: x%.2f%s (for installments x%.2f); typical miss before "
+            "correction %s, recent miss with it %s.%s" % (
+                n, " plus %d shared" % shared if shared else "", learned["factor"],
+                " (still uncertain)" if n < cfg["min_jobs"] else "", rate,
+                fmt_miss(median([r["miss_raw"] for r in rows])), fmt_miss(median([r["miss_corrected"] for r in rows[-5:]])),
+                measured))
 
 
 def protocol(cfg, factor):
@@ -1085,13 +1124,13 @@ def protocol(cfg, factor):
         "[Quotient %s] Quote protocol for this session. Unit: weighted tokens (wt) = input + 1.25 x cache write (2 x for 1-hour cache) + 0.1 x cache read + 5 x output, the ratios of the API prices." % VERSION,
         "WHEN: before work that will likely cost more than the threshold (%s wt), and whenever the user calls a job big or asks for a quote. Do not start the work: quote first. Under the threshold, if nobody asks, just work." % fmt(cfg["threshold"]),
         "HOW:",
-        "1) Estimate the WORK at three levels sized to it: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate. Levels: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f)." % (fmt(big), factor),
+        "1) Estimate the WORK at three levels sized to it: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate. Levels: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f; for installments x%.2f). The chat part of each level = its steps x the per-step re-read of the CHAT PART line: take the steps from the measured steps per 1M wt of work (on the corrected work) when Quotient gives them, plus one per message you expect from the user; do not guess them." % (fmt(big), factor, learning(cfg, "rate")["factor"]),
         "2) Write one machine line with your RAW estimates, always in English: QUOTE: essential=<n> good=<n> max=<n>",
         "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate (with a CHAT PART line: work + chat part = total). 'Ritmo'/'Pace': all today, plus two installment plans that fit the job, plus 'in a new chat' when the CHAT PART line offers it. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
         "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
         "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>`. If today: do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`.",
-        "Machine lines (QUOTE, CHOICE, PACE, JOB, LIMITS) go in the LAST message of your reply, the one after your last tool call: a progress note written in the middle of a reply may be kept only as a summary, and then Quotient never sees them.",
-        "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at 03:00), 'Ogni giorno'/'Every day' (the daily time; free field) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: it sleeps only if nobody is using it). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely. Each installment's report comes back to the chat that ran `rate new`, at the user's next message there (other chats get a one-line notice, twice at most); `rate here <name>` run in another chat moves the reports there." % (cmd, cmd),
+        "Machine lines (QUOTE, CHOICE, PACE, JOB, LIMITS) go in the LAST message of your reply, the one after your last tool call: a progress note written in the middle of a reply may be kept only as a summary, and then Quotient never sees them. Write QUOTE and CHOICE once: later replies of the same job carry only the JOB line.",
+        "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at 03:00), 'Ogni giorno'/'Every day' (the daily time; free field) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: whoever turned the PC on, it sleeps only when nobody is using it, after a 2-minute warning). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely. Each installment's report comes back to the chat that ran `rate new`, at the user's next message there (other chats get a one-line notice, twice at most); `rate here <name>` run in another chat moves the reports there." % (cmd, cmd),
         "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them, and how many wt 1% holds when it can estimate it. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
         "In the window, for each level add what share of the 5-hour and weekly limits it would take and what would be left, when Quotient gives the size of 1%; if a level does not fit in what is left of the 5-hour window, say so and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left.",
         "WEEK: before creating installments, run `%s rate week`: it adds up all open installment jobs until the weekly limit resets, against what is left minus a reserve for normal use (%d%%). If the new job would not fit with the others, say so in the window and offer: keep all, slow some down (`rate set <name> --daily <n>`), pause some (`rate pause <name>`), or pace the new one over more days." % (run_cmd(), cfg["week"]["reserve_percent"]),
@@ -1823,6 +1862,8 @@ def hook_stop():
     job = state.get("job")
     had_job = bool(job)
     pending = state.get("pending")
+    if same_quote(quote, choice, job or state.get("closed")):
+        quote = choice = None            # the same QUOTE/CHOICE lines again: the same job
     # With the choice window, the quote and the choice arrive in the same turn.
     same_turn = bool(quote and choice and choice in quote)
 
@@ -1857,6 +1898,7 @@ def hook_stop():
             add_families(job, families)
         if quote or not continues:
             close_job(job, cfg)
+            state["closed"] = {"options": job.get("options"), "choice": job.get("choice")}
             state["job"] = None
             note_chat_job(sid, None)
         else:
@@ -1888,6 +1930,7 @@ def hook_stop():
                     note_chat_job(sid, job, path)
                 else:
                     close_job(job, cfg)
+                    state["closed"] = {"options": job.get("options"), "choice": job.get("choice")}
     elif pending and not repeat:
         pending["age"] = pending.get("age", 0) + 1
         if pending["age"] > cfg["pending_ttl_turns"]:
@@ -2234,7 +2277,7 @@ def week_plan(cfg):
     now = time.time()
     resets = (week or {}).get("resets") or now + 7 * 86400
     days_left = max(1, math.ceil((resets - now) / 86400))
-    factor = learning(cfg)["factor"]
+    factor = learning(cfg, "rate")["factor"]
     rows = []
     for job in open_jobs():
         runs = job["_runs"]
@@ -2503,6 +2546,8 @@ TEXT = {
         "compactions": "Compactions: %d (%d automatic). Each call after them re-reads less: about %s wt saved (an estimate, without the cost of the summaries themselves).",
         "html": "Page with charts: %s",
         "factor": "Correction factor now: x%.2f (from the last %d jobs)%s",
+        "factor_rate": "Installments have their own: x%.2f (from their last %d jobs)",
+        "factor_rate_few": "Installments: %d job(s) measured, fewer than %d, so they use the factor of all jobs",
         "uncertain": ", still uncertain: under %d jobs",
         "miss_raw": "Typical miss without correction: %s",
         "trend": "Typical miss with the learned correction: first half %s, second half %s",
@@ -2538,6 +2583,8 @@ TEXT = {
         "compactions": "Compattazioni: %d (%d automatiche). Ogni chiamata dopo rilegge meno: circa %s token pesati risparmiati (stima, senza il costo dei riassunti stessi).",
         "html": "Pagina con i grafici: %s",
         "factor": "Fattore di correzione adesso: x%.2f (dagli ultimi %d lavori)%s",
+        "factor_rate": "Le rate hanno il loro: x%.2f (dalle ultime %d)",
+        "factor_rate_few": "Rate: %d misurate, meno di %d, quindi usano il fattore di tutti i lavori",
         "uncertain": ", ancora incerto: meno di %d lavori",
         "miss_raw": "Errore tipico senza correzione: %s",
         "trend": "Errore tipico con la correzione imparata: prima metà %s, seconda metà %s",
@@ -2648,8 +2695,12 @@ def report(args=None):
         lines.append(t["columns"])
         lines.append("")
         n = len(rows)
-        lines.append(t["factor"] % (learned["factor"], min(n, cfg["history_window"]),
+        own_n = learned["kind_jobs"] if learned["kind_jobs"] >= cfg["min_jobs"] else n
+        lines.append(t["factor"] % (learned["factor"], min(own_n, cfg["history_window"]),
                                     t["uncertain"] % cfg["min_jobs"] if n < cfg["min_jobs"] else ""))
+        rate = learning(cfg, "rate")
+        lines.append(t["factor_rate"] % (rate["factor"], min(rate["kind_jobs"], cfg["history_window"]))
+                     if rate["kind_jobs"] >= cfg["min_jobs"] else t["factor_rate_few"] % (rate["kind_jobs"], cfg["min_jobs"]))
         lines.append(t["miss_raw"] % fmt_miss(median([r["miss_raw"] for r in rows])))
         if n >= 2:
             half = n // 2
@@ -3437,7 +3488,7 @@ def rate_new(args):
             sys.exit("quotient: no template named '%s' (there are: %s)" % (template, ", ".join(templates())))
         task = text.strip() + "\n\n# The job\n\n" + task.strip()
     cfg = config()
-    factor = learning(cfg)["factor"]
+    factor = learning(cfg, "rate")["factor"]
     # The daily cap is real spending: the corrected work plus re-reading each installment's start.
     reread = installment_overhead(cfg)
     total = args.quote * factor * (1 + reread) if args.quote else None
@@ -3509,15 +3560,45 @@ def rate_run(args):
             pass
     job = load_json(os.path.join(folder, "job.json"), {}) or {}
     after = job.get("after") or "nothing"
-    if after != "nothing" and not woke:
-        out("The PC was already on when the installment started: it stays on.\n")
-    elif after != "nothing":
+    if after != "nothing":
+        after_installment(after, config())
+
+
+def after_installment(how, cfg, sleep=None):
+    """Sleep or hibernate after an installment, whoever turned the PC on (14/10/2026, the user: waking it and putting
+    it to sleep must be independent). Never under someone who is using it (08/10/2026: it hibernated at 03:00 a PC in
+    use): it waits until nobody has touched mouse and keyboard for idle_minutes (up to after_wait_hours), then warns
+    and waits 2 more minutes; a touch in those 2 minutes keeps the PC on. True if it put the PC to sleep."""
+    sleep = sleep or time.sleep
+    rc = cfg["rate"]
+    need = rc["idle_minutes"] * 60
+    limit = rc.get("after_wait_hours", 6) * 3600
+    waited = 0
+    while True:
         idle = idle_seconds()
-        if idle is not None and idle >= config()["rate"]["idle_minutes"] * 60:
-            out("Nobody is using the PC: %s.\n" % after)
-            go_to_sleep(after)
-        else:
-            out("The PC is in use: it stays on.\n")
+        if idle is None:
+            out("Cannot tell whether someone is using the PC: it stays on.\n")
+            return False
+        if idle >= need:
+            break
+        if waited >= limit:
+            out("The PC was in use until the end of the wait: it stays on.\n")
+            return False
+        step = min(300, need - idle + 5)
+        sleep(step)
+        waited += step
+    it = cfg.get("lang") == "it"
+    what = ("ibernazione" if how == "hibernate" else "sospensione") if it else ("hibernation" if how == "hibernate" else "sleep")
+    notify("Quotient", ("Tra 2 minuti il PC va in %s: muovi il mouse per lasciarlo acceso." if it else
+                        "In 2 minutes the PC goes to %s: move the mouse to keep it on.") % what)
+    sleep(120)
+    idle = idle_seconds()
+    if idle is None or idle < 110:
+        out("Someone touched the PC after the warning: it stays on.\n")
+        return False
+    out("Nobody is using the PC: %s.\n" % how)
+    go_to_sleep(how)
+    return True
 
 
 def run_installment(args):

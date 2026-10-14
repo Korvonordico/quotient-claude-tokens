@@ -533,22 +533,35 @@ class TestNight097(ChatBase):
         with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"), \
                 mock.patch.object(pv, "woken_recently", return_value=woke), \
                 mock.patch.object(pv, "idle_seconds", return_value=idle), \
+                mock.patch.object(pv.time, "sleep"), mock.patch.object(pv, "notify") as note, \
                 mock.patch.object(pv, "go_to_sleep") as sleep:
             said = self.run_hook(lambda: pv.rate_run(args), {})
+        self.note = note
         return said, sleep
 
-    def test_a_pc_that_was_on_is_never_put_to_sleep(self):
+    def test_a_pc_that_was_on_sleeps_too_when_nobody_uses_it(self):
+        # 14/10/2026, the user: waking and putting to sleep are independent, whoever turned the PC on
         self.new_job()
-        said, sleep = self.run_once(woke=False, idle=3600)    # on and untouched for an hour: still in use
-        sleep.assert_not_called()
-        self.assertIn("already on", said)
-
-    def test_a_pc_the_installment_woke_goes_back_to_sleep_if_nobody_uses_it(self):
-        self.new_job()
-        said, sleep = self.run_once(woke=True, idle=3600)
+        said, sleep = self.run_once(woke=False, idle=3600)
         sleep.assert_called_once_with("hibernate")
-        said, sleep = self.run_once(woke=True, idle=30)       # someone sat down meanwhile
+        self.assertIn("2 min", self.note.call_args[0][1])          # warned first, with time to stop it
+
+    def test_a_pc_in_use_is_never_put_to_sleep(self):
+        self.new_job()
+        said, sleep = self.run_once(woke=True, idle=30)           # someone at the PC for the whole wait
         sleep.assert_not_called()
+        self.assertIn("in use", said)
+
+    def test_a_touch_after_the_warning_keeps_the_pc_on(self):
+        cfg = pv.config()
+        with mock.patch.object(pv, "idle_seconds", side_effect=[3600, 5]), mock.patch.object(pv, "notify"), \
+                mock.patch.object(pv, "go_to_sleep") as sleep:
+            self.assertFalse(pv.after_installment("sleep", cfg, sleep=lambda s: None))
+        sleep.assert_not_called()
+        with mock.patch.object(pv, "idle_seconds", side_effect=[30, 700, 820]), mock.patch.object(pv, "notify"), \
+                mock.patch.object(pv, "go_to_sleep") as sleep:        # in use, then left: it waits, then sleeps
+            self.assertTrue(pv.after_installment("sleep", cfg, sleep=lambda s: None))
+        sleep.assert_called_once_with("sleep")
 
     def test_without_windows_log_recent_use_means_the_pc_was_on(self):
         cfg = pv.config()
