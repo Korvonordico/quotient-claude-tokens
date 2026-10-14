@@ -158,6 +158,7 @@ def post_llm_call(q, payload):
     totals, calls = _counters(sid)
     quote = q.parse_quote(text)
     choice = q.parse_choice(text)
+    pace = q.parse_pace(text)
     move = parse_end(text)
     closed = None
     if q.same_quote(quote, choice, chat.get("job") or chat.get("closed")):
@@ -172,7 +173,10 @@ def post_llm_call(q, payload):
         chat["quote"] = {"options": quote, "ts": time.time()}
     if choice:
         pending = (chat.get("quote") or {}).get("options") or {}
-        if choice in q.DECLINE or choice not in pending:
+        # 14/10/2026: a job chosen for installments (or for a new chat) is not done in this chat: measuring the chat
+        # as that job counted the wrong thing. The installments measure themselves.
+        elsewhere = pace not in (None, "today") or bool(q.INSTALLMENT_RE.match(choice))
+        if choice in q.DECLINE or choice not in pending or elsewhere:
             chat.pop("quote", None)
         else:
             # 14/10/2026: the CHOICE line comes in the last message of a reply, after that reply's work, so the job
