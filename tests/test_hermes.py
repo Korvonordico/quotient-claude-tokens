@@ -147,6 +147,75 @@ class HermesHooks(unittest.TestCase):
         self.hook("post_llm_call", "JOB: DROP j1")
         self.assertEqual(self.jobs(), [])
 
+    def state(self):
+        with open(os.path.join(self.q, "hermes-jobs.json"), encoding="utf-8") as f:
+            return json.load(f)["chat1"]
+
+    def test_repeated_quote_lines_do_not_cut_the_job(self):
+        # 14/10/2026: an agent that wrote QUOTE and CHOICE again at every message cut 4 jobs into 57 pieces
+        self.hook("pre_llm_call")
+        self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000\nCHOICE: max\nJOB: CONTINUES")
+        update(self.h, "chat1", output_tokens=300)          # +200 output = 1000 wt
+        self.hook("post_llm_call", "Avanti.\nQUOTE: essential=1000 good=2000 max=4000\nCHOICE: max\nJOB: CONTINUES")
+        update(self.h, "chat1", output_tokens=500)          # +200 output = 1000 wt
+        self.hook("post_llm_call", "Fatto.\nQUOTE: essential=1000 good=2000 max=4000\nJOB: CLOSE")
+        # the same lines once more after the close: no new job
+        self.hook("post_llm_call", "Altro.\nQUOTE: essential=1000 good=2000 max=4000\nCHOICE: max")
+        jobs = self.jobs()
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual((jobs[0]["actual"], jobs[0]["turns"], jobs[0]["closed_by"]), (2000, 3, "close"))
+        self.assertIsNone(self.state().get("job"))
+
+    def test_a_quote_with_other_numbers_is_a_new_job(self):
+        self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000\nCHOICE: good")
+        update(self.h, "chat1", output_tokens=300)
+        self.hook("post_llm_call", "QUOTE: essential=5000 good=8000 max=9000\nCHOICE: max")
+        jobs = self.jobs()
+        self.assertEqual([(j["raw_estimate"], j["closed_by"]) for j in jobs], [(2000, "new-quote")])
+        self.assertEqual(self.state()["job"]["raw_estimate"], 9000)
+        # the same numbers with another level is a new job too
+        self.hook("post_llm_call", "QUOTE: essential=5000 good=8000 max=9000\nCHOICE: good")
+        self.assertEqual(self.state()["job"]["raw_estimate"], 8000)
+
+    def test_the_choice_counts_the_reply_it_is_written_in(self):
+        # 14/10/2026: CHOICE comes at the end of a reply, after its work: measured from there, that work was lost
+        self.hook("pre_llm_call")
+        self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000")
+        self.hook("pre_llm_call")
+        update(self.h, "chat1", output_tokens=300)          # the work of the reply with the choice: 1000 wt
+        self.hook("post_llm_call", "Primo pezzo fatto.\nCHOICE: good\nPACE: today\nJOB: CONTINUES")
+        self.hook("pre_llm_call")
+        update(self.h, "chat1", output_tokens=500)          # 1000 wt more
+        self.hook("post_llm_call", "Finito.\nJOB: CLOSE")
+        self.assertEqual([j["actual"] for j in self.jobs()], [2000])
+
+    def test_choice_and_close_in_the_same_reply(self):
+        self.hook("pre_llm_call")
+        update(self.h, "chat1", output_tokens=300)
+        self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000\nCHOICE: max\nFatto tutto.\nJOB: CLOSE")
+        self.assertEqual([(j["actual"], j["raw_estimate"]) for j in self.jobs()], [(1000, 4000)])
+        self.assertIsNone(self.state().get("job"))
+
+    def test_a_job_in_the_first_reply_of_a_chat_has_its_chat_part(self):
+        # 14/10/2026: nothing measured before the first reply, so the chat part stayed at zero
+        self.hook("pre_llm_call")
+        update(self.h, "chat1", cache_read_tokens=50000, api_call_count=4, output_tokens=300)
+        self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000\nCHOICE: max\nJOB: CONTINUES")
+        self.hook("pre_llm_call")
+        update(self.h, "chat1", cache_read_tokens=90000, api_call_count=8, output_tokens=500)
+        self.hook("post_llm_call", "Finito.\nJOB: CLOSE")
+        job = self.jobs()[0]
+        # 8 calls re-reading 10k each (40k read in the first 4 calls) = 8000 wt of chat part; 80k read + 400 output
+        self.assertEqual((job["actual"], job["chat"], job["work"]), (8000 + 2000, 8000, 2000))
+        self.assertEqual((job["calls"], job["ctx"]), (8, 10000))
+
+    def test_the_line_gives_the_measured_steps(self):
+        with open(os.path.join(self.q, "jobs.jsonl"), "w", encoding="utf-8") as f:
+            for calls in (30, 40, 50):
+                f.write(json.dumps({"session": "hermes:x", "raw_estimate": 1000000, "actual": 1000000, "chat": 0,
+                                    "work": 1000000, "calls": calls}) + "\n")
+        self.assertIn("a job takes about 40 steps per 1M wt of work", self.hook("pre_llm_call")["context"])
+
 
 if __name__ == "__main__":
     unittest.main()

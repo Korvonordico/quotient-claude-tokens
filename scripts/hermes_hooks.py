@@ -69,13 +69,18 @@ def _context_per_call(state_chat, totals, calls):
     return totals["cache_read_tokens"] / calls if calls else 0    # first look: the chat's average so far
 
 
-def short_line(q, cfg, factor, ctx):
+def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None):
     lang = cfg.get("lang")
     limits = q.limits_line(lang) or ("limiti non letti" if lang == "it" else "limits not read")
     chat = q.fmt(ctx * cfg["weights"]["cache_read"]) if ctx else "?"
-    return ("[Quotient %s] %s · factor x%.2f · threshold %s wt · CHAT PART: each step re-reads about %s tokens "
-            "(%s wt). Big job: quote first (QUOTE / CHOICE / JOB: CLOSE in the last message)." % (
-                q.VERSION, limits, factor, q.fmt(cfg["threshold"]), q.fmt(ctx), chat))
+    rate_part = " (installments x%.2f)" % rate if rate is not None else ""
+    measured = ""
+    if steps:
+        measured = "; a job takes about %d steps per 1M wt of work%s" % (
+            round(steps[0]), " (installments %d)" % round(steps_rate[0]) if steps_rate else "")
+    return ("[Quotient %s] %s · factor x%.2f%s · threshold %s wt · CHAT PART: each step re-reads about %s tokens "
+            "(%s wt)%s. Big job: quote first (QUOTE / CHOICE / JOB: CLOSE in the last message)." % (
+                q.VERSION, limits, factor, rate_part, q.fmt(cfg["threshold"]), q.fmt(ctx), chat, measured))
 
 
 def hermes_protocol(q, cfg, factor):
@@ -97,12 +102,15 @@ def pre_llm_call(q, payload):
     ctx = _context_per_call(chat, totals, calls)
     chat["ctx"] = ctx
     chat["last"] = dict(totals, calls=calls)
+    chat["turn_start"] = dict(totals, calls=calls, at=q.now_iso())     # where this reply starts: see post_llm_call
     factor = q.learning(cfg)["factor"]
+    rate = q.learning(cfg, "rate")["factor"]
+    steps, steps_rate = q.steps_per_million(cfg), q.steps_per_million(cfg, "rate")
     if not chat.get("told"):
         chat["told"] = True
-        text = hermes_protocol(q, cfg, factor) + short_line(q, cfg, factor, ctx)
+        text = hermes_protocol(q, cfg, factor) + short_line(q, cfg, factor, ctx, rate, steps, steps_rate)
     else:
-        text = short_line(q, cfg, factor, ctx)
+        text = short_line(q, cfg, factor, ctx, rate, steps, steps_rate)
     open_job = chat.get("job")
     # Long chats (the lesson of M33: re-reading the chat is most of the cost). Two notices at most, a day apart.
     big = (cfg.get("chat") or {}).get("hermes_compress_at", 250000)
@@ -122,6 +130,7 @@ def pre_llm_call(q, payload):
 
 def _close(q, cfg, chat, totals, calls, how):
     job = chat.pop("job")
+    chat["closed"] = {"options": job["options"], "choice": job["choice"]}   # see quotient.same_quote
     grow = {k: max(0, totals[k] - job["start"][k]) for k in hs.COUNTERS}
     actual = hs.weigh_hermes(grow, cfg["weights"])
     d_calls = max(0, calls - job.get("start_calls", calls))
@@ -130,7 +139,7 @@ def _close(q, cfg, chat, totals, calls, how):
            "options": job["options"], "choice": job["choice"], "raw_estimate": job["raw_estimate"],
            "factor_used": job["factor"], "quote_cost": 0, "actual": round(actual), "chat": chat_part,
            "turns": job.get("turns", 1), "families": {q.family_of(job.get("model") or ""): round(actual)},
-           "closed_by": how}
+           "calls": d_calls, "ctx": round(job.get("ctx") or 0), "closed_by": how}
     if how == "drop":
         return None
     q.close_job(row, cfg)
@@ -151,6 +160,8 @@ def post_llm_call(q, payload):
     choice = q.parse_choice(text)
     move = parse_end(text)
     closed = None
+    if q.same_quote(quote, choice, chat.get("job") or chat.get("closed")):
+        quote = choice = None
     if chat.get("job"):
         chat["job"]["turns"] = chat["job"].get("turns", 1) + 1
         if move:
@@ -164,11 +175,24 @@ def post_llm_call(q, payload):
         if choice in q.DECLINE or choice not in pending:
             chat.pop("quote", None)
         else:
-            chat["job"] = {"session": sid, "started": q.now_iso(), "options": pending, "choice": choice,
-                           "raw_estimate": pending[choice], "factor": q.learning(cfg)["factor"],
-                           "start": totals, "start_calls": calls, "ctx": chat.get("ctx") or 0,
+            # 14/10/2026: the CHOICE line comes in the last message of a reply, after that reply's work, so the job
+            # starts where the reply started (as in Claude Code); measured from the end, it lost that work.
+            start = chat.get("turn_start") or dict(totals, calls=calls)
+            begin = {k: min(int(start.get(k) or 0), totals[k]) for k in hs.COUNTERS}
+            start_calls = min(int(start.get("calls") or 0), calls)
+            ctx = chat.get("ctx") or 0
+            if not ctx and calls > start_calls:
+                # the first reply of a chat: nothing was measured before it, so what one call re-reads is taken
+                # from this reply (before, the chat part of such a job stayed at zero)
+                ctx = max(0, totals["cache_read_tokens"] - begin["cache_read_tokens"]) / (calls - start_calls)
+            chat["job"] = {"session": sid, "started": start.get("at") or q.now_iso(), "options": pending,
+                           "choice": choice, "raw_estimate": pending[choice], "factor": q.learning(cfg)["factor"],
+                           "start": begin, "start_calls": start_calls, "ctx": ctx,
                            "model": extra.get("model") or ""}
             chat.pop("quote", None)
+            if move and not closed:      # chosen, done and closed in the same reply
+                closed = _close(q, cfg, chat, totals, calls, move)
+    chat.pop("turn_start", None)
     _save(q, state)
     return {"closed": closed} if closed else {}
 

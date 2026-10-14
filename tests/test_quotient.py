@@ -250,6 +250,31 @@ class TestWindow(Base):
         self.assertEqual((jobs[0]["choice"], jobs[0]["raw_estimate"], jobs[0]["actual"]), ("good", 250000, 10500))
         self.assertIsNone(pv.load_json(pv.session_path("s1"), {}).get("pending"))
 
+    def test_repeated_quote_lines_keep_the_job_open(self):
+        # 14/10/2026: QUOTE and CHOICE written again in a later reply closed the job before its end
+        self.t.user("big job")
+        self.t.call("q", usage(output=100), texts=["QUOTE: essential=100k good=250k max=500k"], tools=1)
+        self.t.tool_result()
+        self.t.call("w", usage(output=1000), texts=["CHOICE: max\nPACE: today\nJOB: CONTINUES"])
+        self.stop()
+        self.t.user("vai")
+        self.t.call("w2", usage(output=1000),
+                    texts=["part two\nQUOTE: essential=100k good=250k max=500k\nCHOICE: max\nJOB: CONTINUES"])
+        self.stop()
+        self.assertEqual(pv.finished_jobs(), [])
+        self.t.user("ancora")
+        self.t.call("w3", usage(output=1000), texts=["done"])
+        self.stop()
+        # and once more after the close: no new job
+        self.t.user("grazie")
+        self.t.call("w4", usage(output=100), texts=["QUOTE: essential=100k good=250k max=500k\nCHOICE: max"])
+        self.stop()
+        jobs = pv.finished_jobs()
+        self.assertEqual([(j["actual"], j["turns"]) for j in jobs], [(500 + 5000 + 5000 + 5000, 3)])
+        state = pv.load_json(pv.session_path("s1"), {})
+        self.assertIsNone(state.get("job"))
+        self.assertIsNone(state.get("pending"))
+
     def test_installments_are_not_a_session_job(self):
         self.t.user("big job")
         self.t.call("q", usage(output=100), texts=["QUOTE: essential=100k good=250k max=500k"])
@@ -272,12 +297,47 @@ class TestWindow(Base):
         self.assertIn("never bare numbers in parentheses", protocol)
         # 06/10/2026: QUOTE/CHOICE/PACE written in a progress note mid-reply were kept only as a summary
         self.assertIn("LAST message of your reply", protocol)
+        self.assertIn("Write QUOTE and CHOICE once", protocol)
         self.assertIn("rate here <name>", protocol)
         line = self.run_hook(pv.hook_prompt, {"session_id": "s1", "transcript_path": self.t.path})
         self.assertLess(len(line), 600)
         with mock.patch.dict(os.environ, {"QUOTIENT_JOB": "book"}):
             self.assertIn("installment run", self.run_hook(pv.hook_prompt, {}))
             self.assertEqual(self.run_hook(pv.hook_session, {}), "")
+
+
+class TestKinds(Base):
+    """14/10/2026: chat jobs and installments learn their own correction factor."""
+
+    def add(self, session, raw, work):
+        pv.append_jsonl(os.path.join(pv.home(), "jobs.jsonl"),
+                        {"session": session, "raw_estimate": raw, "actual": work, "chat": 0, "work": work,
+                         "finished": "2026-10-14T21:00:00+02:00"})
+
+    def test_installments_have_their_own_factor(self):
+        for i in range(6):
+            self.add("chat%d" % i, 100000, 200000)          # chat jobs: x2
+        for i in range(2):
+            self.add("rate:book%d" % i, 100000, 50000)      # two installments: too few, the factor of all jobs
+        cfg = pv.config()
+        self.assertAlmostEqual(pv.learning(cfg)["factor"], 2.0)
+        self.assertAlmostEqual(pv.learning(cfg, "rate")["factor"], 2.0)
+        for i in range(3):
+            self.add("rate:more%d" % i, 100000, 50000)      # five installments: their own factor
+        self.assertAlmostEqual(pv.learning(cfg, "rate")["factor"], 0.5)
+        self.assertAlmostEqual(pv.learning(cfg)["factor"], 2.0)
+        self.assertIn("for installments x0.50", pv.calibration(cfg, pv.learning(cfg)))
+
+    def test_steps_per_million(self):
+        cfg = pv.config()
+        self.assertIsNone(pv.steps_per_million(cfg))
+        for i, calls in enumerate((20, 40, 90)):
+            pv.append_jsonl(os.path.join(pv.home(), "jobs.jsonl"),
+                            {"session": "c%d" % i, "raw_estimate": 1000000, "actual": 2000000, "chat": 0,
+                             "work": 2000000, "calls": calls, "finished": "x"})
+        self.assertEqual(pv.steps_per_million(cfg), (20.0, 3))        # 40 calls for 2M of work = 20 per million
+        self.assertIsNone(pv.steps_per_million(cfg, "rate"))
+        self.assertIn("about 20 steps per 1M wt of work", pv.calibration(cfg, pv.learning(cfg)))
 
 
 class TestLimits(Base):
@@ -542,12 +602,12 @@ class TestInstallments(Base):
 
     def test_after_the_installment_the_pc_sleeps_only_if_idle(self):
         self.new_job(quote=500000, days=2, after="sleep")
-        with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"),                 mock.patch.object(pv, "go_to_sleep") as sleep,                 mock.patch.object(pv, "idle_seconds", return_value=60):
+        with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"),                 mock.patch.object(pv, "go_to_sleep") as sleep,                 mock.patch.object(pv, "idle_seconds", return_value=60), mock.patch.object(pv.time, "sleep"), mock.patch.object(pv, "notify"):
             args = mock.Mock(force=False)
             args.name = "book"
             self.run_hook(lambda: pv.rate_run(args), {})
             sleep.assert_not_called()
-        with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"),                 mock.patch.object(pv, "go_to_sleep") as sleep,                 mock.patch.object(pv, "idle_seconds", return_value=3600):
+        with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"),                 mock.patch.object(pv, "go_to_sleep") as sleep,                 mock.patch.object(pv, "idle_seconds", return_value=3600), mock.patch.object(pv.time, "sleep"), mock.patch.object(pv, "notify"):
             args = mock.Mock(force=False)
             args.name = "book"
             self.run_hook(lambda: pv.rate_run(args), {})
