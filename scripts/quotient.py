@@ -80,6 +80,11 @@ DEFAULTS = {
     "chars_per_token": 3.5,
     # How many recent jobs the correction factor is learned from.
     "history_window": 20,
+    # Which finished jobs teach the factor (1.1.3). 0 = off. learn_min_raw: chat jobs quoted under this many wt are
+    # left out (installments always count). learn_max_speed: a job whose work went faster than this many wt a
+    # second is a measuring error (a long chat re-read counted as work), not a real job.
+    "learn_min_raw": 0,
+    "learn_max_speed": 0,
     # Below this many measured jobs the factor is shown as uncertain.
     "min_jobs": 5,
     # A quote nobody chose is dropped after this many turns.
@@ -839,6 +844,21 @@ def shared_jobs(own=()):
     return rows
 
 
+def teaches(job, cfg):
+    """Does this finished job teach the factor? Installments always do. A chat job does not when its quote is under
+    learn_min_raw (Francesco, 15/10/2026: small jobs are noise, unless it is an installment he decided) or when its
+    work went faster than learn_max_speed wt a second: on 11-12/10 three jobs did 0.5-6 M wt in 2-8 minutes, 4-27
+    times the usual pace (about 1,000 wt a second), and pushed the factor from x1.49 to x1.58."""
+    if kind_of(job) == "rate":
+        return True
+    if cfg.get("learn_min_raw") and job.get("raw_estimate", 0) < cfg["learn_min_raw"]:
+        return False
+    seconds = job.get("seconds") or 0
+    if cfg.get("learn_max_speed") and seconds > 0 and work_of(job) / seconds > cfg["learn_max_speed"]:
+        return False
+    return True
+
+
 def factor_from(jobs, window):
     """Median ratio real/estimate of the recent jobs (geometric, so x2 and /2 weigh the same). The real cost
     is the work: re-reading an older chat is not part of what the estimate is about."""
@@ -890,6 +910,7 @@ def learning(cfg, kind="chat"):
     shared, shared_n = shared_prior(cfg, jobs)
 
     def own(k, done):
+        done = [j for j in done if teaches(j, cfg)]
         same = [j for j in done if kind_of(j) == k]
         return same if len(same) >= cfg["min_jobs"] else done
 
