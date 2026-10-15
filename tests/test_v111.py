@@ -289,7 +289,9 @@ class TestApartNow(InstallmentBase):
 
     def test_it_starts_apart_from_the_chat(self):
         log = os.path.join(self.dir, "apart.log")
-        with mock.patch.object(pv.subprocess, "Popen", side_effect=[OSError("no breakaway"), mock.Mock()]) as popen:
+        # Windows tries again without breaking away from the chat's job object; elsewhere there is one try
+        tries = [OSError("no breakaway"), mock.Mock()] if os.name == "nt" else [mock.Mock()]
+        with mock.patch.object(pv.subprocess, "Popen", side_effect=tries) as popen:
             self.assertTrue(pv.start_detached(["rate", "run", "book"], log))
         self.assertEqual(popen.call_count, 2 if os.name == "nt" else 1)
         self.assertEqual(popen.call_args[0][0][-3:], ["rate", "run", "book"])
