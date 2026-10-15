@@ -190,6 +190,78 @@ class HermesHooks(unittest.TestCase):
         self.hook("post_llm_call", "Finito.\nJOB: CLOSE")
         self.assertEqual([j["actual"] for j in self.jobs()], [2000])
 
+    def test_a_measure_far_from_the_week_is_told_in_hermes_too(self):
+        # 1.1.1: each closed job is set against how much the weekly limit rose in the same time
+        import time
+        from datetime import datetime
+        now, resets = time.time(), round(time.time() + 3 * 86400)
+
+        def iso(epoch):
+            return datetime.fromtimestamp(epoch).astimezone().isoformat(timespec="seconds")
+
+        def add(name, row):
+            with open(os.path.join(self.q, name), "a", encoding="utf-8") as f:
+                f.write(json.dumps(row) + "\n")
+        for ago, used in ((7300, 10), (3500, 12), (100, 14)):
+            add("limits.jsonl", {"ts": "x", "epoch": round(now - ago), "seven_day": used, "seven_day_resets": resets})
+        add("turns.jsonl", {"ts": iso(now - 5000), "wt": 400000})      # 4 points for 400k: 1% ~ 100k wt
+        add("jobs.jsonl", {"started": iso(now - 7100), "begin": now - 7200, "finished": iso(now - 3600),
+                           "session": "hermes:chat0", "choice": "max", "raw_estimate": 2000000, "actual": 2000000,
+                           "check": 1})
+        context = self.hook("pre_llm_call")["context"]
+        self.assertIn("MEASURE CHECK: the job 'max'", context)
+        self.assertNotIn("MEASURE CHECK", self.hook("pre_llm_call")["context"])
+        # and a job measured here keeps where it began, for the next check
+        self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000\nCHOICE: good\nPACE: today\nJOB: CLOSE")
+        job = self.jobs()[-1]
+        self.assertEqual((job["session"], job["check"]), ("hermes:chat1", 1))
+        self.assertTrue(job["begin"])
+
+    def test_a_reply_about_something_else_is_counted_apart(self):
+        # 1.1.1: an ASIDE reply is in the real cost, not in the work; the job stays open
+        self.hook("pre_llm_call")
+        self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000\nCHOICE: good\nPACE: today\nJOB: CONTINUES")
+        self.hook("pre_llm_call")
+        update(self.h, "chat1", output_tokens=300)          # 1000 wt of work
+        self.hook("post_llm_call", "Part one.\nJOB: CONTINUES")
+        context = self.hook("pre_llm_call")["context"]
+        self.assertIn("end the reply with the line ASIDE", context)
+        update(self.h, "chat1", output_tokens=500)          # 1000 wt about something else
+        self.hook("post_llm_call", "Sunny.\nASIDE")
+        self.assertEqual(self.state()["job"]["aside"], 1000)
+        self.assertIn("of which 1k in messages in between", self.hook("pre_llm_call")["context"])
+        update(self.h, "chat1", output_tokens=700)          # 1000 wt of work
+        self.hook("post_llm_call", "Finished.\nJOB: CLOSE")
+        job = self.jobs()[-1]
+        self.assertEqual((job["actual"], job["aside"], job["work"], job["turns"], job["aside_turns"]),
+                         (3000, 1000, 2000, 3, 1))
+        self.assertIn("messages in between 1k wt · total 3k wt", self.hook("pre_llm_call")["context"])
+
+    def test_a_job_done_apart_reports_to_the_hermes_chat(self):
+        # 1.1.1: `rate apart` from Hermes cannot pass the chat's id: the hook binds the job the reply started
+        from datetime import datetime
+        folder = os.path.join(self.q, "rate", "book")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "job.json"), "w", encoding="utf-8") as f:
+            json.dump({"name": "book", "apart": True, "session": None, "status": "done", "daily_cap": 1000,
+                       "dir": self.q, "created": datetime.now().astimezone().isoformat()}, f)
+        self.hook("pre_llm_call")
+        self.hook("post_llm_call", "Started apart.\nQUOTE: essential=1000 good=2000 max=4000\nCHOICE: max\nPACE: apart")
+        self.assertIsNone(self.state().get("job"))
+        with open(os.path.join(folder, "job.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["session"], "hermes:chat1")
+        with open(os.path.join(folder, "runs.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"started": "2026-10-15T15:00:00+02:00", "finished": "2026-10-15T15:20:00+02:00",
+                                "wt": 900, "cap": 1000, "error": None, "done": True}) + "\n")
+        context = self.hook("pre_llm_call")["context"]
+        self.assertIn("Installment report of job 'book'", context)
+        self.assertIn("The job is FINISHED", context)
+        self.assertIn("claude -p", self.hook_protocol())
+
+    def hook_protocol(self):
+        import quotient as q
+        return __import__("hermes_hooks").hermes_protocol(q, q.config(), 1.0)
+
     def test_installments_and_new_chats_are_not_a_job_of_this_chat(self):
         # 14/10/2026: a level chosen for installments opened a job measuring the chat that only quoted it
         self.hook("pre_llm_call")

@@ -21,7 +21,7 @@ Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol d
 ## Cosa fa
 
 - **Il preventivo prima di un lavoro grande.** Sopra una soglia che scegli tu (300.000 token pesati di serie), Claude non comincia. Una finestra di scelta propone *essenziale*, *buono* o *massimo*, ognuno con quello che comprende e il suo costo stimato.
-- **Il ritmo lo scegli tu.** Tutto oggi, un piano in giorni con la quantità al giorno, oppure il ritmo che scrivi tu.
+- **Il ritmo lo scegli tu.** Tutto oggi, a parte adesso (in una sessione separata, che parte subito), un piano in giorni con la quantità al giorno, oppure il ritmo che scrivi tu.
 - **Il costo vero, dopo**, letto dai file di Claude Code e messo accanto alla stima.
 - **Anche quanto tempo.** Ogni livello dice anche quanto dovrebbe durare il lavoro, imparato dai tuoi lavori finiti. Quotient legge il tempo da quello che Claude Code e Hermes registrano già (nessuna finestra in più), conta solo il tempo di lavoro, e alla fine mette il tempo vero accanto a quello previsto. Dopo il primo milione di token pesati di un lavoro, il suo stesso ritmo ricalcola quello che manca.
 - **Un fattore di correzione.** Ogni preventivo viene corretto in base a quanto hanno sbagliato quelli di prima. Finché non hai 5 lavori tuoi, parte da una media condivisa di lavori veri (solo numeri, vedi [Privacy](#privacy)).
@@ -33,6 +33,8 @@ Inoltre Quotient:
 - pianifica la settimana tutta insieme, così più lavori a rate non mangiano mai la parte di settimana che tieni per te;
 - misura a parte quanto Claude spende per rileggere una chat lunga, e propone una chat nuova quando conviene (vedi [Lavoro e rilettura](#lavoro-e-rilettura-perché-una-chat-lunga-costa-di-più));
 - misura un lavoro come un lavoro solo anche quando passa da una chat all'altra;
+- conta a parte le risposte su altro mentre un lavoro è in corso: stanno nel costo vero, non in quello da cui impara la correzione;
+- mette ogni lavoro finito accanto a quanto è salito il limite della settimana, e ti avvisa quando i due non tornano (vedi [Come controlliamo le misure](#come-controlliamo-le-misure));
 - misura il suo stesso peso, così vedi quanto costa accanto a quanto aiuta;
 - apre il resoconto come pagina con i grafici (`/token-quotient:report page`, un file sul tuo PC);
 - ha modi di lavorare pronti per i lavori lunghi a rate: un libro, una ricerca, una revisione di codice (`rate templates`);
@@ -84,9 +86,10 @@ Da lì in poi Hermes dà a Claude il protocollo del preventivo e i limiti veri a
 1. Chiedi una cosa grande, oppure dici «è un lavoro grosso».
 2. Claude non comincia. Si apre una finestra con due domande:
    - **Livello**: essenziale, buono o massimo, con la stima e il tempo previsto di ognuno. Per un lavoro da circa 500.000 token: massimo 500.000, buono 250.000, essenziale 100.000.
-   - **Ritmo**: tutto oggi, oppure per esempio «2 giorni, circa 250.000 al giorno» o «5 giorni, circa 100.000 al giorno». Nel campo libero scrivi il tuo, come «50.000 al giorno».
-3. Se scegli **tutto oggi**, Claude fa il lavoro. Quotient misura quanto è costato davvero e quanto è durato, e Claude te lo dice al tuo messaggio dopo.
-4. Se scegli **le rate**, una seconda finestra ti chiede quando parte la prima e a che ora partono le altre.
+   - **Ritmo**: tutto oggi, a parte adesso, oppure per esempio «2 giorni, circa 250.000 al giorno» o «5 giorni, circa 100.000 al giorno». Nel campo libero scrivi il tuo, come «50.000 al giorno».
+3. Se scegli **tutto oggi**, Claude fa il lavoro. Quotient misura quanto è costato davvero e quanto è durato, e Claude te lo dice al tuo messaggio dopo. Se mentre il lavoro va scrivi di altro, Claude risponde e quella risposta si conta a parte: alla fine hai lavoro, messaggi di mezzo e totale. Scrivere durante il lavoro aggiunge al suo costo, e Claude lo dice dopo la scelta.
+4. Se scegli **a parte, adesso**, il lavoro parte subito come una rata sola in una sessione separata di Claude Code, e il suo resoconto torna nella chat quando finisce. La sua misura è pulita e la chat non lo rilegge, ma mentre lavora non ci puoi parlare: il compito va scritto bene, non fa domande a metà, e un comando che chiede un permesso lo può fermare. Anche da Hermes, gira con Claude Code.
+5. Se scegli **le rate**, una seconda finestra ti chiede quando parte la prima e a che ora partono le altre.
 
 Le stime non sono garantite: all'inizio possono sbagliare parecchio, e si avvicinano al vero a ogni lavoro finito. Se una risposta costa più della soglia e non ha avuto un preventivo, Quotient te lo dice una volta, in una riga, e la conta nel resoconto.
 
@@ -126,6 +129,7 @@ Si lanciano come `python scripts/quotient.py <comando>` dalla cartella del plugi
 | `tick` | legge subito i contatori di Hermes e i limiti del piano (per un'attività pianificata) |
 | `rate new <lavoro> --dir <cartella> --task-file <file> --quote N (--days N \| --daily N) [--template book\|research\|code-review]` | crea un lavoro a rate |
 | `rate templates` | i modi di lavorare pronti: libro, ricerca, revisione di codice |
+| `rate apart <lavoro> --dir <cartella> --task-file <file> --quote N` | fa un lavoro a parte, adesso: una rata sola in una sessione separata, che parte subito; il suo resoconto torna nella chat |
 | `rate run <lavoro> [--force]` | fa partire una rata adesso (`--force`: anche se oggi ne è già partita una) |
 | `rate once <lavoro> --time HH:MM` | una rata a quell'ora (domani se l'ora è passata); sveglia il PC |
 | `rate schedule <lavoro> --time HH:MM [--force]` | una rata ogni giorno a quell'ora; sveglia il PC |
@@ -159,6 +163,7 @@ Da sapere:
 - Windows deve permettere i timer di riattivazione. `rate check` ti dice se è così, e come attivarli.
 - Se usi l'app desktop di Claude, fai una volta il login di Claude Code in un terminale (`claude auth login`): le rate girano fuori dall'app. Quel login può scadere: finché c'è un lavoro a rate aperto, Quotient lo controlla ogni 6 ore sui tuoi messaggi (senza costi) e te lo dice in chat, così lo rinnovi prima della notte. `rate check --live` fa una chiamata vera con il modello più piccolo per esserne sicuri (pochi centesimi). Una rata che si ferma per il login non spende niente, e la sua notifica dice cosa fare.
 - Puoi far partire una rata in più lo stesso giorno, se accetti che consumi altro limite di quel giorno.
+- L'ultima parte del tetto di ogni rata (l'8%, `config rate.save_percent`) è tenuta per salvare: lì Quotient rifiuta quello che comincia lavoro nuovo (aiutanti, ricerche sul web, comandi) e lascia passare Write ed Edit, così la rata e i suoi aiutanti salvano quello che hanno trovato. Le rate salvano man mano, e i loro aiutanti scrivono i risultati su file. Se una si ferma lo stesso, la sua consegna elenca i file dei suoi aiutanti e cosa hanno fatto, così la rata dopo li riprende invece di rifarli.
 - Il risveglio e la sospensione funzionano su Windows. Su macOS e Linux Quotient ti dà la riga per programmarlo tu.
 
 ## Più nel dettaglio
@@ -182,6 +187,8 @@ Col tempo stima anche quanti token vale l'1% di ogni limite, così un preventivo
 ### Il tempo di un lavoro
 
 Un preventivo dice anche quanto dovrebbe durare ogni livello. Quotient misura il **tempo di lavoro** di ogni lavoro con preventivo: il tempo in cui Claude lavora, senza i tuoi turni (dalla fine di una risposta al tuo messaggio dopo) e senza l'attesa della finestra di scelta. Dai tuoi ultimi 20 lavori finiti impara quanti minuti servono per un milione di token pesati di lavoro (la mediana), a parte per le rate, e il tempo previsto di un livello è il suo lavoro corretto per quel numero. Come il fattore di correzione, si avvicina al vero a ogni lavoro. I lavori misurati prima della 1.1.0 ricevono il loro tempo una volta sola dai registri: la trascrizione della chat, gli orari dei messaggi di Hermes, l'inizio e la fine delle rate.
+
+Nelle parole del suo primo utente, durante due rate: «so quanto ci mette, quindi posso staccarmi dal computer».
 
 Claude segna l'inizio del lavoro subito dopo la scelta (`timer start`). Dopo il primo milione di token pesati, a ogni tuo messaggio Quotient guarda anche il ritmo del lavoro stesso: quanto ci vuole a quel ritmo per il resto della stima, o che la stima è già superata, così Claude ti dà una stima nuova a metà strada invece che alla fine.
 
@@ -217,7 +224,7 @@ Tutto quello che Quotient registra resta sul tuo computer, in `~/.quotient/` (o 
 Una sola cosa esce dal tuo computer, e la puoi spegnere: dopo ogni lavoro finito, una riga di numeri per la media condivisa, esattamente questa:
 
 ```json
-{"v":1,"q":"1.1.0","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"1.1.1","family":"opus","estimate":225000,"actual":259000}
 ```
 
 - Niente date, orari, nomi, testi, percorsi, codici di sessione o di persona. Il servizio che raccoglie le righe ([codice in `server/`](server/)) non tiene gli indirizzi IP.
@@ -240,7 +247,7 @@ Ogni copia di Quotient impara dai suoi errori, ma chi comincia non ne ha ancora.
 <details>
 <summary>Tutto quello che Quotient fa partire, manda e scarica</summary>
 
-- **Sul tuo computer, sempre**: il suo programma in Python, tramite `sh`, all'inizio di ogni chat, a ogni messaggio, alla fine di ogni risposta, prima di una compattazione e prima di ogni strumento dentro una rata. Legge le trascrizioni delle tue chat che tiene Claude Code solo per dei numeri: i token di ogni chiamata, le righe per la macchina che scrive Claude, e quali strumenti Claude ha usato (per misurare il costo e il peso di Quotient stesso). Nessun testo di quelle chat viene mai mandato da nessuna parte.
+- **Sul tuo computer, sempre**: il suo programma in Python, tramite `sh`, all'inizio di ogni chat, a ogni messaggio, alla fine di ogni risposta, prima di una compattazione e prima di ogni strumento dentro una rata. Legge le trascrizioni delle tue chat che tiene Claude Code solo per dei numeri: i token di ogni chiamata, le righe per la macchina che scrive Claude, e quali strumenti Claude ha usato (per misurare il costo e il peso di Quotient stesso). Alla fine di una rata che si è fermata con degli aiutanti, legge anche la breve descrizione di ogni aiutante e cerca il suo messaggio di rifiuto nelle loro trascrizioni, per elencarli nella consegna del lavoro. Nessun testo di quelle chat viene mai mandato da nessuna parte.
 - **Scrive** solo in `~/.quotient/` (o in `QUOTIENT_HOME`), più una pagina con il resoconto di ogni rata nella cartella del lavoro. Le due eccezioni toccano `~/.claude/settings.json`, e solo quando le scegli tu: `setup-statusline --write` ci mette la riga di stato, e la scelta «compatta» per le chat lunghe ci scrive `autoCompactWindow` (che riprende quando torni a «tieni»).
 - **Per le rate, solo dopo che le hai scelte nella finestra**: attività dell'Utilità di pianificazione di Windows (`schtasks`) che partono all'ora che hai scelto e, se lo permetti, svegliano il PC; Claude Code stesso (`claude -p`) nella cartella del lavoro, con la modalità di permessi `acceptEdits`, senza richieste di permesso, e solo con gli strumenti che permetti in `rate.extra_args`; PowerShell per la notifica e per leggere quando parte la prossima rata; la sospensione o l'ibernazione dopo, se l'hai scelto e nessuno sta usando il PC. `rate check` legge (non cambia mai) l'impostazione dei timer di riattivazione con `powercfg`.
 - **Usa il comando `/usage` di Claude Code** per leggere l'uso del tuo piano: risponde Claude Code stesso, sul tuo computer, con il suo login, e Quotient tiene solo le percentuali e gli orari di azzeramento. Al massimo ogni 10 minuti, senza spendere token; Quotient non legge mai il tuo login. Si spegne con `config limits.live false`.
@@ -252,10 +259,19 @@ Ogni copia di Quotient impara dai suoi errori, ma chi comincia non ne ha ancora.
 
 </details>
 
+## Come controlliamo le misure
+
+La correzione impara dalle misure: se le misure sono sbagliate, impara la cosa sbagliata. Ecco come Quotient le controlla, e cosa non è ancora dimostrato.
+
+- **Prove automatiche.** 192 prove girano a ogni cambiamento, su Windows e su Ubuntu con Python 3.9 e 3.13, su chat inventate di cui si conoscono in anticipo i costi: ogni chiamata contata una volta, la parte della chat, il tempo di lavoro, i lavori che passano da una chat all'altra, le rate, Hermes.
+- **Errori trovati e corretti.** Nella 1.0.0 i lavori misurati in Hermes si sono rivelati 57 pezzi di 4 lavori veri: l'agente riscriveva il preventivo a ogni messaggio, e ogni copia apriva un lavoro nuovo. Il fattore di correzione era sceso a x0,14. La causa è corretta; i pezzi già fatti non sono stati riparati in automatico. Il 15/10/2026 un pezzo di un lavoro è stato trovato contato a parte, ed è stato rimesso a mano.
+- **Le misure contro la settimana (1.1.1).** Anthropic mostra la parte del limite settimanale usata, e Quotient stima quanti token pesati vale l'1%. Ogni lavoro finito e ogni rata vengono messi accanto a quanto è salita la settimana nello stesso tempo. Se i due sono lontani più di 3 volte (`config check.factor`) e non c'era nessun altro lavoro in corso, Claude ti dice una volta che la misura di quel lavoro non torna con la settimana, e il resoconto la elenca. Quotient non cambia niente da solo. I lavori sotto i 4 punti della settimana non si giudicano, perché le percentuali sono numeri interi. Anche le altre chat, e l'uso che Quotient non vede (claude.ai, il telefono), muovono la settimana: un avviso è un indizio da controllare, non una prova.
+- **Non ancora dimostrato.** I numeri vengono da pochi lavori, e il tempo di un lavoro da un solo utente. Se i preventivi continuano ad avvicinarsi, e quanto funziona il tempo previsto per altre persone e altri tipi di lavoro, è ancora da vedere. Il resoconto mostra gli errori come sono, così puoi giudicare.
+
 ## Limiti noti
 
 - Le prime stime saranno poco precise. Uno studio del 2026 ha chiesto a dei modelli di IA di prevedere il proprio costo prima di lavori di programmazione: otto modelli, correlazione con il costo vero al massimo 0,39, e stime sistematicamente troppo basse ([Bai e altri, arXiv:2604.22750](https://arxiv.org/abs/2604.22750)). Quotient non rende il modello più bravo a indovinare: misura l'errore e corregge la stima dopo.
-- Dipende dal fatto che Claude segua le regole che Quotient gli dà. Se un preventivo salta, quel lavoro non viene misurato (una risposta grande senza preventivo viene contata e detta una volta).
+- Dipende dal fatto che Claude segua le regole che Quotient gli dà. Se un preventivo salta, quel lavoro non viene misurato (una risposta grande senza preventivo viene contata e detta una volta); una risposta su altro senza la sua riga `ASIDE` conta come lavoro.
 - Anche Quotient ha un peso: le sue regole all'inizio di una chat (circa 1.700 token) e una riga a ogni messaggio (circa 270 token in una chat lunga), che restano nella chat e vengono rilette. Quotient misura questo peso e lo mostra nel resoconto, con i token contati dai caratteri (una stima).
 - La parte di rilettura di un preventivo presume che la cache funzioni. Dopo una pausa più lunga di quanto dura la cache, la chat viene scritta di nuovo a un prezzo più alto: questo si misura dopo, non si prevede.
 - Quanto Quotient fa risparmiare non si può misurare, perché un lavoro non fatto non ha un costo. Il resoconto dà una stima (per esempio quanto hanno evitato le scelte sotto il massimo) e dice che è una stima.
@@ -267,17 +283,17 @@ Ogni copia di Quotient impara dai suoi errori, ma chi comincia non ne ha ancora.
 
 **L'unità.** I costi sono in token pesati: token di ingresso equivalenti, con le proporzioni dei prezzi delle API di Anthropic (ingresso 1, scrittura in cache 1,25 per 5 minuti o 2 per un'ora, lettura dalla cache 0,1, uscita 5). In una prova dal vivo il costo in dollari segnato da Claude Code era esattamente i token pesati per il prezzo di ingresso del modello.
 
-**Come si aggancia.** All'inizio di una chat Quotient dà a Claude le sue regole una volta sola (circa 5.900 caratteri, più o meno 1.700 token); a ogni messaggio, una riga corta (circa 940 caratteri in una chat lunga, più o meno 270 token, con la CHAT PART: quanto aggiunge rileggere questa chat). Claude scrive delle righe per la macchina (`QUOTE:`, `CHOICE:`, `PACE:` con `today`, `new chat` o un piano, `JOB: CONTINUES`, `JOB: RESUME|CLOSE|DROP <codice>` per un lavoro di un'altra chat, `LIMITS:`) nell'ultimo messaggio di una risposta; Quotient le legge alla fine della risposta, sommando il suo costo e contando ogni chiamata una volta sola.
+**Come si aggancia.** All'inizio di una chat Quotient dà a Claude le sue regole una volta sola (circa 5.900 caratteri, più o meno 1.700 token); a ogni messaggio, una riga corta (circa 940 caratteri in una chat lunga, più o meno 270 token, con la CHAT PART: quanto aggiunge rileggere questa chat). Claude scrive delle righe per la macchina (`QUOTE:`, `CHOICE:`, `PACE:` con `today`, `apart`, `new chat` o un piano, `JOB: CONTINUES`, `ASIDE` per una risposta su altro, `JOB: RESUME|CLOSE|DROP <codice>` per un lavoro di un'altra chat, `LIMITS:`) nell'ultimo messaggio di una risposta; Quotient le legge alla fine della risposta, sommando il suo costo e contando ogni chiamata una volta sola.
 
 **Lavoro e rilettura, esattamente.** Il testo che una chiamata manda al modello viene letto prima dalla cache, poi scritto nella cache, poi mandato come ingresso normale. Per ogni chiamata, la parte che la chat conteneva quando il lavoro è cominciato (dalla posizione 0 alla grandezza della prima chiamata del lavoro) si paga con quei pesi: è la rilettura; il resto del costo è il lavoro. Una chiamata dopo una compattazione, che è più corta, non aggiunge chat vecchia. I lavori misurati prima della 0.9.5 ricevono la loro divisione una volta sola dalla trascrizione della loro chat, se esiste ancora. I passi che un preventivo richiederà sono il suo lavoro corretto diviso il lavoro per passo imparato dai lavori finiti (30.000 token pesati finché non ce ne sono 3).
 
-**Le rate.** Ognuna è un'esecuzione senza finestra (`claude -p`) nella cartella del lavoro, avviata dall'Utilità di pianificazione di Windows tramite un piccolo lanciatore in `~/.quotient`, così continua a funzionare dopo gli aggiornamenti del plugin. Un hook rifiuta ogni strumento tranne l'aggiornamento della consegna quando quello che è stato speso più i due passi successivi (la grandezza delle ultime chiamate, al massimo il 40% del tetto) arriverebbe al tetto del giorno, così i passi che chiudono la rata ci stanno dentro. Ogni rata tiene nella consegna una riga `PROGRESS: <n>%`; da lì Quotient dice quanto manca e quante rate. Il tetto del giorno comprende la rilettura dell'inizio di ogni rata, imparata dalle rate prima. Due rate dello stesso lavoro non partono mai insieme. Il lavoro ricorda la chat che l'ha creato (Claude Code passa il codice della chat ai comandi; se non lo fa, Quotient lo prende alla fine della risposta). La notifica usa il sistema di notifiche di Windows tramite PowerShell (su macOS `osascript`, su Linux `notify-send`) e non scrive file; `config rate.notify false` la spegne.
+**Le rate.** Ognuna è un'esecuzione senza finestra (`claude -p`) nella cartella del lavoro, avviata dall'Utilità di pianificazione di Windows tramite un piccolo lanciatore in `~/.quotient`, così continua a funzionare dopo gli aggiornamenti del plugin. Un hook rifiuta ogni strumento tranne l'aggiornamento della consegna quando quello che è stato speso più i due passi successivi (la grandezza delle ultime chiamate, al massimo il 40% del tetto) arriverebbe al tetto del giorno, così i passi che chiudono la rata ci stanno dentro; prima, nell'ultimo 8% del tetto, rifiuta solo gli strumenti che cominciano lavoro nuovo (passano Write, Edit, MultiEdit, NotebookEdit, TodoWrite e un here-document scritto in un file), e uno strumento di un aiutante conta tutta la rata. Alla fine, se la rata si è fermata con degli aiutanti, le loro trascrizioni vengono elencate nella consegna con quante ricerche, pagine e letture ha fatto ognuno. `rate apart` è `rate new` con una rata sola e tutto il preventivo corretto come tetto, fatta partire subito in sottofondo, a parte dalla chat. Ogni rata tiene nella consegna una riga `PROGRESS: <n>%`; da lì Quotient dice quanto manca e quante rate. Il tetto del giorno comprende la rilettura dell'inizio di ogni rata, imparata dalle rate prima. Due rate dello stesso lavoro non partono mai insieme. Il lavoro ricorda la chat che l'ha creato (Claude Code passa il codice della chat ai comandi; se non lo fa, Quotient lo prende alla fine della risposta). La notifica usa il sistema di notifiche di Windows tramite PowerShell (su macOS `osascript`, su Linux `notify-send`) e non scrive file; `config rate.notify false` la spegne.
 
 **Il tempo.** Il tempo di lavoro di un turno è la somma degli intervalli fra le sue voci una dopo l'altra (la trascrizione di Claude Code, o gli orari dei messaggi nell'archivio di Hermes), tranne l'intervallo prima di un tuo messaggio e quello prima della risposta alla finestra di scelta (`AskUserQuestion`, o `clarify` di Hermes). Un lavoro somma i suoi turni; il primo conta da `timer start` se Claude l'ha lanciato, se no dall'inizio del turno. Una rata lavora da sola, quindi il suo tempo è tutta la sua durata. Il tempo previsto è il lavoro corretto per la mediana dei minuti per milione di token pesati di lavoro degli ultimi 20 lavori dello stesso tipo (chat o rate) con il tempo misurato, e si mostra da quando ce ne sono 3. Gli hook tengono `~/.quotient/timer.json` (va, in pausa al tuo turno, finito); la finestra lo legge ogni secondo e scrive un segnale di vita, così se ne apre una sola.
 
 **Chat lunghe.** Un plugin non può lanciare `/compact` (gli hook possono solo bloccare o guardare una compattazione), quindi la scelta diventa l'impostazione di Claude Code `autoCompactWindow`; la variabile `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, se la imposti tu, vince su di lei. Un hook `PreCompact` annota la grandezza della chat prima del riassunto, e la fine della risposta dopo annota quella che resta; il risparmio è quella differenza, al prezzo della cache, a ogni chiamata successiva di quella chat (`compactions.jsonl`).
 
-**I tuoi dati.** Tutto sta in `~/.quotient/` (o in `QUOTIENT_HOME`). `export` scrive le righe esatte che la condivisione manda. Le righe in attesa sono in `share-outbox.jsonl`; la media scaricata è `average.json`; i lavori aperti in una chat sono in `chat-jobs.json` (dimenticati dopo 7 giorni); la pagina con i grafici è `report.html`.
+**I tuoi dati.** Tutto sta in `~/.quotient/` (o in `QUOTIENT_HOME`). `export` scrive le righe esatte che la condivisione manda. Le righe in attesa sono in `share-outbox.jsonl`; la media scaricata è `average.json`; i lavori aperti in una chat sono in `chat-jobs.json` (dimenticati dopo 7 giorni); le misure messe contro la settimana sono in `checks.jsonl`; la pagina con i grafici è `report.html`.
 
 **La media condivisa.** Finché non hai 5 lavori tuoi, la media condivisa conta come 5 lavori al suo fattore (quello della tua famiglia di modello se ne ha almeno 5, se no quello di tutti), accanto ai tuoi. Dal quinto lavoro tuo in poi contano solo i tuoi.
 

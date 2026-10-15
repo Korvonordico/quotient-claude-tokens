@@ -2,6 +2,22 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.1.1] - 2026-10-15
+
+### Fixed
+
+- **The end of an installment's cap is kept for saving.** On 15/10/2026 an installment started three helpers (the Agent tool); at the cap the hook refused every tool, the helpers' too, and their results (about 120 web searches) were lost before being written. Now, in the last 8% of the cap (`config rate.save_percent`), the hook refuses only the tools that start new work (helpers, web searches and fetches, commands) and lets Write, Edit, MultiEdit, NotebookEdit, TodoWrite and a here-document into a file through; its message says to save at once what was found in the handoff. Past the real cap everything stops, as before. A helper's tool call counts the whole installment.
+- **Save as you go.** The installment protocol asks to save results after each part, and to tell helpers to write their results to files as they go, not only at the end.
+- **The helpers' work is not lost.** At the end of an installment that stopped with helpers, Quotient writes in the handoff a section with the helpers' transcripts, their short description and how many searches, pages and reads each made, so the next installment takes them up instead of doing them again.
+- The tests no longer read `QUOTIENT_CAP` from the environment, so they pass inside an installment too.
+
+### Added
+
+- **The measures against the week.** If the measures are wrong, the correction learns the wrong thing (an outside review said so). Each finished job and each installment is now set against how much the weekly limit rose in the same time, through the learned size of 1%. When the two are more than 3 times apart (`config check.factor`) and no other job or installment was running, Claude tells the user once at the next message that the measure does not match the week, and the report lists it (`checks.jsonl`). Jobs under 4 points of the week are not judged (`config check.min_points`). It changes nothing by itself, and says that other chats and use Quotient cannot see move the week too.
+- **Messages in between.** While a job is open, a reply about something else ends with an `ASIDE` line: its cost goes in the job's `aside`, in the real cost (so the limits add up) but not in the work the correction learns from. At the close: work · messages in between · total. After the choice Claude says in one line that writing during the job adds to its cost. In Hermes too (the user's idea).
+- **Apart, now.** A new pace in the choice window: the job starts at once as one installment in a separate session (`rate apart`: `rate new` with one installment and the whole corrected quote as its cap, started in the background), so its measure is clean and the chat does not re-read it. The window says the cons: no talking to it while it works, the task must be written well, no questions halfway, a command that needs a permission may stop it. From Hermes too, where it runs with Claude Code (the user's idea).
+- **How we check the measures**, a short section of the README (English and Italian): the automatic tests, the errors found and fixed, the new check against the week, and what is not shown yet.
+
 ## [1.1.0] - 2026-10-15
 
 ### Added
@@ -223,6 +239,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.1.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.0.0

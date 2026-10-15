@@ -36,7 +36,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -119,7 +119,19 @@ DEFAULTS = {
         # what is spent plus this many of the latest calls would reach the cap (at most this share of it).
         "reserve_calls": 2,
         "reserve_max_share": 0.4,
+        # The last part of the cap is kept for saving (1.1.1): there, tools that start new work (helpers, web
+        # searches, commands) are refused, and Write/Edit still pass, so the installment and its helpers save.
+        "save_percent": 8,
         "extra_args": [],
+    },
+    # 1.1.1: each finished job (and each installment) is set against how much the weekly limit rose meanwhile. A miss
+    # beyond x`factor`, with no other job running, is told once; Quotient changes nothing by itself. Jobs smaller than
+    # `min_points` points of the week are not judged (the percentages are whole numbers), and a reading of the week
+    # more than `hours` before the start or after the end is too far to tell.
+    "check": {
+        "factor": 3,
+        "min_points": 4,
+        "hours": 3,
     },
     # The time of a job (1.1.0) is read from the times Claude Code and Hermes already keep. True: also a small
     # always-on-top stopwatch window (needs tkinter); off by default, the user did not want one more window.
@@ -147,6 +159,9 @@ CHOICE_KEYS = r"(?:SCELTA|CHOICE)"
 QUOTE_RE = re.compile(r"^[\s>*_`#-]*" + QUOTE_KEYS + r"[*_`]*\s*:\s*(.+)$", re.M)
 CHOICE_RE = re.compile(r"^[\s>*_`#-]*" + CHOICE_KEYS + r"[*_`]*\s*:[\s*_`]*([^\s*_`,.;:]+)", re.M)
 CONTINUES_RE = re.compile(r"(?:JOB|LAVORO)[*_`]*\s*:\s*[*_`]*(?:CONTINUES|CONTINUA)", re.I)
+# 1.1.1 (the user's idea): a reply about something else while a job is open ends with this line. It is a real cost
+# (it is in the limits) but not work: it is counted apart, and the job stays open.
+ASIDE_RE = re.compile(r"^[\s>*_`#-]*ASIDE[*_`]*[ \t]*(?::[^\n]*)?$", re.M)
 # A job of another chat: resumed here, finished (closed with what it cost), or dropped (not measured).
 MOVE_RE = re.compile(r"^[\s>*_`#-]*(?:JOB|LAVORO)[*_`]*\s*:[\s*_`]*(RESUME|RIPRENDI|CLOSE|CHIUDI|DROP|ABBANDONA)"
                      r"[*_`]*\s+[*_`]*([0-9a-fA-F-]{4,40})", re.M | re.I)
@@ -156,6 +171,8 @@ PACE_RE = re.compile(r"^[\s>*_`#-]*(?:PACE|RITMO)[*_`]*\s*:[\s*_`]*([^\n]+)", re
 LIMITS_RE = re.compile(r"^[\s>*_`#-]*LIMITS[*_`]*\s*:\s*(.+)$", re.M)
 TODAY_RE = re.compile(r"\b(?:today|oggi|all|tutto)\b", re.I)
 NEW_CHAT_RE = re.compile(r"new[\s_-]*chat|nuova[\s_-]*chat|chat[\s_-]*nuova", re.I)
+# 1.1.1: 'apart, now' / 'a parte, adesso': one installment in a separate session, started at once (rate apart)
+APART_RE = re.compile(r"\bapart\b|\ba[\s_-]*parte\b|\bseparat", re.I)
 # the installment keeps this line in its handoff: how much of the whole job is done
 PROGRESS_RE = re.compile(r"^[\s>*_`#-]*(?:PROGRESS|AVANZAMENTO)[*_`]*\s*:[\s*_`~]*(\d{1,3}(?:[.,]\d+)?)\s*%", re.M | re.I)
 # the window's questions that belong to Quotient (its own actions are counted as its weight)
@@ -604,13 +621,16 @@ def parse_quote(text):
 
 
 def parse_pace(text):
-    """'today', 'new-chat' (the job is done in a new chat), the installment plan as written, or None."""
+    """'today', 'new-chat' (the job is done in a new chat), 'apart' (done apart, now), the installment plan as written,
+    or None."""
     match = PACE_RE.search(text or "")
     if not match:
         return None
     value = match.group(1).strip()
     if NEW_CHAT_RE.search(value):
         return "new-chat"
+    if APART_RE.search(value):
+        return "apart"
     return "today" if TODAY_RE.search(value) else value
 
 
@@ -987,6 +1007,12 @@ def closed_note(row):
     text = ("The last quoted job (level '%s') is closed: real cost %s wt (work %s + chat part %s) against a corrected "
             "estimate of %s wt of work" % (row.get("choice"), fmt(row.get("actual") or 0), fmt(work_of(row)),
                                            fmt(row.get("chat") or 0), fmt(corrected)))
+    if row.get("aside"):
+        # 1.1.1: the replies about something else are counted apart: say the three numbers
+        text += ("; the messages in between (%d repl%s about something else) are counted apart: say 'work %s wt · "
+                 "messages in between %s wt · total %s wt'" % (
+                     row.get("aside_turns") or 1, "y" if (row.get("aside_turns") or 1) == 1 else "ies",
+                     fmt(work_of(row) + (row.get("chat") or 0)), fmt(row["aside"]), fmt(row.get("actual") or 0)))
     if row.get("seconds"):
         text += "; working time %s" % fmt_duration(row["seconds"])
         if row.get("predicted_seconds"):
@@ -1497,10 +1523,10 @@ def protocol(cfg, factor):
         "HOW:",
         "1) Estimate the WORK at three levels sized to it: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate. Levels: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f; for installments x%.2f). The chat part of each level = its steps x the per-step re-read of the CHAT PART line: take the steps from the measured steps per 1M wt of work (on the corrected work) when Quotient gives them, plus one per message you expect from the user; do not guess them." % (fmt(big), factor, learning(cfg, "rate")["factor"]),
         "2) Write one machine line with your RAW estimates, always in English: QUOTE: essential=<n> good=<n> max=<n>",
-        "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate (with a CHAT PART line: work + chat part = total), and, when the Quotient line gives the working time per 1M wt of work, its expected TIME (its corrected work x that time, e.g. 'circa 25 minuti'; for installments, the time of each day). 'Ritmo'/'Pace': all today, plus two installment plans that fit the job, plus 'in a new chat' when the CHAT PART line offers it. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
+        "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate (with a CHAT PART line: work + chat part = total), and, when the Quotient line gives the working time per 1M wt of work, its expected TIME (its corrected work x that time, e.g. 'circa 25 minuti'; for installments, the time of each day). 'Ritmo'/'Pace': all today, plus two installment plans that fit the job, plus 'a parte, adesso'/'apart, now' (the job starts at once as one installment in a separate session: its measure is clean and this chat does not re-read it; say in brief what it costs the user: they cannot talk to it while it works, the task must be written well, it asks no questions halfway, a command that needs a permission may stop it), plus 'in a new chat' when the CHAT PART line offers it. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
         "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
-        "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>`. If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % cmd,
-        "Machine lines (QUOTE, CHOICE, PACE, JOB, LIMITS) go in the LAST message of your reply, the one after your last tool call: a progress note written in the middle of a reply may be kept only as a summary, and then Quotient never sees them. Write QUOTE and CHOICE once: later replies of the same job carry only the JOB line.",
+        "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: apart`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>`. Apart: write what the whole job is to a file, with everything a session that cannot ask needs, then run `%s rate apart <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level>`: it starts at once in the background, and its report comes back to this chat when it ends." % cmd + " If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. Right after the choice, tell the user in one line that writing to you while the job runs adds to its cost, and that messages about something else are counted apart: while the job is open, a reply that is not about it ends with the line `ASIDE` (the job stays open; Quotient counts that reply apart from the work). New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % cmd,
+        "Machine lines (QUOTE, CHOICE, PACE, JOB, ASIDE, LIMITS) go in the LAST message of your reply, the one after your last tool call: a progress note written in the middle of a reply may be kept only as a summary, and then Quotient never sees them. Write QUOTE and CHOICE once: later replies of the same job carry only the JOB line.",
         "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at 03:00), 'Ogni giorno'/'Every day' (the daily time; free field) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: whoever turned the PC on, it sleeps only when nobody is using it, after a 2-minute warning). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely. Each installment's report comes back to the chat that ran `rate new`, at the user's next message there (other chats get a one-line notice, twice at most); `rate here <name>` run in another chat moves the reports there." % (cmd, cmd),
         "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them, and how many wt 1% holds when it can estimate it. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
         "In the window, for each level add what share of the 5-hour and weekly limits it would take and what would be left, when Quotient gives the size of 1%; if a level does not fit in what is left of the 5-hour window, say so and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left; at the next message Quotient gives the job's real cost and working time against the expected ones: tell them in one line.",
@@ -1660,7 +1686,7 @@ def notice_line(name, job, runs, home_path, count):
                 " (the next one not before 24 hours)" if count < NOTICES_MAX else " (the last one)", run_cmd(), name))
 
 
-def rate_events(sid=None, near=None):
+def rate_events(sid=None, near=None, own_only=False):
     """What happened to installment jobs since the user last saw it. The full report goes to the chat that
     created the job, at the user's next message there. Another chat gets a one-line notice, at most twice,
     the second at least a day after the first, then never again until the report is read (the user's rule:
@@ -1682,6 +1708,8 @@ def rate_events(sid=None, near=None):
         if len(runs) <= told:
             continue
         chat = job.get("session")
+        if (own_only and chat != sid) or (chat and chat != sid and str(chat).startswith("hermes:")):
+            continue  # 1.1.1: a job started from a Hermes chat reports there (own_only: Hermes asks for its own)
         home_path = find_transcript(chat, near) if chat and chat != sid else None
         if home_path:
             notices = state.get("notices") or []
@@ -1986,6 +2014,11 @@ def hook_prompt():
     for alert in (week_alert(cfg), None if scheduled else pace_alert(cfg), None if scheduled else auth_alert(cfg)):
         if alert:
             lines.append(alert)
+    if not scheduled:
+        try:
+            lines += check_alert(cfg)
+        except Exception:  # a check that cannot be made must never stop a message
+            pass
     job = state.get("job")
     pending = state.get("pending")
     closed_told = state.get("last_closed") if not scheduled else None
@@ -1997,10 +2030,13 @@ def hook_prompt():
             timing = "; working time so far %s%s" % (fmt_duration(job.get("seconds")), " of about %s expected" % (
                 fmt_duration(job["predicted_seconds"])) if job.get("predicted_seconds") else "")
         lines.append("A job is in progress (level '%s', raw estimate %s wt, spent so far %s wt, of which %s re-reading "
-                     "the older chat%s). If it is not finished at the end of this reply, end it with the line: JOB: CONTINUES" % (
+                     "the older chat%s%s). If it is not finished at the end of this reply, end it with the line: JOB: "
+                     "CONTINUES. If this message is about something else, answer it and end the reply with the line "
+                     "ASIDE instead: the job stays open and that reply is counted apart." % (
                          job.get("choice"), fmt(job.get("raw_estimate")), fmt(job.get("actual")), fmt(job.get("chat") or 0),
-                         timing) + pace_note(job.get("raw_estimate"), job.get("factor_used"), job.get("actual"),
-                                            job.get("seconds")))
+                         " and %s messages in between" % fmt(job["aside"]) if job.get("aside") else "",
+                         timing) + pace_note(job.get("raw_estimate"), job.get("factor_used"),
+                                            job.get("actual") - (job.get("aside") or 0), job.get("seconds")))
         if not scheduled:
             timer_put(cfg, "run", job.get("seconds") or 0, job.get("predicted_seconds"), job.get("choice"))
     elif pending:
@@ -2076,9 +2112,13 @@ def close_job(job, cfg=None):
     job.pop("waiting", None)
     job["chat"] = round(job.get("chat") or 0)
     job["older"] = round(job.get("older") or 0)
-    job["work"] = max(0, round(job["actual"] - job["chat"]))
+    if job.get("aside"):
+        job["aside"] = round(job["aside"])   # 1.1.1: the replies about something else, in the real cost only
+    job["work"] = max(0, round(job["actual"] - job["chat"] - (job.get("aside") or 0)))
     job["ratio"] = round(work_of(job) / job["raw_estimate"], 4) if job.get("raw_estimate") else None
     job["family"] = main_family(job.get("families") or {})
+    job["check"] = 1                 # 1.1.1: set against the week (measure_checks)
+    job["week_end"] = week_used()
     for key in ("seconds", "predicted_seconds"):
         if job.get(key) is not None:
             job[key] = round(job[key])
@@ -2318,15 +2358,26 @@ def hook_stop():
         state["turn"]["job_chat"], state["turn"]["job_older"] = whole, older
         return part
 
+    aside = bool(ASIDE_RE.search(text)) and not quote
     if job:
         job["actual"] += cost
-        job["chat"] = (job.get("chat") or 0) + job_chat_now(job)
-        job["calls"] = (job.get("calls") or 0) + (0 if repeat else calls)
-        job["turns"] = (job.get("turns") or 0) + (0 if repeat else 1)
-        job["seconds"] = (job.get("seconds") or 0) + turn_seconds(turn_from)
+        if aside:
+            # a reply about something else: in the real cost (the limits must add up), not in the work the factor
+            # learns from, nor in its steps or its time; the job stays open
+            older = job.get("older") or 0
+            job_chat_now(job)            # keeps this turn's count of re-reading in step, for a repeated hook
+            job["older"] = older
+            job["aside"] = (job.get("aside") or 0) + cost
+            job["aside_calls"] = (job.get("aside_calls") or 0) + (0 if repeat else calls)
+            job["aside_turns"] = (job.get("aside_turns") or 0) + (0 if repeat else 1)
+        else:
+            job["chat"] = (job.get("chat") or 0) + job_chat_now(job)
+            job["calls"] = (job.get("calls") or 0) + (0 if repeat else calls)
+            job["turns"] = (job.get("turns") or 0) + (0 if repeat else 1)
+            job["seconds"] = (job.get("seconds") or 0) + turn_seconds(turn_from)
         if not repeat:
             add_families(job, families)
-        if quote or not continues:
+        if quote or not (continues or aside):
             close_job(job, cfg)
             state["closed"] = {"options": job.get("options"), "choice": job.get("choice")}
             state["last_closed"] = closed_note(job)
@@ -2347,6 +2398,8 @@ def hook_stop():
                 "quote_cost": source.get("quote_cost", 0), "actual": cost, "turns": 1, "calls": calls,
                 "families": dict(families), "fresh": fresh, "base": base, "chat": 0,
                 "seconds": 0, "predicted_seconds": expected_seconds(cfg, raw, factor=source.get("factor", 1.0)),
+                # 1.1.1: where its cost starts (the start of this turn), and the week then
+                "begin": round(start_ep, 1), "week_start": week_used(),
             }
             if pace == "new-chat":
                 # chosen here, done in a new chat: this chat only made the quote. What re-reading this chat
@@ -2392,7 +2445,7 @@ def hook_stop():
     save_json(session_path(sid), state)
 
 
-BIND_RE = re.compile(r"""\brate\s+(new|here)\s+(?:"([^"]+)"|'([^']+)'|([\w.-]+))""")
+BIND_RE = re.compile(r"""\brate\s+(new|here|apart)\s+(?:"([^"]+)"|'([^']+)'|([\w.-]+))""")
 
 
 def bind_from_commands(turn, sid, start_ts):
@@ -2421,8 +2474,39 @@ def bind_from_commands(turn, sid, start_ts):
                     bind_chat(name, sid)
 
 
+# 15/10/2026: an installment started 3 helpers (Agent); at the cap this hook refused everything, to the helpers too, and
+# their results (about 120 web searches) were lost before anyone wrote them down. So the last part of the cap is kept
+# for saving: there, tools that start new work are refused and these still pass. Past the real cap everything stops,
+# as before, except the handoff update.
+SAVE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "TodoWrite")
+# what the hook says when it refuses: the end of an installment finds them in the transcripts (helpers stopped)
+CAP_RE = re.compile(r"Quotient: (?:today's|this) installment is (?:nearly )?used up")
+HEREDOC_RE = re.compile(r"\A\s*(?:cat\s+>>?\s*[^\s;&|<>$`]+\s+|tee\s+(?:-a\s+)?[^\s;&|<>$`]+\s+|cat\s+)<<-?\s*"
+                        r"(['\"]?)(\w+)\1(?:\s*>>?\s*[^\s;&|<>$`]+)?\s*$")
+
+
+def write_only(command):
+    """A shell command that only writes a file from a here-document (`cat > notes.md <<'EOF'` ... `EOF`): it starts no
+    new work, so it passes in the part of the cap kept for saving. Anything else in the command and it does not."""
+    lines = str(command or "").rstrip().splitlines()
+    m = HEREDOC_RE.match(lines[0]) if len(lines) >= 2 else None
+    if not m or lines[-1].strip() != m.group(2):
+        return False
+    body = "\n".join(lines[1:-1])
+    return bool(m.group(1)) or ("$(" not in body and "`" not in body)  # an unquoted tag would run $(...) in the body
+
+
+def main_transcript(path):
+    """The chat's own transcript: a helper's tool call may come with its own file, under <chat>/subagents/."""
+    folder = os.path.dirname(path or "")
+    if os.path.basename(folder) == "subagents":
+        return os.path.dirname(folder) + ".jsonl"
+    return path
+
+
 def hook_pretool():
-    """Inside an installment run: when the day's cap is spent, allow only the handoff update."""
+    """Inside an installment run: in the last part of the day's cap only saving passes (Write, Edit, a here-document);
+    when the cap is spent, only the handoff update."""
     name = os.environ.get("QUOTIENT_JOB")
     if not name:
         return
@@ -2431,7 +2515,7 @@ def hook_pretool():
     job = load_json(os.path.join(rate_dir(name), "job.json"), None)
     if not job:
         return
-    path = data.get("transcript_path") or ""
+    path = main_transcript(data.get("transcript_path") or "")
     entries = read_jsonl(path)
     spent, _ = cost_of(entries + subagent_entries(path, None), cfg["weights"])
     cap = int(os.environ.get("QUOTIENT_CAP") or job["daily_cap"])
@@ -2440,16 +2524,28 @@ def hook_pretool():
     # when what is spent plus the next steps (the size of the latest calls) would reach the cap.
     recent = [weigh(c["usage"], cfg["weights"]) for c in ordered_calls(entries)][-3:]
     reserve = min(cfg["rate"]["reserve_calls"] * max(recent or [0]), cap * cfg["rate"]["reserve_max_share"])
-    if spent + reserve < cap:
+    saving = cap * (1 - float(cfg["rate"].get("save_percent") or 0) / 100.0)
+    if spent + reserve < min(cap, saving):
         return
     handoff = os.path.normcase(os.path.abspath(os.path.join(rate_dir(name), "HANDOFF.md")))
-    target = (data.get("tool_input") or {}).get("file_path") or ""
-    if data.get("tool_name") in ("Write", "Edit", "MultiEdit", "Read") and target and \
-            os.path.normcase(os.path.abspath(target)) == handoff:
+    tool = data.get("tool_name") or ""
+    given = data.get("tool_input") or {}
+    target = given.get("file_path") or given.get("notebook_path") or ""
+    if tool in ("Write", "Edit", "MultiEdit", "Read") and target and os.path.normcase(os.path.abspath(target)) == handoff:
         return
-    reason = ("Quotient: today's installment is used up (%s of %s wt spent; the steps to close it take about %s). "
-              "Do not start new work. Update %s now (what is done, what remains, where to resume, and the PROGRESS "
-              "line), then stop." % (fmt(spent), fmt(cap), fmt(reserve), handoff))
+    if spent + reserve < cap:
+        if tool in SAVE_TOOLS or (tool == "Bash" and write_only(given.get("command"))):
+            return
+        notes = os.path.join(rate_dir(name), "notes")
+        reason = ("Quotient: this installment is nearly used up (%s of %s wt spent; what is left is kept for saving). "
+                  "No new work: no helpers, searches, fetches, reads or commands. Save NOW, with Write or Edit, what you "
+                  "have found and not written yet: a helper (subagent) into a file of its own in %s, then it stops and "
+                  "says where; the installment into %s (what is done, what remains, where to resume, the PROGRESS line), "
+                  "then it stops." % (fmt(spent), fmt(cap), notes, handoff))
+    else:
+        reason = ("Quotient: today's installment is used up (%s of %s wt spent; the steps to close it take about %s). "
+                  "Do not start new work. Update %s now (what is done, what remains, where to resume, and the PROGRESS "
+                  "line), then stop." % (fmt(spent), fmt(cap), fmt(reserve), handoff))
     out(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                            "permissionDecision": "deny",
                                            "permissionDecisionReason": reason}}))
@@ -2651,6 +2747,134 @@ def weeks():
         rows.append({"resets": g["resets"], "used": g["used"], "complete": g["resets"] < time.time(),
                      "wt": sum(w for t, w in turns if start < t <= g["resets"])})
     return rows
+
+
+# ---------------------------------------------------------------- the measures set against the week (1.1.1)
+# An outside opinion (15/10/2026): "if the measures are wrong, the correction learns the wrong thing". Quotient already
+# reads the weekly percentage and estimates how many wt 1% holds: each finished job is set against how much the week
+# rose in the same time. A big miss is told, never acted on: the use of other chats, and of what Quotient cannot see
+# (claude.ai, the phone), moves the week too.
+
+def checks_path():
+    return os.path.join(home(), "checks.jsonl")
+
+
+def week_used():
+    """The weekly limit used now, as last read (percent), or None."""
+    week = latest_limits().get("seven_day")
+    return week["used"] if week else None
+
+
+def check_spans():
+    """Every measured job and installment: (key, label, begin, end, wt, to check)."""
+    spans = []
+    for j in read_jsonl(os.path.join(home(), "jobs.jsonl")):
+        end = ts_epoch(j.get("finished"))
+        if end and j.get("actual") and not str(j.get("session") or "").startswith("rate:"):
+            spans.append(("job:%s:%s" % (j.get("session"), j.get("started")), "'%s'" % j.get("choice"),
+                          float(j.get("begin") or ts_epoch(j.get("started")) or end), end, j["actual"], bool(j.get("check"))))
+    base = os.path.join(home(), "rate")
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        for i, r in enumerate(read_jsonl(os.path.join(base, name, "runs.jsonl")), start=1):
+            begin, end = ts_epoch(r.get("started")), ts_epoch(r.get("finished"))
+            if begin and end:
+                spans.append(("run:%s:%s" % (name, r.get("started")), "'%s' installment %d" % (name, i), begin, end,
+                              r.get("wt") or 0, bool(r.get("check")) and bool(r.get("wt"))))
+    return spans
+
+
+def measure_checks(cfg, now=None):
+    """Set the jobs and installments closed since 1.1.1 against the week, once each, when a reading of the week is there
+    from before their start and after their end (within check.hours). The result goes to checks.jsonl: agrees, warn (a
+    miss beyond x check.factor, nothing else running), overlap (the same miss, but another job or installment ran
+    meanwhile), small, or no reading. Returns the new rows."""
+    now = now or time.time()
+    c = merge(DEFAULTS["check"], cfg.get("check") or {})
+    hours = float(c["hours"]) * 3600
+    seen = {r.get("key") for r in read_jsonl(checks_path())}
+    spans = check_spans()
+    todo = [s for s in spans if s[5] and s[0] not in seen]
+    if not todo:
+        return []
+    readings = sorted((r for r in read_jsonl(limits_path()) if r.get("seven_day") is not None
+                       and r.get("seven_day_resets") and r.get("epoch")), key=lambda r: r["epoch"])
+    cap, turns, new = None, None, []
+    for key, label, begin, end, wt, _ in todo:
+        row = {"key": key, "label": label, "begin": round(begin), "end": round(end), "wt": wt, "ts": now_iso()}
+        after = [r for r in readings if end <= r["epoch"] <= end + hours]
+        before = [r for r in readings if begin - hours <= r["epoch"] <= begin + 1
+                  and after and abs(r["seven_day_resets"] - after[0]["seven_day_resets"]) < 600]
+        if not after or not before:
+            if now - end > hours:
+                new.append(dict(row, result="no reading"))
+            continue
+        cap = cap or capacity("seven_day")
+        if not cap:
+            continue  # how much 1% holds is not known yet: wait for it
+        r0, r1 = before[-1], after[0]
+        per, points = cap["per_point"], r1["seven_day"] - r0["seven_day"]
+        row.update({"from": r0["epoch"], "to": r1["epoch"], "points": points, "per_point": round(per),
+                    "expected_points": round(wt / per, 1)})
+        if points < 0:
+            row["result"] = "no reading"
+        elif max(wt / per, points) < float(c["min_points"]):
+            row["result"] = "small"
+        else:
+            # the percentages are whole numbers: each reading can be a point off
+            low, high = wt / ((points + 1) * per), wt / (max(points - 1, 0.5) * per)
+            row["ratio"] = round(wt / (max(points, 0.5) * per), 2)
+            if turns is None:
+                turns = measured_turns(cfg)
+            row["others"] = round(max(0, sum(w for t, w in turns if r0["epoch"] < (t or 0) <= r1["epoch"]) - wt))
+            factor = float(c["factor"])
+            if low <= factor and high >= 1 / factor:
+                row["result"] = "agrees"
+            else:
+                busy = any(k != key and b < r1["epoch"] and e > r0["epoch"] for k, _, b, e, _, _ in spans)
+                row["result"] = "overlap" if busy else "warn"
+        new.append(row)
+    for row in new:
+        append_jsonl(checks_path(), row)
+    return new
+
+
+def check_line(row):
+    """One line for the agent about a measure that does not match the week."""
+    more = row["ratio"] >= 1
+    return ("MEASURE CHECK: the job %s (finished %s) was measured at %s wt, but in the same time the weekly limit rose %s "
+            "point(s), about %s wt at the current estimate of 1%% (%s wt): the measure is x%.1f %s than the week shows. "
+            "%sUse that Quotient cannot see (claude.ai, the phone, another PC) moves the week too, so this is a hint to "
+            "check, not a proof; Quotient changes nothing by itself. Tell the user in ONE line, in their language: the "
+            "measure of this job does not match the week, check it (the report shows it)." % (
+                row["label"], when(row["end"], "en"), fmt(row["wt"]), "%g" % row["points"],
+                fmt(row["points"] * row["per_point"]), fmt(row["per_point"]),
+                row["ratio"] if more else 1 / max(row["ratio"], 0.01), "higher" if more else "lower",
+                "Quotient measured another %s wt in other chats meanwhile. " % fmt(row["others"]) if row.get("others") else ""))
+
+
+def check_alert(cfg):
+    """The measures that do not match the week, told once each, at the user's next message."""
+    path = os.path.join(home(), "checks-told.json")
+    told = load_json(path, [])
+    told = told if isinstance(told, list) else []
+    seen = {r.get("key") for r in read_jsonl(checks_path())}
+    if any(s[5] and s[0] not in seen for s in check_spans()) and not any(
+            (r.get("epoch") or 0) > time.time() - 600 for r in read_jsonl(limits_path(), tail_bytes=4096)):
+        refresh_limits(cfg)  # a job waits for a reading after its end (at most every limits.every seconds)
+    measure_checks(cfg)
+    lines = [check_line(r) for r in read_jsonl(checks_path()) if r.get("result") == "warn" and r.get("key") not in told]
+    if lines:
+        save_json(path, told + [r.get("key") for r in read_jsonl(checks_path()) if r.get("result") == "warn"])
+    return lines
+
+
+def checks_summary():
+    rows = read_jsonl(checks_path())
+    judged = [r for r in rows if r.get("result") in ("agrees", "warn", "overlap")]
+    return {"judged": len(judged), "agrees": sum(1 for r in judged if r["result"] == "agrees"),
+            "warn": [r for r in judged if r["result"] == "warn"],
+            "overlap": sum(1 for r in judged if r["result"] == "overlap"),
+            "skipped": len(rows) - len(judged)}
 
 
 def statusline():
@@ -2941,6 +3165,9 @@ COMMANDS = [
      "create a job in installments (a template gives it a tested way of working)",
      "crea un lavoro a rate (un modello gli da' un modo di lavorare gia' provato)"),
     ("rate templates", "the ready-made ways of working: book, research, code review", "i modi di lavorare pronti: libro, ricerca, revisione di codice"),
+    ("rate apart <job> --dir <folder> --task-file <file> --quote N",
+     "do a job apart, now: it starts at once as one installment in a separate session, and its report comes back here",
+     "fa un lavoro a parte, adesso: parte subito come una rata sola in una sessione separata, e il resoconto torna qui"),
     ("rate run <job> [--force]", "run one installment now (--force: even if one already ran today)", "fa una rata adesso (--force: anche se oggi ne ha gia' fatta una)"),
     ("rate once <job> --time HH:MM", "one installment at that time (tomorrow if it has passed); wakes the PC", "una rata a quell'ora (domani se e' passata); sveglia il PC"),
     ("rate schedule <job> --time HH:MM [--force]", "one installment every day at that time; wakes the PC", "una rata ogni giorno a quell'ora; sveglia il PC"),
@@ -3015,6 +3242,8 @@ TEXT = {
         "hermes_head": "Hermes (same login, same limits): last 5 hours %s wt, last 7 days %s wt, of it subagents %s; re-reading the chat (cache reads) %s of it.",
         "hermes_top": "  heaviest chat: %s wt  %s",
         "hermes_none": "Hermes: not found on this PC.",
+        "checks": "Measures set against the week (since 1.1.1): %d judged, %d agree within x%s, %d do not (told in the chat), %d did not while other jobs ran (not told); %d too small or without a reading of the week. The week also moves with use Quotient cannot see: a hint, not a proof.",
+        "check_row": "  ! %s job %s: measured %s wt, the week rose %s point(s) (~%s wt): x%.2f",
     },
     "it": {
         "title": "Quotient: stime contro costi veri (unità: token pesati)",
@@ -3052,6 +3281,8 @@ TEXT = {
         "hermes_head": "Hermes (stesso login, stessi limiti): ultime 5 ore %s token pesati, ultimi 7 giorni %s, di cui aiutanti %s; rilettura della chat (letture dalla cache) il %s.",
         "hermes_top": "  chat più pesante: %s token pesati  %s",
         "hermes_none": "Hermes: non trovato su questo PC.",
+        "checks": "Misure confrontate con la settimana (dalla 1.1.1): %d giudicate, %d tornano entro x%s, %d no (dette in chat), %d no mentre giravano altri lavori (non dette); %d troppo piccole o senza una lettura della settimana. La settimana si muove anche con l'uso che Quotient non vede: un indizio, non una prova.",
+        "check_row": "  ! %s lavoro %s: misurati %s token pesati, la settimana è salita di %s punti (~%s): x%.2f",
     },
 }
 
@@ -3177,6 +3408,17 @@ def report(args=None):
         lines.append(t["compactions"] % (c["count"], c["auto"], fmt(c["saved"])))
     lines += hermes_lines(cfg, t, lang)
     refresh_limits(cfg)
+    try:
+        measure_checks(cfg)
+    except Exception:
+        pass
+    k = checks_summary()
+    if k["judged"] or k["skipped"]:
+        lines += ["", t["checks"] % (k["judged"], k["agrees"], merge(DEFAULTS["check"], cfg.get("check") or {})["factor"],
+                                     len(k["warn"]), k["overlap"], k["skipped"])]
+        for r in k["warn"][-5:]:
+            lines.append(t["check_row"] % (when(r["end"], lang), r["label"], fmt(r["wt"]), "%g" % r["points"],
+                                           fmt(r["points"] * r["per_point"]), r["ratio"]))
     current = limits_line(lang)
     lines += ["", t["limits"] % (current or t["no_limits"])]
     for window in ("seven_day", "five_hour"):
@@ -3575,9 +3817,9 @@ def cmd_config(args):
 RATE_PROMPT = """You are doing ONE installment of a bigger job, inside a spending cap.
 1. Read the job: {task}
 2. Read the handoff from the previous installments: {handoff}
-3. Continue from where the handoff says. Work in small steps. After each finished step, update {handoff}: what is done, what remains, where to resume. Keep it short.
+3. Continue from where the handoff says. Work in small steps. After each finished step, update {handoff}: what is done, what remains, where to resume. Keep it short. Save results as you go (after each part), not only at the end. If you start helpers (subagents), tell each one to write its results into a file of its own in {notes} as it goes, not only at the end, and give it the path.
 4. Keep one line `PROGRESS: <n>%` near the top of {handoff}: your honest estimate of how much of the WHOLE job is done (not of this installment). Quotient uses it to tell how many installments remain.
-5. If a tool call is refused because this installment is used up, update {handoff} and stop at once.
+5. Near the end of the cap Quotient refuses tools that start new work but still lets Write and Edit through: then save at once what you have found. If a tool call is refused because this installment is used up, update {handoff} and stop at once. If the handoff lists the work of helpers stopped in an earlier installment, use their files before searching again.
 6. When the WHOLE job is finished, write the line JOB DONE at the top of {handoff}.
 This installment's cap: {cap} weighted tokens. This is installment {number} of about {days}."""
 
@@ -3966,12 +4208,17 @@ def rate_new(args):
         "status": "open", "model": args.model, "usd_per_wt": None,
         "after": args.after or cfg["rate"]["after"], "template": template,
         # the chat that created the job: each installment's report comes back to it
-        "session": chat_id(),
+        "session": (getattr(args, "session", None) if isinstance(getattr(args, "session", None), str) else None) or chat_id(),
     }
+    apart = getattr(args, "apart", False) is True
+    if apart:
+        job["apart"] = True      # 1.1.1: done apart, now (rate apart)
     whole = expected_seconds(cfg, args.quote, "rate", factor) if args.quote else None
     job["predicted_seconds"] = round(whole) if whole else None
     each = installment_seconds(cfg, job)
     save_json(os.path.join(folder, "job.json"), job)
+    if apart:
+        return job
     timing = ("Expected time: about %s per installment%s (from the installments timed so far).\n" % (
         fmt_duration(each), ", about %s in all" % fmt_duration(whole) if whole else "") if each else "")
     out("Job '%s' ready: %s wt per installment%s, working in %s\nJob files: %s\n%s"
@@ -3980,6 +4227,62 @@ def rate_new(args):
             args.name, fmt(daily), ", about %d installment(s)" % days if days else "", job["dir"], folder, timing,
             run_cmd(), args.name, run_cmd(), args.name, run_cmd(), args.name,
             "Each installment's report will come back to this chat.\n" if job["session"] else ""))
+
+
+def start_detached(argv, log):
+    """Start this script with argv in the background, apart from the chat (it goes on when the reply ends), writing
+    to log. True if it started."""
+    exe, kw = sys.executable, {}
+    if os.name == "nt":
+        quiet = os.path.join(os.path.dirname(exe), "pythonw.exe")
+        exe = quiet if os.path.isfile(quiet) else exe
+        flags = [0x00000008 | 0x00000200 | 0x01000000, 0x00000008 | 0x00000200]  # detached, own group, out of the job
+    else:
+        flags, kw["start_new_session"] = [0], True
+    with open(log, "ab") as f:
+        for flag in flags:
+            try:
+                subprocess.Popen([exe, os.path.abspath(__file__)] + list(argv), stdin=subprocess.DEVNULL, stdout=f,
+                                 stderr=f, close_fds=True, cwd=home(), **(dict(kw, creationflags=flag) if flag else kw))
+                return True
+            except OSError:  # breaking away from the chat's job object may not be allowed: try without
+                continue
+    return False
+
+
+def rate_apart(args):
+    """'Apart, now' (1.1.1, the user's idea): the job starts at once as ONE installment in a separate session (claude -p)
+    whose cap is the whole corrected quote, so its measure is clean and the chat does not re-read it. No waking and no
+    sleep afterwards. Its report comes back to the chat that started it."""
+    args.apart, args.days, args.daily, args.after = True, 1, None, "nothing"
+    job = rate_new(args)
+    folder = rate_dir(args.name)
+    log = os.path.join(folder, "apart.log")
+    started = start_detached(["rate", "run", args.name], log)
+    each = installment_seconds(config(), job)
+    if not started:
+        out("Job '%s' is ready, but it could not be started in the background: run `%s rate run %s` in the background.\n"
+            % (args.name, run_cmd(), args.name))
+        return
+    out("Job '%s' started apart, now: one installment of up to %s wt (the whole corrected quote) in a separate Claude "
+        "Code session (claude -p), working in %s.%s It cannot be talked to while it works and asks no questions; a "
+        "command that needs a permission may stop it. Its report comes back to %s when it ends, and a notification "
+        "shows it. Log: %s\n" % (
+            args.name, fmt(job["daily_cap"]), job["dir"],
+            " Expected time: about %s." % fmt_duration(each) if each else "",
+            "this chat" if job.get("session") else "the first chat you write in", log))
+
+
+def bind_new_apart(sid, since):
+    """A job started apart from a chat that could not pass its id (Hermes): the newest one with no chat, created after
+    `since`, reports to sid from now on. True if one was bound."""
+    base = os.path.join(home(), "rate")
+    found = []
+    for folder_name in os.listdir(base) if os.path.isdir(base) else []:
+        job = load_json(os.path.join(base, folder_name, "job.json"), None)
+        if job and job.get("apart") and not job.get("session") and ts_epoch(job.get("created")) >= since:
+            found.append((ts_epoch(job["created"]), job["name"]))
+    return bind_chat(max(found)[1], sid) if found else False
 
 
 def rate_here(args):
@@ -4060,6 +4363,68 @@ def after_installment(how, cfg, sleep=None):
     return True
 
 
+def refused_by_cap(entries):
+    """Did Quotient's cap refuse a tool call in these transcript entries?"""
+    for e in entries:
+        content = (e.get("message") or {}).get("content") if e.get("type") == "user" else None
+        for b in content if isinstance(content, list) else []:
+            if isinstance(b, dict) and b.get("type") == "tool_result":
+                said = b.get("content")
+                if isinstance(said, list):
+                    said = " ".join(str(x.get("text") or "") for x in said if isinstance(x, dict))
+                if CAP_RE.search(str(said or "")):
+                    return True
+    return False
+
+
+def capped(transcript):
+    return refused_by_cap(read_jsonl(transcript))
+
+
+def helper_work(transcript):
+    """The helpers (subagents) of an installment: their files, what they did (web searches, pages fetched, files read)
+    and whether the cap stopped them. 15/10/2026: three helpers stopped at the cap had done about 120 web searches,
+    and nobody had written them down."""
+    base = transcript[:-6] if transcript.endswith(".jsonl") else transcript
+    helpers = []
+    for path in sorted(glob.glob(os.path.join(base, "subagents", "agent-*.jsonl"))):
+        entries = read_jsonl(path)
+        used = {}
+        for e in entries:
+            for b in (e.get("message") or {}).get("content") or [] if e.get("type") == "assistant" else []:
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    used[b.get("id") or len(used)] = b.get("name")
+        names = list(used.values())
+        meta = load_json(path[:-6] + ".meta.json", {})
+        helpers.append({"file": path, "what": str((meta if isinstance(meta, dict) else {}).get("description") or "")[:80],
+                        "searches": names.count("WebSearch"), "pages": names.count("WebFetch"),
+                        "reads": sum(names.count(n) for n in ("Read", "Grep", "Glob")),
+                        "stopped": refused_by_cap(entries)})
+    return helpers
+
+
+def save_helpers_note(folder, helpers, number, lang):
+    """At the end of an installment stopped before it saved everything: where its helpers left their work, added to
+    the handoff, so the next installment takes it up instead of doing it again."""
+    it = lang == "it"
+    notes = sorted(glob.glob(os.path.join(folder, "notes", "*")))
+    lines = ["", "## " + (("Lavoro degli aiutanti fermati (rata %d, scritto da Quotient)" if it else
+                           "Work of the stopped helpers (installment %d, written by Quotient)") % number),
+             ("La rata %d si è fermata prima di salvare tutto. Prima di rifare le ricerche di questi aiutanti, leggi i "
+              "loro file (righe JSON: i risultati degli strumenti tengono quello che hanno trovato)." if it else
+              "Installment %d stopped before it saved everything. Before doing these helpers' searches again, read "
+              "their files (JSON lines: the tool results hold what they found).") % number]
+    for h in helpers:
+        lines.append(("- %s: %d ricerche, %d pagine, %d letture%s. File: %s" if it else
+                      "- %s: %d searches, %d pages, %d reads%s. File: %s") % (
+            h["what"] or ("aiutante" if it else "helper"), h["searches"], h["pages"], h["reads"],
+            (", fermato dal tetto" if it else ", stopped by the cap") if h["stopped"] else "", h["file"]))
+    if notes:
+        lines.append(("File salvati in notes: %s" if it else "Files saved in notes: %s") % ", ".join(notes))
+    with open(os.path.join(folder, "HANDOFF.md"), "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def run_installment(args):
     cfg = config()
     folder = rate_dir(args.name)
@@ -4099,7 +4464,7 @@ def run_installment(args):
         out("Installment of '%s' shortened to %s wt to stay out of the reserve.\n" % (args.name, fmt(cap)))
     prompt = (rc["prompt_prefix"] + " " if rc["prompt_prefix"] else "") + RATE_PROMPT.format(
         task=os.path.join(folder, "TASK.md"), handoff=os.path.join(folder, "HANDOFF.md"),
-        cap=fmt(cap), number=len(runs) + 1, days=job.get("days") or "?")
+        notes=os.path.join(folder, "notes"), cap=fmt(cap), number=len(runs) + 1, days=job.get("days") or "?")
     hook = {"hooks": {"PreToolUse": [{"hooks": [{
         "type": "command", "command": sys.executable,
         "args": [os.path.abspath(__file__), "hook-pretool"], "timeout": 30}]}]}}
@@ -4112,6 +4477,7 @@ def run_installment(args):
     if job.get("usd_per_wt"):
         cmd += ["--max-budget-usd", "%.2f" % (cap * job["usd_per_wt"] * rc["usd_cap_margin"])]
     cmd += list(rc["extra_args"])
+    os.makedirs(os.path.join(folder, "notes"), exist_ok=True)   # where helpers save as they go (1.1.1)
     started = now_iso()
     os.environ["QUOTIENT_JOB"] = args.name  # for the installment's hooks: its job and its cap, only while it runs
     os.environ["QUOTIENT_CAP"] = str(cap)
@@ -4155,6 +4521,9 @@ def run_installment(args):
         low = said.lower()
         error = (LOGIN_ERROR if "logged in" in low or "/login" in said or "authenticate" in low or "oauth" in low
                  else (said.strip()[-300:] or "error"))
+    helpers = helper_work(transcript) if transcript else []
+    if helpers and not done and (error or any(h["stopped"] for h in helpers) or capped(transcript)):
+        save_helpers_note(folder, helpers, len(runs) + 1, cfg.get("lang"))
     finished_at = now_iso()
     expected_run = installment_seconds(cfg, job, cap)
     run = {"started": started, "finished": finished_at, "session": sid, "wt": wt, "calls": calls,
@@ -4163,7 +4532,9 @@ def run_installment(args):
            "progress": 100.0 if done else parse_progress(handoff),
            # 1.1.0: an installment works alone, so its time is its whole run
            "seconds": round(max(0.0, ts_epoch(finished_at) - ts_epoch(started))),
-           "predicted_seconds": round(expected_run) if expected_run else None}
+           "predicted_seconds": round(expected_run) if expected_run else None,
+           "helpers": len(helpers), "helpers_stopped": sum(1 for h in helpers if h["stopped"]),
+           "check": 1}   # 1.1.1: set against the week (measure_checks)
     # Read the job again: a chat may have changed it while the installment worked (`rate here`, `rate set`).
     job = load_json(os.path.join(folder, "job.json"), None) or job
     add_families(job, families)
@@ -4623,6 +4994,15 @@ def main(argv=None):
     p = rsub.add_parser("here", help="each installment's report comes to this chat")
     p.add_argument("name")
     p.add_argument("--session", help="the chat (Claude Code session id), when run from a terminal")
+    p = rsub.add_parser("apart", help="do a job apart, now: one installment in a separate session, started at once")
+    p.add_argument("name")
+    p.add_argument("--dir", default=".", help="folder the work happens in")
+    p.add_argument("--task", help="what the whole job is")
+    p.add_argument("--task-file", help="file holding what the whole job is")
+    p.add_argument("--quote", type=int, required=True, help="raw estimate of the chosen level, in weighted tokens")
+    p.add_argument("--model")
+    p.add_argument("--template", help="a ready-made way of working: book, research, code-review (see rate templates)")
+    p.add_argument("--session", help="the chat its report comes back to, when run from a terminal")
     p = rsub.add_parser("check", help="can a scheduled installment wake this PC, and is Claude Code logged in?")
     p.add_argument("--live", action="store_true", help="also one real call with the smallest model (a few cents)")
     rsub.add_parser("week", help="all open installment jobs against what is left of the week")
@@ -4688,7 +5068,7 @@ def main(argv=None):
     elif args.cmd == "config":
         cmd_config(args)
     elif args.cmd == "rate":
-        actions = {"new": rate_new, "run": rate_run, "status": rate_status, "schedule": rate_schedule,
+        actions = {"new": rate_new, "apart": rate_apart, "run": rate_run, "status": rate_status, "schedule": rate_schedule,
                    "once": rate_once, "stop": rate_stop, "after": rate_after, "here": rate_here, "check": rate_check,
                    "week": rate_week, "pause": rate_pause, "resume": rate_resume, "set": rate_set,
                    "templates": rate_templates}
