@@ -16,6 +16,7 @@ sys.path.insert(0, SCRIPTS)
 # The tests never read this PC's Hermes chats nor ask Anthropic for the real limits.
 os.environ["QUOTIENT_HERMES"] = "0"
 os.environ["QUOTIENT_LIMITS_LIVE"] = "0"
+os.environ["QUOTIENT_TIMER_WINDOW"] = "0"   # 1.1.0: and never open the stopwatch window
 import quotient as pv  # noqa: E402
 
 
