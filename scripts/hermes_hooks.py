@@ -75,7 +75,8 @@ def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None, timi
     chat = q.fmt(ctx * cfg["weights"]["cache_read"]) if ctx else "?"
     rate_part = " (installments x%.2f)" % rate if rate is not None else ""
     mid = q.mid_factor(cfg)
-    mid_part = " (quotes %s-%s x%.2f)" % (q.fmt(cfg["learn_mid_min"]), q.fmt(cfg["learn_min_raw"]), mid) if mid else ""
+    top = cfg.get("learn_min_raw") or 0
+    mid_part = " (quotes under %s x%.2f; from %s at least %s)" % (q.fmt(top), mid, q.fmt(top), q.fmt(top * mid)) if mid else ""
     measured = ""
     if steps:
         measured = "; a job takes about %d steps per 1M wt of work%s" % (
@@ -85,6 +86,12 @@ def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None, timi
     return ("[Quotient %s] %s · factor x%.2f%s%s · threshold %s wt · CHAT PART: each step re-reads about %s tokens "
             "(%s wt)%s. Big job: quote first (QUOTE / CHOICE / JOB: CLOSE in the last message)." % (
                 q.VERSION, limits, factor, mid_part, rate_part, q.fmt(cfg["threshold"]), q.fmt(ctx), chat, measured))
+
+
+def job_factor(q, cfg, raw):
+    """The factor a chosen level is corrected with, the medium band's included (16/10/2026: before, the jobs quoted in
+    Hermes took the plain factor, and the band was only shown in the line)."""
+    return q.factor_for(cfg, raw, {"factor": q.learning(cfg)["factor"], "factor_mid": q.mid_factor(cfg)})
 
 
 def hermes_protocol(q, cfg, factor):
@@ -278,7 +285,7 @@ def post_llm_call(q, payload):
                 # the first reply of a chat: nothing was measured before it, so what one call re-reads is taken
                 # from this reply (before, the chat part of such a job stayed at zero)
                 ctx = max(0, totals["cache_read_tokens"] - begin["cache_read_tokens"]) / (calls - start_calls)
-            factor = q.learning(cfg)["factor"]
+            factor = job_factor(q, cfg, pending[choice])
             # its time: from `timer start` if the agent started the stopwatch in this reply, else from the reply's start
             by_command = q.timer_started_in(t0, now)
             chat["job"] = {"session": sid, "started": start.get("at") or q.now_iso(), "options": pending,

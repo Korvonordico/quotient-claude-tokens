@@ -5,6 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 import quotient as q  # noqa: E402
+import hermes_hooks as h  # noqa: E402
 
 
 def job(raw, work, seconds, session="20261015_000000_aaaaaa"):
@@ -49,3 +50,31 @@ class MidBand(unittest.TestCase):
         self.assertEqual(q.factor_for(self.cfg, 700000, src), 1.8)
         self.assertEqual(q.factor_for(self.cfg, 2000000, src), 1.05)
         self.assertEqual(q.factor_for(self.cfg, 700000, {"factor": 1.05}), 1.05)
+
+
+class MidBandSteady(unittest.TestCase):
+    cfg = {"learn_min_raw": 1000000, "learn_mid_min": 500000}
+    src = {"factor": 1.02, "factor_mid": 1.84}
+
+    def test_small_quotes_take_the_medium_factor(self):
+        self.assertEqual(q.factor_for(self.cfg, 300000, self.src), 1.84)
+
+    def test_from_one_million_never_below_the_band(self):
+        self.assertAlmostEqual(1000000 * q.factor_for(self.cfg, 1000000, self.src), 1840000, delta=1)
+        self.assertAlmostEqual(1500000 * q.factor_for(self.cfg, 1500000, self.src), 1840000, delta=1)
+        self.assertEqual(q.factor_for(self.cfg, 3000000, self.src), 1.02)
+
+    def test_a_bigger_quote_is_never_corrected_smaller(self):
+        raws = sorted(list(range(100000, 4000001, 50000)) + [499999, 999999])
+        corrected = [round(r * q.factor_for(self.cfg, r, self.src)) for r in raws]
+        self.assertEqual(corrected, sorted(corrected))
+
+    def test_hermes_jobs_use_it(self):
+        orig = q.learning, q.mid_factor
+        q.learning = lambda cfg, kind="chat": {"factor": 1.02}
+        q.mid_factor = lambda cfg: 1.84
+        try:
+            self.assertEqual(h.job_factor(q, self.cfg, 700000), 1.84)
+            self.assertEqual(h.job_factor(q, self.cfg, 3000000), 1.02)
+        finally:
+            q.learning, q.mid_factor = orig

@@ -1000,14 +1000,24 @@ def claude_runs_text(cfg):
 
 def mid_text(cfg):
     m = mid_factor(cfg)
-    return "; for quotes from %s to %s wt x%.2f" % (fmt(cfg["learn_mid_min"]), fmt(cfg["learn_min_raw"]), m) if m else ""
+    if not m:
+        return ""
+    top = cfg["learn_min_raw"]
+    return "; for quotes under %s wt x%.2f, and from %s wt up never under %s wt" % (fmt(top), m, fmt(top), fmt(top * m))
 
 
 def factor_for(cfg, raw, source):
-    """The factor a chosen level is corrected with: the medium jobs' own one when its quote is in that band."""
-    if source.get("factor_mid") and mid_band(cfg, raw):
-        return source["factor_mid"]
-    return source.get("factor", 1.0)
+    """The factor a chosen level is corrected with. With the medium band on and its factor known: under learn_min_raw
+    the medium factor, smaller quotes too (they teach no factor: the nearest learned one); from learn_min_raw up the
+    larger of the factor and what keeps the corrected estimate from falling under the one just below learn_min_raw.
+    Francesco, 16/10/2026: with plain bands a quote of 999k was corrected to 1.84M and one of 1M to 1.05M."""
+    mid, big = source.get("factor_mid"), source.get("factor", 1.0)
+    top = cfg.get("learn_min_raw") or 0
+    if not mid or not cfg.get("learn_mid_min") or not top:
+        return big
+    if (raw or 0) < top:
+        return mid
+    return max(big, top * mid / raw)
 
 
 def factor_from(jobs, window):
