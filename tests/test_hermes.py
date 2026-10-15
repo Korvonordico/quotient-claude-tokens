@@ -108,7 +108,9 @@ class HermesHooks(unittest.TestCase):
         payload = {"hook_event_name": event, "session_id": "chat1", "extra": {"assistant_response": response or "",
                                                                                "model": "claude-opus-5-5"}}
         with mock.patch.dict(os.environ, {"QUOTIENT_HOME": self.q, "HERMES_HOME": self.h, "QUOTIENT_LIMITS_LIVE": "0",
-                                          "QUOTIENT_SHARE": "0"}):
+                                          "QUOTIENT_SHARE": "0",
+                                          # 1.1.4: never this PC's Claude Code settings (a job's environment)
+                                          "QUOTIENT_CLAUDE_DIR": os.path.join(self.q, "no-claude-dir")}):
             r = subprocess.run([sys.executable, os.path.join(HERE, "..", "scripts", "quotient.py"), "hermes-hook"],
                                input=json.dumps(payload), capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr)

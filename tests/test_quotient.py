@@ -17,6 +17,8 @@ sys.path.insert(0, SCRIPTS)
 os.environ["QUOTIENT_HERMES"] = "0"
 os.environ["QUOTIENT_LIMITS_LIVE"] = "0"
 os.environ["QUOTIENT_TIMER_WINDOW"] = "0"   # 1.1.0: and never open the stopwatch window
+# 1.1.4: nor this PC's Claude Code settings (the environment of a job: plugins, MCP servers, hooks)
+os.environ["QUOTIENT_CLAUDE_DIR"] = os.path.join(HERE, "no-claude-dir")
 import quotient as pv  # noqa: E402
 
 
