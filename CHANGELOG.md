@@ -2,6 +2,18 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [Unreleased]
+
+### Added
+
+- **Claude Code runs started from Hermes count in the job** (`claude_runs`, off by default). A SessionStart hook (`claude-link`, and the plugin's own SessionStart) records which Hermes chat started each Claude Code session, from the `HERMES_SESSION_ID` Hermes passes to everything it starts. When a quoted job closes, what those sessions spent while it was open (helpers included) is added to its cost and work, reported apart ("of which ... Claude Code runs"), and the factor learns from the whole; the quote protocol asks to put those runs in the estimate. Installments are left out (their run drops `HERMES_SESSION_ID` and carries `QUOTIENT_JOB`); sessions seen at their start without a Hermes id (scheduled tasks, the user's own chats) never count. `claude_runs_marker` also counts the `claude -p` sessions never seen at their start, by the first words of their prompt.
+- **Which jobs teach the factor** (`learn_min_raw`, `learn_max_speed`, off by default): chat jobs quoted under `learn_min_raw` are left out (installments always teach), and so are jobs whose work ran faster than `learn_max_speed` wt a second, a measuring error rather than a job. The speed is the chat's own: Claude Code runs work in parallel.
+- **A factor of their own for medium quotes** (`learn_mid_min`, off by default): chat jobs quoted from `learn_mid_min` up to `learn_min_raw` learn their own factor, and a chosen level in that band is corrected with it; the Hermes line shows it.
+
+### Known issues
+
+- With the medium band on, the corrected estimate is not monotonic: a quote just under `learn_min_raw` can be corrected above one just over it.
+
 ## [1.1.2] - 2026-10-15
 
 ### Added

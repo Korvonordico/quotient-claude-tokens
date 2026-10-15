@@ -197,6 +197,19 @@ def _close(q, cfg, chat, totals, calls, how):
             st["hidden"] = True
             q.save_json(q.timer_path(), st)
         return None
+    if cfg.get("claude_runs"):
+        # hermes branch: the Claude Code runs this chat started while the job was open are part of its cost
+        try:
+            runs = q.claude_runs_of(job["session"], float(job.get("begin") or 0), time.time(), cfg)
+        except Exception as e:
+            runs = None
+            q.append_jsonl(os.path.join(q.home(), "hermes-errors.jsonl"),
+                           {"ts": q.now_iso(), "event": "claude_runs", "error": repr(e)})
+        if runs and runs["wt"]:
+            row["actual"] += runs["wt"]
+            row["claude"] = runs["wt"]
+            row["claude_runs"] = len(runs["runs"])
+            q.add_families(row, runs["families"])
     q.close_job(row, cfg)
     chat["last_closed"] = q.closed_note(row)
     return row

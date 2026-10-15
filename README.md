@@ -81,6 +81,19 @@ If you also use [Hermes Agent](https://github.com/NousResearch/hermes-agent) wit
 
 From then on Hermes gives Claude the quote protocol and the real limits at each message, measures quoted jobs from `CHOICE:` to `JOB: CLOSE` (their cost and their working time), and suggests `/compress` when a chat has grown so long that every step mostly re-reads it (at most twice per chat, a day apart). Quotient reads Hermes' token counters from its local session store, read-only: numbers, model and chat title, never the text. Only Claude chats count against the plan. `quotient.py hermes` shows the Hermes numbers; `config hermes false` turns this off. Installments still run with Claude Code.
 
+**Claude Code runs started from Hermes (optional).** A Hermes job often has Claude Code do part of the work (`claude -p`, directly or through a script), and Hermes' counters do not see those runs. To count them in the job, set `"claude_runs": 1` in `~/.quotient/config.json` and add a SessionStart hook to Claude Code's `~/.claude/settings.json` (the Quotient plugin records the same link itself from its next release):
+
+```json
+"hooks": {
+  "SessionStart": [
+    {"hooks": [{"type": "command", "command": "python",
+                "args": ["<path>/scripts/quotient.py", "claude-link"], "timeout": 10}]}
+  ]
+}
+```
+
+Hermes gives every program it starts the id of its chat (`HERMES_SESSION_ID`). The hook writes one line per Claude Code session in `~/.quotient/claude-links.jsonl`: which Hermes chat started it, or none. When a job closes, Quotient adds what the sessions started by that chat spent while the job was open (their helpers included), and the report says how much of the cost they were; the factor learns from the whole, so the quote protocol asks to put those runs in the estimate. Installments are left out, since they measure themselves; scheduled tasks and the sessions you open yourself never count. With `"claude_runs_marker": "<text>"`, the `claude -p` sessions the hook never saw (from before it, or with your hooks off) also count when their first prompt starts with that text.
+
 ## How a big job goes
 
 1. You ask for something big, or you say "this is a big job".

@@ -80,13 +80,20 @@ DEFAULTS = {
     "chars_per_token": 3.5,
     # How many recent jobs the correction factor is learned from.
     "history_window": 20,
-    # Which finished jobs teach the factor (1.1.3). 0 = off. learn_min_raw: chat jobs quoted under this many wt are
+    # Which finished jobs teach the factor (hermes branch). 0 = off. learn_min_raw: chat jobs quoted under this many wt are
     # left out (installments always count). learn_max_speed: a job whose work went faster than this many wt a
     # second is a measuring error (a long chat re-read counted as work), not a real job.
     "learn_min_raw": 0,
     "learn_max_speed": 0,
     # learn_mid_min: chat jobs quoted from this many wt up to learn_min_raw learn a factor of their own (0 = off).
     "learn_mid_min": 0,
+    # Claude Code runs (claude -p) a Hermes chat starts, counted in its quoted jobs (hermes branch; 1 = on). A SessionStart
+    # hook records which Hermes chat started each Claude Code session (Hermes gives HERMES_SESSION_ID to all it
+    # starts); when a job closes, what those sessions spent while it was open is added to its cost.
+    # claude_runs_marker: also count the `claude -p` sessions the hook never saw whose first prompt starts with
+    # this text (runs from before the hook, or with the user's hooks off); "" = off.
+    "claude_runs": 0,
+    "claude_runs_marker": "",
     # Below this many measured jobs the factor is shown as uncertain.
     "min_jobs": 5,
     # A quote nobody chose is dropped after this many turns.
@@ -616,6 +623,111 @@ def work_of(job):
     return max(0, (job.get("actual") or 0) - (job.get("chat") or 0))
 
 
+# ---------------------------------------------------------------- Claude Code runs a Hermes chat starts (hermes branch)
+
+RATE_SIGN = "You are doing ONE installment of a bigger job"   # the first words of RATE_PROMPT
+
+
+def claude_links_path():
+    return os.path.join(home(), "claude-links.jsonl")
+
+
+def record_claude_link(data, cfg=None):
+    """At the start of any Claude Code session: which Hermes chat started it, if any. Hermes passes
+    HERMES_SESSION_ID to everything it starts (scripts, `claude -p`); an installment has QUOTIENT_JOB. Sessions with
+    neither get a line too: a session seen here and not started by Hermes (a scheduled task, the user's own chat) is
+    then never counted, not even by the marker."""
+    cfg = cfg or config()
+    sid = (data or {}).get("session_id")
+    if not cfg.get("claude_runs") or not sid:
+        return
+    append_jsonl(claude_links_path(), {
+        "ts": now_iso(), "session": sid, "transcript": data.get("transcript_path"), "source": data.get("source"),
+        "hermes": os.environ.get("HERMES_SESSION_ID") or None, "rate": os.environ.get("QUOTIENT_JOB") or None})
+
+
+def claude_links():
+    """Claude Code session -> what its start records say (a field once set stays: a later resume does not erase it)."""
+    links = {}
+    for r in read_jsonl(claude_links_path()):
+        sid = r.get("session")
+        if not sid:
+            continue
+        link = links.setdefault(sid, {"session": sid})
+        for key in ("hermes", "rate", "transcript"):
+            if r.get(key) and not link.get(key):
+                link[key] = r[key]
+    return links
+
+
+def first_prompt(path):
+    """The first prompt of a `claude -p` session (its entries say entrypoint sdk-cli), or None for any other."""
+    try:
+        with open(path, "rb") as f:
+            for n, line in enumerate(f):
+                if n > 200:
+                    break
+                try:
+                    e = json.loads(line.decode("utf-8", "replace"))
+                except ValueError:
+                    continue
+                if not isinstance(e, dict) or e.get("type") != "user" or e.get("isSidechain"):
+                    continue
+                if e.get("entrypoint") != "sdk-cli":
+                    return None
+                content = (e.get("message") or {}).get("content")
+                if isinstance(content, list):
+                    content = " ".join(str(b.get("text") or "") for b in content if isinstance(b, dict))
+                return str(content or "")
+    except OSError:
+        pass
+    return None
+
+
+def claude_run_cost(path, lo, hi, weights):
+    """What one Claude Code session spent from lo to hi (epoch seconds), its helpers (subagents) included."""
+    entries = [e for e in read_jsonl(path) + subagent_entries(path, None)
+               if e.get("type") == "assistant" and lo <= ts_epoch(e.get("timestamp")) <= hi]
+    return cost_of(entries, weights)[0], families_of(entries, weights)
+
+
+def claude_runs_of(hermes_sid, lo, hi, cfg, root=None):
+    """The Claude Code sessions a Hermes chat started and what they spent from lo to hi (epoch seconds): the ones
+    linked at their start to this chat, installments left out (they measure themselves); with claude_runs_marker,
+    also the `claude -p` sessions never seen at their start whose first prompt begins with it."""
+    root = root or os.path.join(os.path.expanduser("~"), ".claude", "projects")
+    links = claude_links()
+    found = {}
+    for sid, link in links.items():
+        if link.get("hermes") == hermes_sid and not link.get("rate"):
+            path = link.get("transcript")
+            path = path if path and os.path.exists(path) else find_transcript(sid)
+            if path:
+                found[path] = "link"
+    marker = cfg.get("claude_runs_marker") or ""
+    if marker:
+        for path in glob.glob(os.path.join(root, "*", "*.jsonl")):
+            if path in found or os.path.basename(path)[:-6] in links:
+                continue
+            try:
+                if os.path.getmtime(path) < lo:
+                    continue
+            except OSError:
+                continue
+            prompt = first_prompt(path)
+            if prompt is not None and prompt.lstrip().startswith(marker) and RATE_SIGN not in prompt:
+                found[path] = "marker"
+    total, families, runs = 0, {}, []
+    for path, how in sorted(found.items()):
+        wt, fam = claude_run_cost(path, lo, hi, cfg["weights"])
+        if wt:
+            total += wt
+            for k, v in fam.items():
+                families[k] = families.get(k, 0) + v
+            runs.append({"session": os.path.basename(path)[:-6], "wt": wt, "by": how})
+    return {"wt": total, "families": families, "runs": runs}
+
+
 # ---------------------------------------------------------------- parsing
 
 def parse_amount(number, suffix):
@@ -860,7 +972,8 @@ def teaches(job, cfg):
 
 def too_fast(job, cfg):
     seconds = job.get("seconds") or 0
-    return bool(cfg.get("learn_max_speed") and seconds > 0 and work_of(job) / seconds > cfg["learn_max_speed"])
+    own = work_of(job) - (job.get("claude") or 0)   # hermes branch: Claude Code runs work in parallel: the chat's own pace
+    return bool(cfg.get("learn_max_speed") and seconds > 0 and own / seconds > cfg["learn_max_speed"])
 
 
 def mid_band(cfg, raw):
@@ -869,7 +982,7 @@ def mid_band(cfg, raw):
 
 
 def mid_factor(cfg):
-    """The medium jobs' own factor (1.1.3; Francesco, 15/10/2026): with only the jobs quoted from 1M up teaching the
+    """The medium jobs' own factor (hermes branch; Francesco, 15/10/2026): with only the jobs quoted from 1M up teaching the
     factor, the ones quoted between 500k and 1M (about x1.8 on the median of 10) would be corrected by x1.05. None
     until there are min_jobs of them."""
     if not (cfg.get("learn_mid_min") and cfg.get("learn_min_raw")):
@@ -877,6 +990,12 @@ def mid_factor(cfg):
     jobs = [j for j in finished_jobs() if kind_of(j) == "chat" and mid_band(cfg, j.get("raw_estimate"))
             and not too_fast(j, cfg)]
     return factor_from(jobs, cfg["history_window"]) if len(jobs) >= cfg["min_jobs"] else None
+
+
+def claude_runs_text(cfg):
+    """For the protocol (hermes branch): the Claude Code runs a job starts are in its measured cost, so in its estimate."""
+    return (" The Claude Code runs (claude -p) the job starts, directly or through a script, are counted in its cost "
+            "when it closes: put them in the estimate." if cfg.get("claude_runs") else "")
 
 
 def mid_text(cfg):
@@ -1078,6 +1197,10 @@ def closed_note(row):
     text = ("The last quoted job (level '%s') is closed: real cost %s wt (work %s + chat part %s) against a corrected "
             "estimate of %s wt of work" % (row.get("choice"), fmt(row.get("actual") or 0), fmt(work_of(row)),
                                            fmt(row.get("chat") or 0), fmt(corrected)))
+    if row.get("claude"):
+        n = row.get("claude_runs") or 1   # hermes branch: the Claude Code runs it started, inside the work
+        text += "; of which %s wt in %d Claude Code run%s it started (claude -p)" % (
+            fmt(row["claude"]), n, "" if n == 1 else "s")
     if row.get("aside"):
         # 1.1.1: the replies about something else are counted apart: say the three numbers
         text += ("; the messages in between (%d repl%s about something else) are counted apart: say 'work %s wt · "
@@ -1592,7 +1715,7 @@ def protocol(cfg, factor):
         "[Quotient %s] Quote protocol for this session. Unit: weighted tokens (wt) = input + 1.25 x cache write (2 x for 1-hour cache) + 0.1 x cache read + 5 x output, the ratios of the API prices." % VERSION,
         "WHEN: before work that will likely cost more than the threshold (%s wt), and whenever the user calls a job big or asks for a quote. Do not start the work: quote first. Under the threshold, if nobody asks, just work." % fmt(cfg["threshold"]),
         "HOW:",
-        "1) Estimate the WORK at three levels sized to it: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate. Levels: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f%s; for installments x%.2f). The chat part of each level = its steps x the per-step re-read of the CHAT PART line: take the steps from the measured steps per 1M wt of work (on the corrected work) when Quotient gives them, plus one per message you expect from the user; do not guess them." % (fmt(big), factor, mid_text(cfg), learning(cfg, "rate")["factor"]),
+        "1) Estimate the WORK at three levels sized to it: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate.%s Levels: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f%s; for installments x%.2f). The chat part of each level = its steps x the per-step re-read of the CHAT PART line: take the steps from the measured steps per 1M wt of work (on the corrected work) when Quotient gives them, plus one per message you expect from the user; do not guess them." % (claude_runs_text(cfg), fmt(big), factor, mid_text(cfg), learning(cfg, "rate")["factor"]),
         "2) Write one machine line with your RAW estimates, always in English: QUOTE: essential=<n> good=<n> max=<n>",
         "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate (with a CHAT PART line: work + chat part = total), and, when the Quotient line gives the working time per 1M wt of work, its expected TIME (its corrected work x that time, e.g. 'circa 25 minuti'; for installments, the time of each day). 'Ritmo'/'Pace': all today, plus two installment plans that fit the job, plus 'a parte, adesso'/'apart, now' (the job starts at once as one installment in a separate session: its measure is clean and this chat does not re-read it; say in brief what it costs the user: they cannot talk to it while it works, the task must be written well, it asks no questions halfway, a command that needs a permission may stop it), plus 'in a new chat' when the CHAT PART line offers it. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
         "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
@@ -2002,9 +2125,19 @@ def cmd_setup(args):
             "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], "on" if share_enabled(cfg) else "off"))
 
 
+def hook_claude_link():
+    """SessionStart as a user hook (hermes branch): the link of hook_session, for a Claude Code whose Quotient plugin is
+    older or missing."""
+    record_claude_link(read_stdin_json())
+
+
 def hook_session():
     """SessionStart: the full protocol, once per session instead of at every message."""
     data = read_stdin_json()
+    try:
+        record_claude_link(data)   # hermes branch: before the installment's early return, so an installment is marked too
+    except Exception:
+        pass
     if os.environ.get("QUOTIENT_JOB"):
         return
     sync_plugin_options()
@@ -4811,6 +4944,7 @@ def run_installment(args):
     cmd += list(rc["extra_args"])
     os.makedirs(os.path.join(folder, "notes"), exist_ok=True)   # where helpers save as they go (1.1.1)
     started = now_iso()
+    os.environ.pop("HERMES_SESSION_ID", None)   # hermes branch: an installment measures itself, not in the chat that started it
     os.environ["QUOTIENT_JOB"] = args.name  # for the installment's hooks: its job and its cap, only while it runs
     os.environ["QUOTIENT_CAP"] = str(cap)
     try:
@@ -5258,7 +5392,7 @@ def main(argv=None):
     parser.add_argument("--version", action="version", version=VERSION)
     sub = parser.add_subparsers(dest="cmd")
     for name in ("hook-session", "hook-prompt", "hook-stop", "hook-pretool", "hook-precompact", "export", "statusline",
-                 "commands"):
+                 "commands", "claude-link"):
         sub.add_parser(name)
     p = sub.add_parser("report", help="estimates against real costs, Quotient's own weight, the plan limits")
     p.add_argument("--html", action="store_true", help="a page with charts, opened in the browser")
@@ -5354,7 +5488,8 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
     hooks = {"hook-session": hook_session, "hook-prompt": hook_prompt,
-             "hook-stop": hook_stop, "hook-pretool": hook_pretool, "hook-precompact": hook_precompact}
+             "hook-stop": hook_stop, "hook-pretool": hook_pretool, "hook-precompact": hook_precompact,
+             "claude-link": hook_claude_link}
     if args.cmd in hooks and os.environ.get("QUOTIENT_CHECK"):
         return  # the live test of `rate check` is not a chat: nothing to measure or to tell
     if args.cmd in hooks:

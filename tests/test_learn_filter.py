@@ -1,4 +1,4 @@
-"""1.1.3: which finished jobs teach the correction factor (Francesco, 15/10/2026)."""
+"""hermes branch: which finished jobs teach the correction factor (Francesco, 15/10/2026)."""
 import os
 import sys
 import unittest

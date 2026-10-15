@@ -81,6 +81,19 @@ Se usi anche [Hermes Agent](https://github.com/NousResearch/hermes-agent) con il
 
 Da lì in poi Hermes dà a Claude il protocollo del preventivo e i limiti veri a ogni messaggio, misura i lavori con preventivo da `CHOICE:` a `JOB: CLOSE` (il costo e il tempo di lavoro), e propone `/compress` quando una chat è diventata così lunga che ogni passo è soprattutto rilettura (al massimo due volte per chat, a un giorno di distanza). Quotient legge i contatori dei token di Hermes dal suo archivio locale, in sola lettura: numeri, modello e titolo della chat, mai il testo. Sul piano contano solo le chat con Claude. `quotient.py hermes` mostra i numeri di Hermes; `config hermes false` spegne tutto questo. Le rate girano comunque con Claude Code.
 
+**I lavori di Claude Code avviati da Hermes (facoltativo).** Un lavoro in Hermes spesso fa fare una parte a Claude Code (`claude -p`, direttamente o da uno script), e i contatori di Hermes non li vedono. Per contarli nel lavoro, metti `"claude_runs": 1` in `~/.quotient/config.json` e aggiungi un hook SessionStart in `~/.claude/settings.json` di Claude Code (il plugin di Quotient segna lo stesso collegamento da solo dalla prossima versione):
+
+```json
+"hooks": {
+  "SessionStart": [
+    {"hooks": [{"type": "command", "command": "python",
+                "args": ["<percorso>/scripts/quotient.py", "claude-link"], "timeout": 10}]}
+  ]
+}
+```
+
+Hermes dà a ogni programma che avvia il numero della sua chat (`HERMES_SESSION_ID`). L'hook scrive una riga per ogni sessione di Claude Code in `~/.quotient/claude-links.jsonl`: quale chat di Hermes l'ha avviata, o nessuna. Quando un lavoro si chiude, Quotient aggiunge quello che le sessioni avviate da quella chat hanno speso mentre il lavoro era aperto (compresi i loro aiutanti), e il resoconto dice quanta parte del costo erano; il fattore impara dal totale, quindi il protocollo del preventivo chiede di mettere quei lavori nella stima. Le rate restano fuori, perché si misurano da sole; le attività pianificate e le sessioni che apri tu non contano mai. Con `"claude_runs_marker": "<testo>"` contano anche le sessioni `claude -p` che l'hook non ha mai visto (di prima, o con i tuoi hook spenti) quando il loro primo prompt comincia con quel testo.
+
 ## Come va un lavoro grande
 
 1. Chiedi una cosa grande, oppure dici «è un lavoro grosso».
