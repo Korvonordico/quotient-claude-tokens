@@ -89,7 +89,10 @@ def hermes_protocol(q, cfg, factor):
     """Quotient's protocol, adapted: in Hermes the choice window is the clarify tool and there are no slash commands."""
     text = q.protocol(cfg, factor)
     text = text.replace("call the AskUserQuestion tool", "call the clarify tool (one call, both questions)")
-    return text + ("In Hermes: when the quoted job is finished (or abandoned), write `JOB: CLOSE` (or `JOB: DROP` if abandoned) "
+    return text + ("In Hermes: run quote-table with `--context <the tokens of the CHAT PART line>`, so it knows what each "
+                   "step re-reads. The clarify tool, too, shows 4 choices at most per question and adds 'Other' by "
+                   "itself: 1 to 4 options, and say what 'Other' is for. "
+                   "When the quoted job is finished (or abandoned), write `JOB: CLOSE` (or `JOB: DROP` if abandoned) "
                    "in the last message, so Quotient measures it. Installments (rate) run with Claude Code, and so does a "
                    "job done apart, now (`rate apart`: Claude Code's `claude -p`, on the same plan): say so in the window. "
                    "Their reports come back to this chat.\n")
@@ -122,6 +125,9 @@ def pre_llm_call(q, payload):
         text = hermes_protocol(q, cfg, factor) + short_line(q, cfg, factor, ctx, rate, steps, steps_rate, timing)
     else:
         text = short_line(q, cfg, factor, ctx, rate, steps, steps_rate, timing)
+    incomplete = chat.pop("quote_incomplete", None)
+    if incomplete:                       # 1.1.3: the quote of the reply before lacked numbers: give it again first
+        text += "\n" + q.incomplete_line(incomplete)
     open_job = chat.get("job")
     # Long chats (the lesson of M33: re-reading the chat is most of the cost). Two notices at most, a day apart.
     big = (cfg.get("chat") or {}).get("hermes_compress_at", 250000)
@@ -186,6 +192,8 @@ def _close(q, cfg, chat, totals, calls, how):
            "begin": job.get("begin"), "week_start": job.get("week_start")}
     if aside:
         row.update(aside=round(aside), aside_turns=job.get("aside_turns") or 1)
+    if job.get("custom"):
+        row["custom"] = True
     if job.get("seconds") is not None:
         row["seconds"] = job["seconds"]
         row["predicted_seconds"] = job.get("predicted_seconds")
@@ -212,6 +220,7 @@ def post_llm_call(q, payload):
     totals, calls = _counters(sid)
     quote = q.parse_quote(text)
     choice = q.parse_choice(text)
+    custom = q.parse_custom(text)        # 1.1.3: a choice of the user's own, with the agent's estimate for it
     pace = q.parse_pace(text)
     move = parse_end(text)
     closed = None
@@ -225,7 +234,14 @@ def post_llm_call(q, payload):
         return max(0.0, now - since) if secs is None else secs
 
     if q.same_quote(quote, choice, chat.get("job") or chat.get("closed")):
-        quote = choice = None
+        quote = choice = custom = None
+    if quote:
+        # 1.1.3: a quote the user saw without the time or the shares of a level is given again at the next message
+        gaps = q.quote_gaps(cfg, quote, text)
+        if gaps:
+            chat["quote_incomplete"] = gaps
+        else:
+            chat.pop("quote_incomplete", None)
     aside = bool(q.ASIDE_RE.search(text)) and not quote and not move
     if chat.get("job"):
         job = chat["job"]
@@ -250,7 +266,8 @@ def post_llm_call(q, payload):
         # 14/10/2026: a job chosen for installments (or for a new chat) is not done in this chat: measuring the chat
         # as that job counted the wrong thing. The installments measure themselves.
         elsewhere = pace not in (None, "today") or bool(q.INSTALLMENT_RE.match(choice))
-        if choice in q.DECLINE or choice not in pending or elsewhere:
+        raw = custom[1] if custom and pending else pending.get(choice)
+        if choice in q.DECLINE or not raw or elsewhere:
             chat.pop("quote", None)
         else:
             # 14/10/2026: the CHOICE line comes in the last message of a reply, after that reply's work, so the job
@@ -267,11 +284,13 @@ def post_llm_call(q, payload):
             # its time: from `timer start` if the agent started the stopwatch in this reply, else from the reply's start
             by_command = q.timer_started_in(t0, now)
             chat["job"] = {"session": sid, "started": start.get("at") or q.now_iso(), "options": pending,
-                           "choice": choice, "raw_estimate": pending[choice], "factor": factor,
+                           "choice": choice, "raw_estimate": raw, "factor": factor,
                            "start": begin, "start_calls": start_calls, "ctx": ctx,
                            "model": extra.get("model") or "", "seconds": worked(by_command or t0),
-                           "predicted_seconds": q.expected_seconds(cfg, pending[choice], factor=factor),
+                           "predicted_seconds": q.expected_seconds(cfg, raw, factor=factor),
                            "begin": round(t0, 1), "week_start": q.week_used()}   # 1.1.1: for the check
+            if custom:
+                chat["job"]["custom"] = True   # 1.1.3: measured against the agent's estimate of the user's own choice
             created = True
             chat.pop("quote", None)
             if move and not closed:      # chosen, done and closed in the same reply

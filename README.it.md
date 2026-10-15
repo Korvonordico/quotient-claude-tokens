@@ -20,8 +20,8 @@ Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol d
 
 ## Cosa fa
 
-- **Il preventivo prima di un lavoro grande.** Sopra una soglia che scegli tu (300.000 token pesati di serie), Claude non comincia. Una finestra di scelta propone *essenziale*, *buono* o *massimo*, ognuno con quello che comprende e il suo costo stimato.
-- **Il ritmo lo scegli tu.** Tutto oggi, a parte adesso (in una sessione separata, che parte subito), un piano in giorni con la quantità al giorno, oppure il ritmo che scrivi tu.
+- **Il preventivo prima di un lavoro grande.** Sopra una soglia che scegli tu (300.000 token pesati di serie), Claude non comincia. Una finestra di scelta propone da 1 a 4 livelli, di più per un lavoro più grande, ognuno con quello che comprende, il suo costo stimato, il suo tempo e la sua parte dei limiti. Questi numeri li calcola Quotient, così non ne manca nessuno. Il campo libero è per una scelta tua, per esempio un misto di due livelli.
+- **Il ritmo lo scegli tu.** Tutto oggi, a parte adesso (in una sessione separata, che parte subito), un piano in giorni con la quantità al giorno e l'ora (piani più lunghi per i lavori più grandi), oppure il ritmo che scrivi tu, come «5 giorni alle 2:00».
 - **Il costo vero, dopo**, letto dai file di Claude Code e messo accanto alla stima.
 - **Anche quanto tempo.** Ogni livello dice anche quanto dovrebbe durare il lavoro, imparato dai tuoi lavori finiti. Quotient legge il tempo da quello che Claude Code e Hermes registrano già (nessuna finestra in più), conta solo il tempo di lavoro, e alla fine mette il tempo vero accanto a quello previsto. Dopo il primo milione di token pesati di un lavoro, il suo stesso ritmo ricalcola quello che manca.
 - **Un fattore di correzione.** Ogni preventivo viene corretto in base a quanto hanno sbagliato quelli di prima. Finché non hai 5 lavori tuoi, parte da una media condivisa di lavori veri (solo numeri, vedi [Privacy](#privacy)).
@@ -84,12 +84,14 @@ Da lì in poi Hermes dà a Claude il protocollo del preventivo e i limiti veri a
 ## Come va un lavoro grande
 
 1. Chiedi una cosa grande, oppure dici «è un lavoro grosso».
-2. Claude non comincia. Si apre una finestra con due domande:
-   - **Livello**: essenziale, buono o massimo, con la stima e il tempo previsto di ognuno. Per un lavoro da circa 500.000 token: massimo 500.000, buono 250.000, essenziale 100.000.
-   - **Ritmo**: tutto oggi, a parte adesso, oppure per esempio «2 giorni, circa 250.000 al giorno» o «5 giorni, circa 100.000 al giorno». Nel campo libero scrivi il tuo, come «50.000 al giorno».
+2. Claude non comincia. Stima il lavoro di ogni livello, e il resto lo calcola Quotient (`quote-table`): per ogni livello il lavoro, la rilettura della chat, il totale, il tempo previsto e la parte delle 5 ore e della settimana, con quello che resterebbe. Claude mostra quella tabella così com'è, poi si apre una finestra con due domande:
+   - **Livello**: quanti livelli dipende dalla grandezza del lavoro. Fino a circa 300.000 token pesati un livello; fino a 1 milione due (buono, massimo); fino a 5 milioni tre (essenziale, buono, massimo); oltre, quattro (essenziale, buono, completo, massimo). Le grandezze si possono cambiare (`config levels.two 2000000`).
+   - **Ritmo**: al massimo 4 scelte. Per un lavoro piccolo: tutto oggi, a parte adesso, 2 o 3 giorni. Per uno grande: tutto oggi e piani da 3, 5 o 7 giorni. Ogni piano dice la quantità al giorno, l'ora (le 03:00 se non ne scegli un'altra, `config rate.time 02:00`), quanto dura ogni rata e la sua parte dei limiti.
+   - La finestra aggiunge da sola un **campo libero** (Altro). Per il livello, scrivi una scelta tua, per esempio «il buono, più le prove del massimo»: Claude la stima e il lavoro si misura contro quella stima. Per il ritmo, scrivi quanti giorni, quanto al giorno e a che ora, per esempio «5 giorni alle 2:00» o «50.000 al giorno».
+   Se un preventivo ti arriva senza il tempo o le parti dei limiti di un livello, Quotient se ne accorge alla fine della risposta, e al tuo messaggio dopo Claude te lo dice e ti ridà il preventivo completo.
 3. Se scegli **tutto oggi**, Claude fa il lavoro. Quotient misura quanto è costato davvero e quanto è durato, e Claude te lo dice al tuo messaggio dopo. Se mentre il lavoro va scrivi di altro, Claude risponde e quella risposta si conta a parte: alla fine hai lavoro, messaggi di mezzo e totale. Scrivere durante il lavoro aggiunge al suo costo, e Claude lo dice dopo la scelta.
 4. Se scegli **a parte, adesso**, il lavoro parte subito come una rata sola in una sessione separata di Claude Code, e il suo resoconto torna nella chat quando finisce. La sua misura è pulita e la chat non lo rilegge, ma mentre lavora non ci puoi parlare: il compito va scritto bene, non fa domande a metà, e un comando che chiede un permesso lo può fermare. Anche da Hermes, gira con Claude Code.
-5. Se scegli **le rate**, una seconda finestra ti chiede quando parte la prima e a che ora partono le altre.
+5. Se scegli **le rate**, una seconda finestra ti chiede quando parte la prima e, se il ritmo non l'ha già detto, a che ora partono le altre.
 
 Le stime non sono garantite: all'inizio possono sbagliare parecchio, e si avvicinano al vero a ogni lavoro finito. Se una risposta costa più della soglia e non ha avuto un preventivo, Quotient te lo dice una volta, in una riga, e la conta nel resoconto.
 
@@ -122,18 +124,19 @@ Si lanciano come `python scripts/quotient.py <comando>` dalla cartella del plugi
 | `config [chiave [valore]]` | mostra tutte le impostazioni, o ne cambia una |
 | `share status\|on\|off\|send` | la condivisione, da terminale (`send`: manda subito le righe in attesa) |
 | `export` | la riga esatta che la condivisione manda per ogni lavoro finito |
+| `quote-table --raw essential=N good=N max=N [--kind rate] [--lang it\|en]` | il preventivo calcolato da Quotient: ogni numero di ogni livello (tempo, parte delle 5 ore e della settimana) e le scelte del ritmo; Claude lo lancia e ne copia la tabella |
 | `timer start --raw N [--level L]`, `timer show`, `timer stop` | il cronometro di un lavoro con preventivo: lo fa partire Claude quando comincia il lavoro; `stop` nasconde la finestra fino al lavoro dopo |
 | `backfill-time` | ricava dai registri il tempo dei lavori misurati prima della 1.1.0 (Quotient lo fa da sola una volta) |
 | `setup-statusline [--write]` | mostra i limiti del piano nella riga di stato |
 | `plan-changed [--undo]` | hai cambiato abbonamento: Quotient reimpara da adesso quanto valgono i tuoi limiti (`--undo`: annulla l'ultimo cambio) |
 | `hermes` | le chat di Hermes Agent: legge subito i suoi contatori dei token |
 | `tick` | legge subito i contatori di Hermes e i limiti del piano (per un'attività pianificata) |
-| `rate new <lavoro> --dir <cartella> --task-file <file> --quote N (--days N \| --daily N) [--template book\|research\|code-review]` | crea un lavoro a rate |
+| `rate new <lavoro> --dir <cartella> --task-file <file> --quote N (--days N \| --daily N \| --pace "5 giorni alle 2:00") [--at HH:MM] [--template book\|research\|code-review]` | crea un lavoro a rate (`--pace`: le tue parole, con i giorni, la quantità al giorno e l'ora) |
 | `rate templates` | i modi di lavorare pronti: libro, ricerca, revisione di codice |
 | `rate apart <lavoro> --dir <cartella> --task-file <file> --quote N` | fa un lavoro a parte, adesso: una rata sola in una sessione separata, che parte subito; il suo resoconto torna nella chat |
 | `rate run <lavoro> [--force]` | fa partire una rata adesso (`--force`: anche se oggi ne è già partita una) |
-| `rate once <lavoro> --time HH:MM` | una rata a quell'ora (domani se l'ora è passata); sveglia il PC |
-| `rate schedule <lavoro> --time HH:MM [--force]` | una rata ogni giorno a quell'ora; sveglia il PC |
+| `rate once <lavoro> [--time HH:MM]` | una rata a quell'ora (domani se l'ora è passata; senza `--time`, l'ora del lavoro); sveglia il PC |
+| `rate schedule <lavoro> [--time HH:MM] [--force]` | una rata ogni giorno a quell'ora (senza `--time`: l'ora del lavoro, se no le 03:00); sveglia il PC |
 | `rate after <lavoro> sleep\|hibernate\|nothing` | cosa fa il PC dopo ogni rata, se nessuno lo usa |
 | `rate here <lavoro>` | il resoconto di ogni rata arriva in questa chat |
 | `rate week` | tutti i lavori aperti contro quello che resta della settimana |

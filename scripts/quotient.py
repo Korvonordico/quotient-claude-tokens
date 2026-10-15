@@ -37,15 +37,21 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
     "configured": False,
     # Below this many weighted tokens no quote is asked for.
     "threshold": 300000,
-    # When the middle option is above threshold x this, more options and installments.
-    "many_options_factor": 5,
+    # 1.1.3: how many levels a quote offers, by the corrected estimate of its biggest level: up to `one` wt one level,
+    # up to `two` two, up to `three` three, above that four (the window shows 4 at most, and adds a free field by itself).
+    # The installment plans offered grow with them: 2 or 3 days for a small job, 3 or 5, then 3, 5 or 7 days.
+    "levels": {
+        "one": 300000,
+        "two": 1000000,
+        "three": 5000000,
+    },
     # Weights relative to one input token: the ratios of Anthropic's API prices.
     "weights": {
         "input": 1.0,
@@ -123,6 +129,8 @@ DEFAULTS = {
         # The last part of the cap is kept for saving (1.1.1): there, tools that start new work (helpers, web
         # searches, commands) are refused, and Write/Edit still pass, so the installment and its helpers save.
         "save_percent": 8,
+        # 1.1.3: the time the quote proposes for the installments, when the user does not write one.
+        "time": "03:00",
         "extra_args": [],
     },
     # 1.1.1: each finished job (and each installment) is set against how much the weekly limit rose meanwhile. A miss
@@ -175,7 +183,11 @@ DEFAULTS = {
 QUOTE_KEYS = r"(?:PREVENTIVO|ESTIMATE|QUOTE)"
 CHOICE_KEYS = r"(?:SCELTA|CHOICE)"
 QUOTE_RE = re.compile(r"^[\s>*_`#-]*" + QUOTE_KEYS + r"[*_`]*\s*:\s*(.+)$", re.M)
-CHOICE_RE = re.compile(r"^[\s>*_`#-]*" + CHOICE_KEYS + r"[*_`]*\s*:[\s*_`]*([^\s*_`,.;:]+)", re.M)
+CHOICE_RE = re.compile(r"^[\s>*_`#-]*" + CHOICE_KEYS + r"[*_`]*\s*:[\s*_`]*([^\s*_`,.;:=]+)", re.M)
+# 1.1.3: a choice of the user's own (the window's free field: a mix of levels, a level of their own) comes with the
+# agent's raw estimate for it: `CHOICE: custom=<n>` (or another name with its estimate)
+CHOICE_AMOUNT_RE = re.compile(r"^[\s>*_`#-]*" + CHOICE_KEYS + r"[*_`]*\s*:[\s*_`]*([^\W\d][\w-]*)\s*=\s*~?\s*"
+                              r"(\d[\d.,_]*)\s*([kKmM])?(?![\w])", re.M)
 CONTINUES_RE = re.compile(r"(?:JOB|LAVORO)[*_`]*\s*:\s*[*_`]*(?:CONTINUES|CONTINUA)", re.I)
 # 1.1.1 (the user's idea): a reply about something else while a job is open ends with this line. It is a real cost
 # (it is in the limits) but not work: it is counted apart, and the job stays open.
@@ -206,6 +218,32 @@ INSTALLMENT_RE = re.compile(r"^(?:split|rata|rate|installments?)\d*$", re.I)
 # the installment writes JOB DONE as the first line of the handoff; a sentence that only names it
 # ("after line 3: write JOB DONE") is not the end of the job (05/10/2026: that closed a job at 1 line of 3)
 DONE_RE = re.compile(r"\A[﻿#*_>\s-]*(?:JOB DONE|LAVORO FINITO)\b")
+# 1.1.3: an installment plan in the user's words or in the machine line: how many days, how much a day, at what time
+# ("5 giorni alle 2:00", "days=5 at=02:00", "50.000 al giorno", "3 days, 200k a day, at 2am")
+PLAN_DAYS_RE = re.compile(r"\bdays?\s*=\s*(\d{1,3})\b|\b(\d{1,3})\s*(?:giorni|giorno|gg|days?)\b", re.I)
+PLAN_DAILY_RE = re.compile(
+    r"\bdaily\s*=\s*~?\s*(\d[\d.,_]*)\s*([kKmM])?(?![\w])|"
+    r"(\d[\d.,_]*)\s*(k|m|mila|milion[ei]|millions?)?\s*(?:di\s+)?(?:token\w*\s*)?(?:pesati\s*)?(?:wt\s*)?"
+    r"(?:al\s+giorno|a\s+day|per\s+day|/\s*day|ogni\s+giorno|every\s+day)", re.I)
+PLAN_AT_RE = re.compile(
+    r"(?:\b(?:at|time)\s*=\s*|\balle(?:\s+ore)?\s*|\ball'\s*|\bore\s+|\bat\s+|@\s*)(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?"
+    r"(?![\d:])(?!\s*(?:giorni|giorno|gg|days?|%|k\b|mila))", re.I)
+MIDNIGHT_RE = re.compile(r"\b(?:a\s+)?mezzanotte\b|\bat\s+midnight\b", re.I)
+# 1.1.3: how many levels a quote offers, by its size (see `levels` in DEFAULTS), and their names in the QUOTE line,
+# always from the smallest to the biggest; the window shows 4 options at most and adds a free field by itself
+LEVEL_NAMES = {1: ("good",), 2: ("good", "max"), 3: ("essential", "good", "max"), 4: ("essential", "good", "full", "max")}
+LEVEL_WORDS = {   # the names in the user's language, also to find each level in the text of a quote
+    "essential": {"it": "essenziale", "en": "essential", "also": ("essenziale", "minimo", "minimal", "base", "basic")},
+    "good": {"it": "buono", "en": "good", "also": ("buono", "buona", "buon")},
+    "full": {"it": "completo", "en": "full", "also": ("completo", "completa", "complete", "pieno")},
+    "max": {"it": "massimo", "en": "max", "also": ("massimo", "massima", "maximum", "massime")},
+}
+# installment plans offered in the window, in days, by the number of levels the size of the job gives
+PLAN_DAYS = {1: (2, 3), 2: (2, 3), 3: (3, 5), 4: (3, 5, 7)}
+# what a complete quote shows for each level (1.1.3, checked at the end of the reply that quotes)
+TIME_TOKEN_RE = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:min|minut[oi]|minutes?|h|ore|ora|hours?|hrs?|sec|secondi|"
+                           r"seconds?|s)\b|\b(?:un'ora|mezz'ora|an hour|half an hour)\b", re.I)
+PERCENT_TOKEN_RE = re.compile(r"\d+(?:[.,]\d+)?\s*%|\bper\s?cento\b|\bpercent\b", re.I)
 
 
 # ---------------------------------------------------------------- storage
@@ -649,7 +687,50 @@ def parse_pace(text):
         return "new-chat"
     if APART_RE.search(value):
         return "apart"
+    plan = parse_plan(value)
+    if plan.get("days") or plan.get("daily"):
+        return value                  # an installment plan, also with 'all' or 'today' in its words
     return "today" if TODAY_RE.search(value) else value
+
+
+def plan_amount(number, word):
+    """An amount of a plan: '250.000', '250k', '1,5 milioni', '50 mila'."""
+    word = (word or "").lower()
+    suffix = "k" if word in ("k", "mila") else "m" if word and word[0] == "m" else None
+    return parse_amount(number, suffix)
+
+
+def parse_plan(text):
+    """An installment plan in the user's words or in a PACE line (1.1.3): {'days': n, 'daily': wt, 'at': 'HH:MM'},
+    with only what the text says. '5 giorni alle 2:00' -> {'days': 5, 'at': '02:00'}."""
+    text = text or ""
+    plan = {}
+    m = PLAN_DAYS_RE.search(text)
+    if m:
+        days = int(m.group(1) or m.group(2))
+        if 1 <= days <= 365:
+            plan["days"] = days
+    m = PLAN_DAILY_RE.search(text)
+    if m:
+        try:
+            daily = parse_amount(m.group(1), m.group(2)) if m.group(1) else plan_amount(m.group(3), m.group(4))
+        except ValueError:
+            daily = 0
+        if daily >= 1000:            # '2 a day' is not an amount of tokens
+            plan["daily"] = daily
+    for m in PLAN_AT_RE.finditer(text):
+        hh, mm = int(m.group(1)), int(m.group(2) or 0)
+        half = (m.group(3) or "").lower()
+        if half == "pm" and hh < 12:
+            hh += 12
+        elif half == "am" and hh == 12:
+            hh = 0
+        if hh <= 23 and mm <= 59:
+            plan["at"] = "%02d:%02d" % (hh, mm)
+            break
+    if "at" not in plan and MIDNIGHT_RE.search(text):
+        plan["at"] = "00:00"
+    return plan
 
 
 def parse_move(text):
@@ -674,6 +755,20 @@ def parse_progress(text):
 def parse_choice(text):
     match = CHOICE_RE.search(text or "")
     return match.group(1).lower() if match else None
+
+
+def parse_custom(text):
+    """A choice with its own estimate (1.1.3: the user wrote their own in the window's free field, the agent estimated
+    it): `CHOICE: custom=700k` -> ('custom', 700000), or None. Only the CHOICE line parse_choice reads."""
+    first = CHOICE_RE.search(text or "")
+    match = CHOICE_AMOUNT_RE.match(text, first.start()) if first else None
+    if not match:
+        return None
+    try:
+        value = parse_amount(match.group(2), match.group(3))
+    except ValueError:
+        return None
+    return (match.group(1).lower(), value) if value > 0 else None
 
 
 def same_quote(quote, choice, job):
@@ -1531,23 +1626,340 @@ def calibration(cfg, learned):
                 measured))
 
 
+# ---------------------------------------------------------------- the quote, worked out by Quotient (1.1.3)
+# 15/10/2026, the user: "non sei tu che devi ricordarti, deve essere Quotient". Two quotes had come without the time of
+# their levels: now `quote-table` works out every number of a quote, and the end of a reply that quotes checks it.
+
+def level_sizes(cfg):
+    return merge(DEFAULTS["levels"], cfg.get("levels") or {})
+
+
+def level_count(cfg, corrected):
+    """How many levels a quote offers for a job whose biggest level is `corrected` wt of work: 1 to 4."""
+    sizes = level_sizes(cfg)
+    for n, key in ((1, "one"), (2, "two"), (3, "three")):
+        if corrected <= float(sizes[key]):
+            return n
+    return 4
+
+
+def level_label(name, lang):
+    """A level's name for the user ('Essenziale', 'Good'); a name of the agent's own as it is."""
+    words = LEVEL_WORDS.get(name)
+    label = words["it" if lang == "it" else "en"] if words else name
+    return label[:1].upper() + label[1:]
+
+
+def chat_context():
+    """When the command runs inside a Claude Code chat: what each step there re-reads now (tokens) and the chat's own
+    start, from its transcript; (None, None) elsewhere (Hermes passes it with --context)."""
+    sid = chat_id()
+    path = find_transcript(sid) if sid else None
+    if not path:
+        return None, None
+    state = load_json(session_path(sid), {})
+    return context_size(path) or None, state.get("fresh") or first_context(path)
+
+
+def quote_numbers(cfg, options, kind="chat", context=None):
+    """Every number of a quote, for each level (raw estimates by name, smallest first): the corrected work, the chat part
+    (re-reading what the chat holds at each step; for installments, each installment's own start), the total, the
+    expected working time, and the share of the 5 hours and of the week the total takes, with what would be left."""
+    factor = learning(cfg, kind)["factor"]
+    five, week = capacity("five_hour"), week_capacity(cfg)
+    latest = latest_limits()
+    steps = steps_per_million(cfg, kind)
+    overhead = installment_overhead(cfg) if kind == "rate" else 0.0
+    per_step = context * cfg["weights"]["cache_read"] if context and kind != "rate" else None
+    wpc = work_per_call(cfg)[0]
+    rows = []
+    for name, raw in options.items():
+        work = raw * factor
+        if kind == "rate":
+            chat = work * overhead
+        elif per_step is not None:
+            chat = (steps[0] * work / 1e6 if steps else work / max(wpc, 1.0)) * per_step
+        else:
+            chat = None
+        total = work + (chat or 0)
+        row = {"name": name, "raw": raw, "work": work, "chat": chat, "total": total,
+               "seconds": expected_seconds(cfg, raw, kind, factor)}
+        for window, c in (("five_hour", five), ("seven_day", week)):
+            if c:
+                used = (latest.get(window) or {}).get("used")
+                row[window] = total / c["per_point"]
+                row[window + "_left"] = None if used is None else 100 - used - row[window]
+        rows.append(row)
+    return {"rows": rows, "factor": factor, "kind": kind, "five": five, "week": week, "steps": steps,
+            "overhead": overhead, "per_step": per_step}
+
+
+def pace_options(cfg, options, levels, kind="chat", new_chat=False):
+    """The pace options of the window, 4 at most (the window adds its free field by itself): for a job done now, all
+    today, in a new chat when this one is long, and apart now (not for a big job: one session would meet the 5-hour
+    limit); then installment plans in days, more and longer for a bigger job. Each plan with the amount a day of each
+    level, the time proposed, how long an installment takes and the share of the 5 hours and of the week a day takes."""
+    rate = quote_numbers(cfg, options, "rate")
+    mpm = minutes_per_million(cfg, "rate")
+    at = (cfg.get("rate") or {}).get("time") or "03:00"
+    if kind == "rate":
+        now = ["apart"] if levels < 4 else []
+    else:
+        now = ["today"] + (["new-chat"] if new_chat else []) + (["apart"] if levels < 4 else [])
+    keys = (now + ["days=%d" % d for d in PLAN_DAYS[levels]])[:4]
+    biggest = max(rate["rows"], key=lambda r: r["total"])
+    found = []
+    for key in keys:
+        option = {"key": key}
+        if key == "apart":
+            option["cap"] = biggest["total"]
+        elif key.startswith("days="):
+            days = int(key[5:])
+            option.update(days=days, at=at, daily=[(r["name"], r["total"] / days) for r in rate["rows"]])
+            top = biggest["total"] / days
+            if mpm:
+                option["seconds"] = top / (1 + rate["overhead"]) / 1e6 * mpm[0] * 60.0
+            for window, c in (("five_hour", rate["five"]), ("seven_day", rate["week"])):
+                if c:
+                    option[window] = top / c["per_point"]
+        found.append(option)
+    return found
+
+
+def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=None, lang="en"):
+    """The quote, ready: a table of the levels with every number, the pace options and what the free field is for, in
+    the user's language; then a few lines for the agent (in English). The agent copies the first part as it is."""
+    it = lang == "it"
+    nums = quote_numbers(cfg, options, kind, context)
+    rows = nums["rows"]
+    biggest = max(rows, key=lambda r: r["work"])
+    levels = level_count(cfg, biggest["work"])
+    if new_chat is None:
+        new_chat = bool(context and fresh and kind != "rate" and
+                        chat_share(cfg, context, fresh)["older_percent"] >= cfg["chat"]["new_chat_percent"])
+
+    def time_of(seconds):
+        return ("circa %s" if it else "about %s") % fmt_duration(seconds) if seconds else "?"
+
+    def share_of(row, window):
+        if window not in row:
+            return "?"
+        left = row.get(window + "_left")
+        text = "~" + percent(row[window], lang)
+        if left is None:
+            return text
+        if left < 0:
+            return text + ((" (non ci sta: ne resta %s)" if it else " (does not fit: %s left)") %
+                           percent(max(0.0, left + row[window]), lang))
+        return text + ((" (resta %s)" if it else " (%s left)") % percent(left, lang))
+
+    lines = [("PREVENTIVO (unità: token pesati)" if it else "QUOTE (unit: weighted tokens)"), ""]
+    head = ["Livello" if it else "Level", "Lavoro" if it else "Work",
+            ("Rilettura delle rate" if it else "Installments' re-reading") if kind == "rate" else
+            ("Parte della chat" if it else "Chat part"), "Totale" if it else "Total",
+            "Tempo previsto" if it else "Expected time"]
+    head += (["5 ore" if it else "5 hours"] if kind != "rate" else []) + ["Settimana" if it else "Week"]
+    lines += ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+    for r in rows:
+        cells = [level_label(r["name"], lang), amount(r["work"], lang),
+                 "+" + amount(r["chat"], lang) if r["chat"] is not None else "?", amount(r["total"], lang),
+                 time_of(r["seconds"])]
+        cells += ([share_of(r, "five_hour")] if kind != "rate" else []) + [share_of(r, "seven_day")]
+        lines.append("| " + " | ".join(cells) + " |")
+    unknown = []
+    if not any(r["seconds"] for r in rows):
+        unknown.append("il tempo previsto arriva dopo 3 lavori misurati col tempo" if it else
+                       "the expected time comes after 3 jobs measured with their time")
+    if not nums["five"] or not nums["week"]:
+        unknown.append("le parti dei limiti arrivano dopo qualche giorno di letture dei limiti" if it else
+                       "the shares of the limits come after a few days of limit readings")
+    if any(r["chat"] is None for r in rows):
+        unknown.append("la parte della chat non è nota qui" if it else "the chat part is not known here")
+    if unknown:
+        lines.append("")
+        lines.append(("Ancora senza numero (?): " if it else "No number yet (?): ") + "; ".join(unknown) + ".")
+    if kind == "rate":
+        lines.append("")
+        lines.append("Ogni rata rilegge solo il suo inizio, e il tetto di ogni giorno lo paga già." if it else
+                     "Each installment re-reads only its own start, and each day's cap already pays for it.")
+
+    lines += ["", ("RITMO (al massimo 4 scelte):" if it else "PACE (4 options at most):")]
+    for i, o in enumerate(pace_options(cfg, options, levels, kind, new_chat), 1):
+        key = o["key"]
+        if key == "today":
+            label = "Tutto oggi" if it else "All today"
+            desc = "in questa chat, adesso" if it else "in this chat, now"
+            short = [r for r in rows if r.get("five_hour_left") is not None and r["five_hour_left"] < 0]
+            if short:
+                desc += ((": %s non ci sta nelle 5 ore che restano (si fermerebbe al limite)" if it else
+                          ": %s does not fit in what is left of the 5 hours (it would stop at the limit)") %
+                         ", ".join(level_label(r["name"], lang) for r in short))
+        elif key == "new-chat":
+            label = "In una nuova chat" if it else "In a new chat"
+            desc = ("questa chat è lunga e ogni passo la rilegge: in una chat nuova costa meno" if it else
+                    "this chat is long and every step re-reads it: a new chat costs less")
+        elif key == "apart":
+            label = "A parte, adesso" if it else "Apart, now"
+            desc = (("parte subito come una rata sola in una sessione separata (fino a %s per il livello più grande): "
+                     "misura pulita e questa chat non la rilegge; ma non le puoi parlare mentre lavora, non fa domande "
+                     "a metà, e un comando che chiede un permesso può fermarla") if it else
+                    ("it starts at once as one installment in a separate session (up to %s for the biggest level): a "
+                     "clean measure, and this chat does not re-read it; but you cannot talk to it while it works, it "
+                     "asks no questions halfway, and a command that needs a permission may stop it")) % amount(o["cap"], lang)
+        else:
+            label = ("%d giorni" if it else "%d days") % o["days"]
+            per = " · ".join("%s ~%s" % (level_label(n, lang).lower() if len(o["daily"]) > 1 else "", amount(v, lang))
+                             for n, v in o["daily"]).strip()
+            desc = (("al giorno %s; una rata al giorno alle %s" if it else "a day %s; one installment a day at %s") %
+                    (per, o["at"]))
+            extra = []
+            if o.get("seconds"):
+                extra.append(("circa %s a rata" if it else "about %s each") % fmt_duration(o["seconds"]))
+            if "five_hour" in o:
+                extra.append(("~%s delle 5 ore" if it else "~%s of the 5 hours") % percent(o["five_hour"], lang))
+            if "seven_day" in o:
+                extra.append(("~%s della settimana al giorno" if it else "~%s of the week a day") %
+                             percent(o["seven_day"], lang))
+            if extra:
+                desc += " (%s%s)" % (", ".join(extra), (", livello più grande" if it else ", biggest level")
+                                     if len(o["daily"]) > 1 else "")
+        lines.append("%d. %s: %s" % (i, label, desc))
+    lines += ["", ("ALTRO (il campo libero che la finestra aggiunge da sola): scrivi lì una scelta tua. Per il livello, "
+                   "per esempio un mix (una parte della buona e una della massima): Claude la stima e la misura contro "
+                   "quella stima. Per il ritmo: quanti giorni, quanto al giorno e a che ora, per esempio «5 giorni alle "
+                   "2:00»." if it else
+                   "OTHER (the free field the window adds by itself): write a choice of your own there. For the level, "
+                   "for example a mix (part of good and part of max): Claude estimates it and it is measured against that "
+                   "estimate. For the pace: how many days, how much a day and at what time, for example '5 days at 2:00'.")]
+    plan = week_plan(cfg)
+    if "for_jobs" in plan and nums["week"]:
+        rate_top = max(r["total"] for r in quote_numbers(cfg, options, "rate")["rows"])
+        room = plan["for_jobs"] - plan["need"]
+        need = rate_top / nums["week"]["per_point"]
+        lines.append(("Settimana: resta il %s; tolta la riserva del %d%% per l'uso normale e le rate già aperte, per un "
+                      "lavoro a rate c'è il %s. Il livello più grande ne chiede circa il %s: %s." if it else
+                      "Week: %s is left; after the %d%% reserve for normal use and the open installment jobs, %s is "
+                      "there for a job in installments. The biggest level needs about %s: %s.") % (
+            percent(plan["left"], lang), plan["reserve"], percent(max(0.0, room), lang), percent(need, lang),
+            ("ci sta" if it else "it fits") if need <= room else
+            ("non ci sta: più giorni, o meno lavoro" if it else "it does not fit: more days, or less work")))
+    learned = learning(cfg, kind)
+    lines.append(("Le stime non sono garantite e migliorano con l'uso (fattore di correzione x%.2f, da %d lavori%s)." if it
+                  else "The estimates are not guaranteed and get more precise with use (correction factor x%.2f, from "
+                  "%d jobs%s).") % (learned["factor"], learned["kind_jobs"],
+                                    (" a rate" if it else " in installments") if kind == "rate" else ""))
+
+    names = list(options)
+    notes = ["", "[for the agent, not to copy] Copy everything above into your message as it is, in the user's "
+             "language. In the window: 'Livello'/'Level' with one option per level (label: its name and total; "
+             "description: what it includes, then its time and shares as in the table)%s; 'Ritmo'/'Pace' with the "
+             "pace options above. The window adds the free field by itself: a choice written there is estimated by "
+             "you and written as `CHOICE: custom=<raw estimate>`; a pace written there goes to `rate new --pace "
+             "\"<the user's words>\"`." % ("; with one level, ask only the pace" if len(names) == 1 else ""),
+             "Machine line, in the LAST message of the reply: QUOTE: " +
+             " ".join("%s=%d" % (n, v) for n, v in options.items())]
+    if len(names) != levels:
+        notes.append("For this size (biggest level ~%s wt of corrected work) Quotient gives %d level%s (%s); you gave "
+                     "%d. Unless the user asked otherwise, give %d." % (
+                         fmt(biggest["work"]), levels, "" if levels == 1 else "s", ", ".join(LEVEL_NAMES[levels]),
+                         len(names), levels))
+    if len(names) > 4:
+        notes.append("The window shows 4 options at most: keep 4 levels.")
+    if [options[n] for n in names] != sorted(options.values()):
+        notes.append("Write the levels from the smallest to the biggest.")
+    save_json(os.path.join(home(), "quote-table.json"), {"options": options, "kind": kind, "epoch": round(time.time()),
+                                                          "session": chat_id()})
+    return "\n".join(lines + notes) + "\n"
+
+
+def quote_gaps(cfg, quote, text, window=()):
+    """What a quote shown to the user lacks (1.1.3): for each level, the expected time (when Quotient knows the time of
+    work) and its share of the 5 hours and of the week (when it knows their size). `text` is what the reply wrote,
+    `window` the options of the window's level question. [(level, ['time', 'shares']), ...], [] when complete."""
+    last = load_json(os.path.join(home(), "quote-table.json"), {}) or {}
+    kind = last.get("kind") if last.get("options") == quote else "chat"
+    need_time = bool(minutes_per_million(cfg, kind))
+    windows = (1 if kind != "rate" and capacity("five_hour") else 0) + (1 if week_capacity(cfg) else 0)
+    if not need_time and not windows:
+        return []
+    segments = [line for line in (text or "").splitlines()
+                if not (QUOTE_RE.match(line) or CHOICE_RE.match(line) or PACE_RE.match(line))] + list(window)
+    gaps = []
+    for name in quote:
+        words = (name,) + tuple((LEVEL_WORDS.get(name) or {}).get("also", ()))
+        pattern = re.compile(r"(?<![\w])(?:%s)(?![\w])" % "|".join(re.escape(w) for w in words), re.I)
+        mine = " ".join(s for s in segments if pattern.search(s))
+        lacks = []
+        if need_time and not TIME_TOKEN_RE.search(mine):
+            lacks.append("time")
+        if len(PERCENT_TOKEN_RE.findall(mine)) < windows:
+            lacks.append("shares")
+        if lacks:
+            gaps.append([name, lacks])
+    return gaps
+
+
+def window_options(turn):
+    """The options of the choice window's level question in a turn: label and description, one string each."""
+    found = []
+    for e in turn or []:
+        if e.get("type") != "assistant":
+            continue
+        for b in (e.get("message") or {}).get("content") or []:
+            if not (isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ASK_TOOLS):
+                continue
+            for q in (b.get("input") or {}).get("questions") or []:
+                if isinstance(q, dict) and re.search(r"livell|level", "%s %s" % (q.get("header") or "",
+                                                                                  q.get("question") or ""), re.I):
+                    found += ["%s %s" % (o.get("label") or "", o.get("description") or "")
+                              for o in q.get("options") or [] if isinstance(o, dict)]
+    return found
+
+
+def incomplete_line(gaps, cmd=None):
+    """For the agent, at the message after a quote that lacked numbers: give it again in full, first of all."""
+    what = {"time": "its expected time", "shares": "its share of the limits (5 hours and week)"}
+    told = "; ".join("'%s': %s" % (name, " and ".join(what[k] for k in lacks)) for name, lacks in gaps)
+    return ("THE QUOTE BEFORE WAS INCOMPLETE (%s). Before anything else: tell the user in one line, in their language, "
+            "that the quote before was incomplete and what it lacked, then give it again in full: run `%s quote-table "
+            "--raw <the same raw estimates>` and copy its table as it is. If the user already chose and the missing "
+            "numbers do not change the choice, then go on with the job (the same QUOTE line keeps the same job)." % (
+                told, cmd or run_cmd()))
+
+
+def cmd_quote_table(args):
+    cfg = config()
+    options = {}
+    for name, number, suffix in OPTION_RE.findall(" ".join(args.raw or [])):
+        try:
+            options[name.lower()] = parse_amount(number, suffix)
+        except ValueError:
+            pass
+    if not options or not all(v > 0 for v in options.values()):
+        sys.exit("quotient: give the raw estimates as --raw essential=<n> good=<n> max=<n> (1 to 4 levels)")
+    context, fresh = (args.context, None) if args.context else chat_context()
+    out(quote_table(cfg, options, args.kind, context, fresh, True if args.new_chat else None,
+                    args.lang or cfg.get("lang") or "en"))
+
+
 def protocol(cfg, factor):
     """The full rules, given once at the start of a session (and after a compaction)."""
     cmd = run_cmd()
-    big = cfg["threshold"] * cfg["many_options_factor"]
+    sizes = level_sizes(cfg)
     return "\n".join([
         "[Quotient %s] Quote protocol for this session. Unit: weighted tokens (wt) = input + 1.25 x cache write (2 x for 1-hour cache) + 0.1 x cache read + 5 x output, the ratios of the API prices." % VERSION,
         "WHEN: before work that will likely cost more than the threshold (%s wt), and whenever the user calls a job big or asks for a quote. Do not start the work: quote first. Under the threshold, if nobody asks, just work." % fmt(cfg["threshold"]),
         "HOW:",
-        "1) Estimate the WORK at three levels sized to it: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate. Levels: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f; for installments x%.2f). The chat part of each level = its steps x the per-step re-read of the CHAT PART line: take the steps from the measured steps per 1M wt of work (on the corrected work) when Quotient gives them, plus one per message you expect from the user; do not guess them." % (fmt(big), factor, learning(cfg, "rate")["factor"]),
-        "2) Write one machine line with your RAW estimates, always in English: QUOTE: essential=<n> good=<n> max=<n>",
-        "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate (with a CHAT PART line: work + chat part = total), and, when the Quotient line gives the working time per 1M wt of work, its expected TIME (its corrected work x that time, e.g. 'circa 25 minuti'; for installments, the time of each day). 'Ritmo'/'Pace': all today, plus two installment plans that fit the job, plus 'a parte, adesso'/'apart, now' (the job starts at once as one installment in a separate session: its measure is clean and this chat does not re-read it; say in brief what it costs the user: they cannot talk to it while it works, the task must be written well, it asks no questions halfway, a command that needs a permission may stop it), plus 'in a new chat' when the CHAT PART line offers it. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
+        "1) Estimate the WORK: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate. First the biggest level (the whole job done well), then the smaller ones. HOW MANY LEVELS goes with the size of the biggest, as a corrected estimate (raw x the factor, now x%.2f; for installments x%.2f): up to %s wt one level, up to %s two, up to %s three, above that four. Their names, from the smallest: one level `good`; two `good max`; three `essential good max`; four `essential good full max` (or short names of your own, in English). Example for a job of 2 million: essential 400k, good 1M, max 2M." % (factor, learning(cfg, "rate")["factor"], fmt(sizes["one"]), fmt(sizes["two"]), fmt(sizes["three"])),
+        "2) Let Quotient work the numbers out: run `%s quote-table --raw essential=<n> good=<n> max=<n>` with your raw estimates (add `--kind rate` when the job is surely in installments, `--lang it|en` for the user's language). It gives, for each level, the corrected work, the chat part, the total, the expected TIME and the share of the 5 hours and of the week with what is left, then the pace options that fit the job's size, what the free field is for, and the week. Copy its table into your message AS IT IS: do not work these numbers out yourself and leave none out. The end of the reply checks it: a quote that lacks the time or the shares of a level is sent back at the next message." % cmd,
+        "3) Write one machine line with your RAW estimates, always in English, 1 to 4 levels from the smallest: QUOTE: essential=<n> good=<n> max=<n>",
+        "4) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': one option per level, its name and total in the label, what it includes and the table's time and shares in the description; with one level, ask only the pace (a question needs two options). 'Ritmo'/'Pace': the pace options of the table, as they are: all today; 'in a new chat' when this chat is long; 'a parte, adesso'/'apart, now' (the job starts at once as one installment in a separate session: its measure is clean and this chat does not re-read it; it costs the user this: they cannot talk to it while it works, the task must be written well, it asks no questions halfway, a command that needs a permission may stop it); installment plans in days, 2 or 3 for a small job and up to 7 for a big one. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window shows 4 options at most per question and adds by itself a free field ('Other'/'Altro'): say what it is for. For the level, a choice of the user's own, e.g. a mix (part of good and part of max); for the pace, how many days, how much a day and AT WHAT TIME (e.g. '5 giorni alle 2:00', '50.000 al giorno'). Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
         "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
-        "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: apart`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>`. Apart: write what the whole job is to a file, with everything a session that cannot ask needs, then run `%s rate apart <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level>`: it starts at once in the background, and its report comes back to this chat when it ends." % cmd + " If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. Right after the choice, tell the user in one line that writing to you while the job runs adds to its cost, and that messages about something else are counted apart: while the job is open, a reply that is not about it ends with the line `ASIDE` (the job stays open; Quotient counts that reply apart from the work). New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % cmd,
+        "5) After the answer write `CHOICE: <level>`. A choice written in the free field: estimate it (raw, as the levels) and write `CHOICE: custom=<n>` (or a short name of your own with its estimate): Quotient measures the job against that estimate. Then one of `PACE: today`, `PACE: apart`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>` (add `at=HH:MM` when the user gave a time; the user's own words work too). Apart: write what the whole job is to a file, with everything a session that cannot ask needs, then run `%s rate apart <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level>`: it starts at once in the background, and its report comes back to this chat when it ends." % cmd + " If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. Right after the choice, tell the user in one line that writing to you while the job runs adds to its cost, and that messages about something else are counted apart: while the job is open, a reply that is not about it ends with the line `ASIDE` (the job stays open; Quotient counts that reply apart from the work). New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % cmd,
         "Machine lines (QUOTE, CHOICE, PACE, JOB, ASIDE, LIMITS) go in the LAST message of your reply, the one after your last tool call: a progress note written in the middle of a reply may be kept only as a summary, and then Quotient never sees them. Write QUOTE and CHOICE once: later replies of the same job carry only the JOB line.",
-        "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at 03:00), 'Ogni giorno'/'Every day' (the daily time; free field) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: whoever turned the PC on, it sleeps only when nobody is using it, after a 2-minute warning). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely. Each installment's report comes back to the chat that ran `rate new`, at the user's next message there (other chats get a one-line notice, twice at most); `rate here <name>` run in another chat moves the reports there." % (cmd, cmd),
+        "6) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n> (and --at HH:MM for the time); a pace the user wrote in the free field goes as it is with --pace \"<their words>\": Quotient reads the days, the amount a day and the time from it. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at the time of the plan, 03:00 unless they gave another), 'Ogni giorno'/'Every day' (the daily time; free field; leave it out when the pace already gave the time: `rate schedule <name>` uses it) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: whoever turned the PC on, it sleeps only when nobody is using it, after a 2-minute warning). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (without --time: the time of the plan; add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely. Each installment's report comes back to the chat that ran `rate new`, at the user's next message there (other chats get a one-line notice, twice at most); `rate here <name>` run in another chat moves the reports there." % (cmd, cmd),
         "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them, and how many wt 1% holds when it can estimate it. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
-        "In the window, for each level add what share of the 5-hour and weekly limits it would take and what would be left, when Quotient gives the size of 1%; if a level does not fit in what is left of the 5-hour window, say so and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left; at the next message Quotient gives the job's real cost and working time against the expected ones: tell them in one line.",
+        "Read the limits before running quote-table, so its shares are fresh. When the table says a level does not fit in what is left of the 5 hours, say so in the window and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left; at the next message Quotient gives the job's real cost and working time against the expected ones: tell them in one line.",
         "WEEK: before creating installments, run `%s rate week`: it adds up all open installment jobs until the weekly limit resets, against what is left minus a reserve for normal use (%d%%). If the new job would not fit with the others, say so in the window and offer: keep all, slow some down (`rate set <name> --daily <n>`), pause some (`rate pause <name>`), or pace the new one over more days." % (run_cmd(), cfg["week"]["reserve_percent"]),
         "Every decision Quotient needs from the user goes through the choice window, with a free field.",
     ]) + "\n"
@@ -2065,8 +2477,13 @@ def hook_prompt():
         if not scheduled:
             timer_put(cfg, "run", job.get("seconds") or 0, job.get("predicted_seconds"), job.get("choice"))
     elif pending:
-        lines.append("A quote waits for the user's choice (raw: %s). If this message chooses, write `CHOICE: <level>` and `PACE: ...` as the protocol says, then go on." % (
-            ", ".join("%s=%s" % (k, fmt(v)) for k, v in pending["options"].items())))
+        lines.append("A quote waits for the user's choice (raw: %s). If this message chooses, write `CHOICE: <level>` "
+                     "(for a choice of their own, `CHOICE: custom=<your raw estimate of it>`) and `PACE: ...` as the "
+                     "protocol says, then go on." % (
+                         ", ".join("%s=%s" % (k, fmt(v)) for k, v in pending["options"].items())))
+    incomplete = None if scheduled else state.get("quote_incomplete")
+    if incomplete:
+        lines.insert(1, incomplete_line(incomplete))   # 1.1.3: right after the context line, before anything else
     warning = None if scheduled else compact_warning(cfg, state, ctx)
     if warning:
         lines.append(warning)
@@ -2084,6 +2501,8 @@ def hook_prompt():
     state["q_new"] = state.get("q_new", 0) + len(text)
     if closed_told:
         state.pop("last_closed", None)
+    if incomplete:
+        state.pop("quote_incomplete", None)
     if told:
         state["unquoted"] = None
         state["unquoted_told"] = told.get("ts") or True
@@ -2350,6 +2769,7 @@ def hook_stop():
         record_limits(readings, "claude")
     quote = parse_quote(text)
     choice = parse_choice(text)
+    custom = parse_custom(text)          # 1.1.3: a choice of the user's own, with the agent's estimate for it
     pace = parse_pace(text)
     move = parse_move(text)
     continues = bool(CONTINUES_RE.search(text))
@@ -2357,9 +2777,16 @@ def hook_stop():
     had_job = bool(job)
     pending = state.get("pending")
     if same_quote(quote, choice, job or state.get("closed")):
-        quote = choice = None            # the same QUOTE/CHOICE lines again: the same job
+        quote = choice = custom = None   # the same QUOTE/CHOICE lines again: the same job
+    if quote and not os.environ.get("QUOTIENT_JOB"):
+        # 1.1.3: a quote the user saw without the time or the shares of a level is given again at the next message
+        gaps = quote_gaps(cfg, quote, text, window_options(turn))
+        if gaps:
+            state["quote_incomplete"] = gaps
+        else:
+            state.pop("quote_incomplete", None)
     # With the choice window, the quote and the choice arrive in the same turn.
-    same_turn = bool(quote and choice and choice in quote)
+    same_turn = bool(quote and choice and (choice in quote or custom))
 
     if move and not job:
         moved = take_chat_job(move[1], sid)
@@ -2414,7 +2841,7 @@ def hook_stop():
     elif choice and (same_turn or pending):
         source = {"options": quote, "factor": learning(cfg)["factor"], "quote_cost": 0} if same_turn else pending
         state["pending"] = None
-        raw = source["options"].get(choice)
+        raw = custom[1] if custom else source["options"].get(choice)
         installments = (pace not in (None, "today", "new-chat")) or INSTALLMENT_RE.match(choice)
         if raw and choice not in DECLINE and not installments:
             job = {
@@ -2426,6 +2853,8 @@ def hook_stop():
                 # 1.1.1: where its cost starts (the start of this turn), and the week then
                 "begin": round(start_ep, 1), "week_start": week_used(),
             }
+            if custom:
+                job["custom"] = True     # 1.1.3: measured against the agent's estimate of the user's own choice
             if pace == "new-chat":
                 # chosen here, done in a new chat: this chat only made the quote. What re-reading this chat
                 # would have added is kept, to estimate what the move saved.
@@ -3385,6 +3814,9 @@ COMMANDS = [
     ("hermes", "Hermes Agent chats (same Claude login, same limits): read its token counters now",
      "le chat di Hermes Agent (stesso login di Claude, stessi limiti): legge adesso i suoi contatori dei token"),
     ("export", "the exact line sharing sends for each finished job", "la riga esatta che la condivisione manda per ogni lavoro finito"),
+    ("quote-table --raw essential=N good=N max=N [--kind rate] [--lang it|en]",
+     "the quote worked out by Quotient: every number of each level (time, share of the 5 hours and of the week) and the pace options; the agent copies it",
+     "il preventivo calcolato da Quotient: ogni numero di ogni livello (tempo, parte delle 5 ore e della settimana) e le scelte del ritmo; l'agente lo copia"),
     ("timer start --raw N [--level L] / timer show / timer stop",
      "the stopwatch of a quoted job: start it when the work begins (the agent does it), see it, or hide it",
      "il cronometro di un lavoro col preventivo: farlo partire quando comincia il lavoro (lo fa l'agente), vederlo, o nasconderlo"),
@@ -3393,16 +3825,18 @@ COMMANDS = [
     ("setup-statusline [--write]", "show the plan limits in the status line", "mostra i limiti del piano nella riga di stato"),
     ("plan-changed [--undo]", "you changed subscription: Quotient learns the size of your limit again from now (--undo: take the last change back)",
      "hai cambiato abbonamento: Quotient reimpara da adesso quanto vale il tuo limite (--undo: annulla l'ultimo cambio)"),
-    ("rate new <job> --dir <folder> --task-file <file> --quote N (--days N | --daily N) [--template book|research|code-review]",
-     "create a job in installments (a template gives it a tested way of working)",
-     "crea un lavoro a rate (un modello gli da' un modo di lavorare gia' provato)"),
+    ("rate new <job> --dir <folder> --task-file <file> --quote N (--days N | --daily N | --pace \"5 giorni alle 2:00\") [--at HH:MM] [--template book|research|code-review]",
+     "create a job in installments (--pace: the user's own words, with days, amount a day and time; a template gives it a tested way of working)",
+     "crea un lavoro a rate (--pace: le parole dell'utente, con giorni, quantita' al giorno e ora; un modello gli da' un modo di lavorare gia' provato)"),
     ("rate templates", "the ready-made ways of working: book, research, code review", "i modi di lavorare pronti: libro, ricerca, revisione di codice"),
     ("rate apart <job> --dir <folder> --task-file <file> --quote N",
      "do a job apart, now: it starts at once as one installment in a separate session, and its report comes back here",
      "fa un lavoro a parte, adesso: parte subito come una rata sola in una sessione separata, e il resoconto torna qui"),
     ("rate run <job> [--force]", "run one installment now (--force: even if one already ran today)", "fa una rata adesso (--force: anche se oggi ne ha gia' fatta una)"),
-    ("rate once <job> --time HH:MM", "one installment at that time (tomorrow if it has passed); wakes the PC", "una rata a quell'ora (domani se e' passata); sveglia il PC"),
-    ("rate schedule <job> --time HH:MM [--force]", "one installment every day at that time; wakes the PC", "una rata ogni giorno a quell'ora; sveglia il PC"),
+    ("rate once <job> [--time HH:MM]", "one installment at that time (tomorrow if it has passed; without --time, the job's own time); wakes the PC",
+     "una rata a quell'ora (domani se e' passata; senza --time, l'ora del lavoro); sveglia il PC"),
+    ("rate schedule <job> [--time HH:MM] [--force]", "one installment every day at that time (without --time: the job's time, else 03:00); wakes the PC",
+     "una rata ogni giorno a quell'ora (senza --time: l'ora del lavoro, se no le 03:00); sveglia il PC"),
     ("rate after <job> sleep|hibernate|nothing", "what the PC does after each installment, if nobody uses it", "cosa fa il PC dopo ogni rata, se nessuno lo usa"),
     ("rate here <job>", "each installment's report comes to this chat (by default: the chat that created the job)", "il resoconto di ogni rata arriva in questa chat (di serie: la chat che ha creato il lavoro)"),
     ("rate week", "all open jobs against what is left of the week", "tutti i lavori attivi contro quello che resta della settimana"),
@@ -4463,17 +4897,26 @@ def rate_new(args):
         task = text.strip() + "\n\n# The job\n\n" + task.strip()
     cfg = config()
     factor = learning(cfg, "rate")["factor"]
+    # 1.1.3: a pace in the user's own words ('5 giorni alle 2:00'): the days, the amount a day and the time are read
+    # from it; what is given apart (--days, --daily, --at) counts first
+    pace = getattr(args, "pace", None)
+    plan = parse_plan(pace) if isinstance(pace, str) else {}
+    want_days = args.days or plan.get("days")
+    want_daily = args.daily or plan.get("daily")
+    at = getattr(args, "at", None)
+    at = check_time(at) if isinstance(at, str) and at else plan.get("at")
     # The daily cap is real spending: the corrected work plus re-reading each installment's start.
     reread = installment_overhead(cfg)
     total = args.quote * factor * (1 + reread) if args.quote else None
-    if args.daily:
-        daily = args.daily
-        days = args.days or (max(1, math.ceil(total / daily)) if total else None)
-    elif total and args.days:
-        daily = math.ceil(total / args.days)
-        days = args.days
+    if want_daily:
+        daily = want_daily
+        days = want_days or (max(1, math.ceil(total / daily)) if total else None)
+    elif total and want_days:
+        daily = math.ceil(total / want_days)
+        days = want_days
     else:
-        sys.exit("quotient: give --daily (weighted tokens per installment), or --quote with --days")
+        sys.exit("quotient: give --daily (weighted tokens per installment), or --quote with --days (or --pace with "
+                 "the user's words, e.g. --pace \"5 giorni alle 2:00\")")
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, "TASK.md"), "w", encoding="utf-8") as f:
         f.write(task.strip() + "\n")
@@ -4491,6 +4934,8 @@ def rate_new(args):
     apart = getattr(args, "apart", False) is True
     if apart:
         job["apart"] = True      # 1.1.1: done apart, now (rate apart)
+    if at:
+        job["at"] = at           # 1.1.3: the time the user chose; `rate schedule` and `rate once` use it
     whole = expected_seconds(cfg, args.quote, "rate", factor) if args.quote else None
     job["predicted_seconds"] = round(whole) if whole else None
     each = installment_seconds(cfg, job)
@@ -4499,11 +4944,14 @@ def rate_new(args):
         return job
     timing = ("Expected time: about %s per installment%s (from the installments timed so far).\n" % (
         fmt_duration(each), ", about %s in all" % fmt_duration(whole) if whole else "") if each else "")
+    when_text = (("Once at %s (today, or tomorrow if past): %s rate once %s\nEvery day at %s: %s rate schedule %s\n" % (
+        at, run_cmd(), args.name, at, run_cmd(), args.name)) if at else
+        ("Once today at a time: %s rate once %s --time HH:MM\nEvery day: %s rate schedule %s --time HH:MM\n" % (
+            run_cmd(), args.name, run_cmd(), args.name)))
     out("Job '%s' ready: %s wt per installment%s, working in %s\nJob files: %s\n%s"
-        "Run one installment now: %s rate run %s\nOnce today at a time: %s rate once %s --time HH:MM\n"
-        "Every day: %s rate schedule %s --time HH:MM\n%s" % (
+        "Run one installment now: %s rate run %s\n%s%s" % (
             args.name, fmt(daily), ", about %d installment(s)" % days if days else "", job["dir"], folder, timing,
-            run_cmd(), args.name, run_cmd(), args.name, run_cmd(), args.name,
+            run_cmd(), args.name, when_text,
             "Each installment's report will come back to this chat.\n" if job["session"] else ""))
 
 
@@ -5164,12 +5612,24 @@ def wake_allowed(args):
     return config()["rate"]["wake"] and not args.no_wake
 
 
+def job_time(args, fallback=True):
+    """The time of a scheduled installment: --time, else the time the user chose for the job (1.1.3, `rate new --at`
+    or a pace with a time), else the setting (03:00) when `fallback`."""
+    if isinstance(args.time, str) and args.time:
+        return args.time
+    job = load_json(os.path.join(rate_dir(args.name), "job.json"), None) or {}
+    return job.get("at") or ((config()["rate"].get("time") or "03:00") if fallback else None)
+
+
 def rate_schedule(args):
-    schedule(args.name, args.time, once=False, force=args.force, wake=wake_allowed(args))
+    schedule(args.name, job_time(args), once=False, force=args.force, wake=wake_allowed(args))
 
 
 def rate_once(args):
-    schedule(args.name, args.time, once=True, wake=wake_allowed(args))
+    at = job_time(args, fallback=False)
+    if not at:
+        sys.exit("quotient: give the time with --time HH:MM (the job has no time of its own)")
+    schedule(args.name, at, once=True, wake=wake_allowed(args))
 
 
 def rate_after(args):
@@ -5231,6 +5691,12 @@ def main(argv=None):
     p.add_argument("--raw", type=int, help="raw estimate of the chosen level, for the expected time")
     p.add_argument("--level", help="the chosen level, shown in the window")
     p.add_argument("--kind", choices=("chat", "rate"), default="chat")
+    p = sub.add_parser("quote-table", help="the quote, worked out: every number of each level and the pace options")
+    p.add_argument("--raw", nargs="+", required=True, help="raw estimates by level: essential=<n> good=<n> max=<n>")
+    p.add_argument("--kind", choices=("chat", "rate"), default="chat", help="rate: the job is surely in installments")
+    p.add_argument("--lang", choices=("it", "en"), help="the user's language (default: the setting)")
+    p.add_argument("--context", type=int, help="tokens each step re-reads now (Hermes: the CHAT PART line)")
+    p.add_argument("--new-chat", action="store_true", help="offer 'in a new chat' among the pace options")
     sub.add_parser("timer-window", help="(internal) the stopwatch window")
     sub.add_parser("backfill-time", help="work out the time of jobs measured before 1.1.0 from the logs")
     p = sub.add_parser("plan-changed", help="you changed subscription: learn the size of the limit again from now")
@@ -5249,6 +5715,8 @@ def main(argv=None):
     p.add_argument("--days", type=int, help="how many installments")
     p.add_argument("--daily", type=int, help="cap per installment, in weighted tokens")
     p.add_argument("--quote", type=int, help="raw estimate of the whole job, in weighted tokens")
+    p.add_argument("--pace", help="the pace in the user's words: days, amount a day, time ('5 giorni alle 2:00')")
+    p.add_argument("--at", help="the time of the installments, HH:MM (rate once and rate schedule use it)")
     p.add_argument("--model")
     p.add_argument("--after", choices=("nothing", "sleep", "hibernate"),
                    help="what the PC does after each installment, if nobody is using it (default: the setting)")
@@ -5261,12 +5729,12 @@ def main(argv=None):
     p.add_argument("name", nargs="?")
     p = rsub.add_parser("schedule", help="run an installment every day at a time (wakes the PC)")
     p.add_argument("name")
-    p.add_argument("--time", default="03:00")
+    p.add_argument("--time", help="HH:MM (default: the job's time, else 03:00)")
     p.add_argument("--force", action="store_true", help="run even if another installment ran the same day")
     p.add_argument("--no-wake", action="store_true", help="do not wake the PC")
     p = rsub.add_parser("once", help="run one installment at a time (today, or tomorrow if past)")
     p.add_argument("name")
-    p.add_argument("--time", required=True)
+    p.add_argument("--time", help="HH:MM (default: the job's time)")
     p.add_argument("--no-wake", action="store_true", help="do not wake the PC")
     p = rsub.add_parser("after", help="what the PC does after each installment")
     p.add_argument("name")
@@ -5333,6 +5801,8 @@ def main(argv=None):
         out(json.dumps({"limits": snap, "hermes": cfg.get("hermes", True)}) + "\n")
     elif args.cmd == "timer":
         cmd_timer(args)
+    elif args.cmd == "quote-table":
+        cmd_quote_table(args)
     elif args.cmd == "timer-window":
         timer_window()
     elif args.cmd == "backfill-time":

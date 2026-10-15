@@ -20,8 +20,8 @@ The name holds both halves: *quotient* starts like *quote*, the price agreed bef
 
 ## What it does
 
-- **A quote before a big job.** Above a threshold you set (300,000 weighted tokens by default), Claude does not start. A choice window offers *essential*, *good* or *max*, each with what it includes and its estimated cost.
-- **You choose the pace.** All today, apart now (in a separate session, started at once), a plan in days with the amount per day, or any pace you write yourself.
+- **A quote before a big job.** Above a threshold you set (300,000 weighted tokens by default), Claude does not start. A choice window offers from 1 to 4 levels, more for a bigger job, each with what it includes, its estimated cost, its time and its share of your limits. Quotient works these numbers out itself, so none is left out. The free field is for your own choice, for example a mix of two levels.
+- **You choose the pace.** All today, apart now (in a separate session, started at once), a plan in days with the amount per day and the time (longer plans for bigger jobs), or any pace you write yourself, such as "5 days at 2:00".
 - **The real cost after**, read from Claude Code's own records and set next to the estimate.
 - **How long, too.** Each level also says how long the job should take, learned from your own finished jobs. Quotient reads the time from what Claude Code and Hermes already record (no extra window), counts only the working time, and at the end sets the real time next to the expected one. After the first million weighted tokens of a job, its own pace re-estimates what is left.
 - **A correction factor.** Each quote is corrected by how far off the earlier ones were. Until you have 5 jobs of your own, it starts from a shared average of real jobs (numbers only, see [Privacy](#privacy)).
@@ -84,12 +84,14 @@ From then on Hermes gives Claude the quote protocol and the real limits at each 
 ## How a big job goes
 
 1. You ask for something big, or you say "this is a big job".
-2. Claude does not start. A window opens with two questions:
-   - **Level**: essential, good or max, with the estimate and the expected time for each. For a job of about 500,000 tokens: max 500,000, good 250,000, essential 100,000.
-   - **Pace**: all today, apart now, or for example "2 days, about 250,000 a day" or "5 days, about 100,000 a day". In the free field you can write your own, such as "50,000 a day".
+2. Claude does not start. It estimates the work of each level, and Quotient works out the rest (`quote-table`): for each level the work, the re-reading of the chat, the total, the expected time and the share of the 5 hours and of the week, with what would be left. Claude shows that table as it is, then a window opens with two questions:
+   - **Level**: how many levels goes with the size of the job. Up to about 300,000 weighted tokens one level; up to 1 million two (good, max); up to 5 million three (essential, good, max); above that four (essential, good, full, max). The sizes can be changed (`config levels.two 2000000`).
+   - **Pace**: 4 options at most. For a small job: all today, apart now, 2 or 3 days. For a big one: all today and plans of 3, 5 or 7 days. Each plan says the amount a day, the time (03:00 unless you set another, `config rate.time 02:00`), how long each installment takes and its share of the limits.
+   - The window adds a **free field** by itself (Other). For the level, write a choice of your own, for example "the good one, plus the tests of the max": Claude estimates it and the job is measured against that estimate. For the pace, write how many days, how much a day and at what time, for example "5 days at 2:00" or "50,000 a day".
+   If a quote reaches you without the time or the shares of a level, Quotient notices it at the end of the reply, and at your next message Claude says so and gives the quote again in full.
 3. If you choose **all today**, Claude does the job. Quotient measures what it really cost and how long it took, and Claude tells you at your next message. If you write about something else while the job runs, Claude answers and that reply is counted apart: at the end you get work, messages in between and total. Writing during the job adds to its cost, and Claude says so after the choice.
 4. If you choose **apart, now**, the job starts at once as one installment in a separate Claude Code session, and its report comes back to the chat when it ends. Its measure is clean and the chat does not re-read it, but you cannot talk to it while it works: the task must be written well, it asks no questions halfway, and a command that needs a permission may stop it. From Hermes too, it runs with Claude Code.
-5. If you choose **installments**, a second window asks when the first one starts and at what time the next ones run.
+5. If you choose **installments**, a second window asks when the first one starts and, if the pace did not already say it, at what time the next ones run.
 
 Estimates are not guaranteed: at the start they can be quite far off, and they get closer with each finished job. If a reply costs more than the threshold and had no quote, Quotient tells you once, in one line, and counts it in the report.
 
@@ -122,18 +124,19 @@ Run them as `python scripts/quotient.py <command>` from the plugin's folder or a
 | `config [key [value]]` | show every setting, or change one |
 | `share status\|on\|off\|send` | sharing, from a terminal (`send`: send the waiting lines now) |
 | `export` | the exact line sharing sends for each finished job |
+| `quote-table --raw essential=N good=N max=N [--kind rate] [--lang it\|en]` | the quote worked out by Quotient: every number of each level (time, share of the 5 hours and of the week) and the pace options; Claude runs it and copies the table |
 | `timer start --raw N [--level L]`, `timer show`, `timer stop` | the stopwatch of a quoted job: Claude starts it when the work begins; `stop` hides the window until the next job |
 | `backfill-time` | work out the time of jobs measured before 1.1.0 from their logs (Quotient does it by itself once) |
 | `setup-statusline [--write]` | show the plan limits in the status line |
 | `plan-changed [--undo]` | you changed subscription: Quotient learns the size of your limits again from now (`--undo`: take the last change back) |
 | `hermes` | Hermes Agent chats: read its token counters now |
 | `tick` | read Hermes' counters and the plan limits now (for a scheduled task) |
-| `rate new <job> --dir <folder> --task-file <file> --quote N (--days N \| --daily N) [--template book\|research\|code-review]` | create a job in installments |
+| `rate new <job> --dir <folder> --task-file <file> --quote N (--days N \| --daily N \| --pace "5 days at 2:00") [--at HH:MM] [--template book\|research\|code-review]` | create a job in installments (`--pace`: your own words, with the days, the amount a day and the time) |
 | `rate templates` | the ready-made ways of working: book, research, code review |
 | `rate apart <job> --dir <folder> --task-file <file> --quote N` | do a job apart, now: one installment in a separate session, started at once; its report comes back to the chat |
 | `rate run <job> [--force]` | run one installment now (`--force`: even if one already ran today) |
-| `rate once <job> --time HH:MM` | one installment at that time (tomorrow if it has passed); wakes the PC |
-| `rate schedule <job> --time HH:MM [--force]` | one installment every day at that time; wakes the PC |
+| `rate once <job> [--time HH:MM]` | one installment at that time (tomorrow if it has passed; without `--time`, the job's own time); wakes the PC |
+| `rate schedule <job> [--time HH:MM] [--force]` | one installment every day at that time (without `--time`: the job's time, else 03:00); wakes the PC |
 | `rate after <job> sleep\|hibernate\|nothing` | what the PC does after each installment, if nobody uses it |
 | `rate here <job>` | each installment's report comes to this chat |
 | `rate week` | all open jobs against what is left of the week |

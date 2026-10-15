@@ -2,6 +2,18 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.1.3] - 2026-10-15
+
+### Added
+
+- **The quote worked out by Quotient** (the user: "it is not you who must remember, it must be Quotient"). Two quotes had reached the user without the time of their levels. The new command `quote-table --raw essential=<n> good=<n> max=<n> [--kind rate] [--lang it|en]` works out every number of each level: the corrected work, the re-reading of the chat (in Claude Code from the chat's own transcript, in Hermes from `--context`), the total, the expected time, and the share of the 5 hours and of the week with what would be left; then the pace options, what the free field is for and the week. The protocol tells the agent to run it and copy the table as it is.
+- **A quote is checked.** When a reply has a QUOTE line, the end of the reply looks for the time and the shares of each level in its text and in the window's level options. If something is missing, at the next message the agent is told, first of all, to say the quote was incomplete and what it lacked, and to give it again in full. Only what Quotient knows is checked (no time is asked before 3 jobs were timed, no shares before the limits are known). In Claude Code and in Hermes.
+- **As many levels as the size calls for.** From 1 to 4 levels, by the corrected size of the biggest: up to 300,000 weighted tokens one (`good`), up to 1 million two (`good max`), up to 5 million three (`essential good max`), above that four (`essential good full max`), always from the smallest. The sizes are settings (`config levels.one|two|three`); `quote-table` tells the agent when it gave a different number or order. The QUOTE line takes 1 to 4 levels with short names, as before.
+- **Paces by size, with a time.** The pace question has 4 options at most (the window adds its free field by itself): all today, in a new chat when the chat is long, apart now (not for the biggest jobs), and plans in days, 2 or 3 for a small job, 3, 5 or 7 for a big one, each with the amount a day of each level, the time, how long an installment takes and its share of the limits. The time of the plans is `config rate.time` (03:00).
+- **A choice of the user's own.** In the window's free field the user can write their own level, for example a mix of two: the agent estimates it and writes `CHOICE: custom=<n>` (or a short name with its estimate), and the job is measured against that estimate (`custom: true` in its line). For the pace they can write how many days, how much a day and at what time: `rate new --pace "5 giorni alle 2:00"` reads the days, the amount a day and the time (`parse_plan`; also "3 days, 200k a day, at 2am", "a mezzanotte"), and `--at HH:MM` gives the time apart. `rate once` and `rate schedule` without `--time` use the job's time (`rate schedule` falls back to 03:00).
+- Hermes: the same rules for the clarify window (4 choices at most, plus Other), `CHOICE: custom=<n>`, and the check of the quote.
+- The README (English and Italian) says how many levels and paces a quote offers, what the free field is for, and the new commands.
+
 ## [1.1.2] - 2026-10-15
 
 ### Added
@@ -248,6 +260,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.1.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.3
 [1.1.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.2
 [1.1.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.0
