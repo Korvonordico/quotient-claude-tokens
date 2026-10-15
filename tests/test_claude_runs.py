@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
@@ -127,7 +128,7 @@ class ClaudeRuns(unittest.TestCase):
     def test_hermes_close_adds_them(self):
         seen = {}
         orig = q.claude_runs_of, q.close_job
-        q.claude_runs_of = lambda sid, lo, hi, cfg: {"wt": 7000, "families": {"haiku": 7000}, "runs": [{}, {}]}
+        q.claude_runs_of = lambda sid, lo, hi, cfg: {"wt": 7000, "families": {"haiku": 7000}, "runs": [{"session": "a"}, {"session": "b"}]}
         q.close_job = lambda row, cfg=None: seen.update(row)
         try:
             zero = {k: 0 for k in h.hs.COUNTERS}
@@ -139,6 +140,24 @@ class ClaudeRuns(unittest.TestCase):
             q.claude_runs_of, q.close_job = orig
         self.assertEqual((seen["claude"], seen["actual"], seen["claude_runs"]), (7000, 7000, 2))
         self.assertEqual(seen["families"].get("haiku"), 7000)
+        self.assertEqual(seen["claude_sessions"], ["a", "b"])
+
+    def test_runs_not_counted_again_elsewhere(self):
+        for sid, wt in (("a", 500000), ("z", 300000)):
+            q.append_jsonl(os.path.join(q.home(), "turns.jsonl"), {"ts": q.now_iso(), "session": sid, "wt": wt})
+        orig = q.claude_runs_of
+        q.claude_runs_of = lambda sid, lo, hi, cfg: {"wt": 500000, "families": {"haiku": 500000},
+                                                     "runs": [{"session": "a", "wt": 500000}]}
+        try:
+            zero = {k: 0 for k in h.hs.COUNTERS}
+            chat = {"job": {"session": "H1", "started": q.now_iso(), "options": {"max": 1000}, "choice": "max",
+                            "raw_estimate": 1000, "factor": 1.0, "start": dict(zero), "start_calls": 0, "ctx": 0,
+                            "begin": time.time() - 60}}
+            h._close(q, dict(q.config(), claude_runs=1), chat, dict(zero), 0, "close")
+        finally:
+            q.claude_runs_of = orig
+        job = q.read_jsonl(os.path.join(q.home(), "jobs.jsonl"))[-1]
+        self.assertEqual((job["claude"], job["elsewhere"]), (500000, 300000))
 
 
 if __name__ == "__main__":

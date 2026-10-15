@@ -35,17 +35,45 @@ def available(home=None):
     return os.path.isfile(db_path(home))
 
 
-def weigh_hermes(row, weights):
-    """Weighted tokens from Hermes' counters. Hermes does not split 5-minute and 1-hour cache writes:
-    they count as 5-minute writes (the cheaper one), so this is a floor, not an overestimate."""
+_TTL = {}
+
+
+def cache_ttl(home=None):
+    """The cache Hermes writes, from its config: '1h' when `prompt_caching: cache_ttl: "1h"`, else '5m' (its default;
+    'auto' and unknown values are taken as 5 minutes). Read once per process."""
+    home = home or hermes_home()
+    if home not in _TTL:
+        ttl = "5m"
+        try:
+            with open(os.path.join(home, "config.yaml"), encoding="utf-8") as f:
+                inside = False
+                for line in f:
+                    if line.strip() and not line[0].isspace():
+                        inside = line.split(":")[0].strip() == "prompt_caching"
+                    elif inside and line.strip().startswith("cache_ttl:"):
+                        value = line.split(":", 1)[1].split("#")[0].strip().strip("\"'").lower()
+                        ttl = "1h" if value == "1h" else "5m"
+                        break
+        except OSError:
+            pass
+        _TTL[home] = ttl
+    return _TTL[home]
+
+
+def weigh_hermes(row, weights, home=None):
+    """Weighted tokens from Hermes' counters. Hermes does not split 5-minute and 1-hour cache writes in its counters,
+    but it writes one kind only, the one its config says (agent_init.py, 15/10/2026): 5 minutes by default, priced
+    at 1.25 x input in its own cost estimate, as here; 1 hour (2 x input) when the config says "1h" (1.1.4)."""
+    write = weights["cache_write_1h"] if cache_ttl(home) == "1h" and "cache_write_1h" in weights else weights["cache_write_5m"]
     return ((row.get("input_tokens") or 0) * weights["input"]
-            + (row.get("cache_write_tokens") or 0) * weights["cache_write_5m"]
+            + (row.get("cache_write_tokens") or 0) * write
             + (row.get("cache_read_tokens") or 0) * weights["cache_read"]
             + (row.get("output_tokens") or 0) * weights["output"])
 
 
 def read_sessions(home=None):
-    """One dict per Hermes chat (subagents included, with their parent). Empty list if Hermes is not there."""
+    """One dict per Hermes chat (subagents included, with their parent). Empty list if Hermes is not there.
+    1.1.4: each has `aux`, the counters of Hermes' calls in the background for it (see read_aux)."""
     path = db_path(home)
     if not os.path.isfile(path):
         return []
@@ -63,11 +91,48 @@ def read_sessions(home=None):
         if "id" not in got or not set(COUNTERS) <= set(got):
             return []
         rows = [dict(r) for r in con.execute("select %s from sessions" % ", ".join(got))]
+        aux = read_aux(con, rows)
     except sqlite3.Error:
         return []
     finally:
         con.close()
+    for row in rows:
+        row["aux"] = aux.get(row["id"]) or {k: 0 for k in COUNTERS}
     return rows
+
+
+def read_aux(con, rows):
+    """Hermes' calls in the background, per chat: the rows of session_model_usage with a task (for example
+    `background_review`, a review Hermes runs after the turns), Claude's only. They use the same limits, but Hermes
+    keeps them out of the chat's totals in `sessions`: on the author's data of 10-15/10/2026 they were 8.8% of all
+    of Hermes' Claude use, and Quotient did not see them before 1.1.4. A chat whose totals already hold them (they
+    come closer to the main task plus the background than to the main task alone) gets none, so nothing counts
+    twice. {session id: {counter: n}}; {} when the table is not there."""
+    try:
+        cols = {r[1] for r in con.execute("pragma table_info(session_model_usage)")}
+    except sqlite3.Error:
+        return {}
+    if not {"session_id", "task"} | set(COUNTERS) <= cols:
+        return {}
+    extra = [c for c in ("model", "billing_provider") if c in cols]
+    main, aux = {}, {}
+    for r in con.execute("select session_id, task, %s from session_model_usage" % ", ".join(list(COUNTERS) + extra)):
+        r = dict(r)
+        if (r.get("task") or "") and not is_anthropic(r):
+            continue
+        into = (aux if (r.get("task") or "") else main).setdefault(r["session_id"], {k: 0 for k in COUNTERS})
+        for k in COUNTERS:
+            into[k] += int(r.get(k) or 0)
+    found = {}
+    for row in rows:
+        a = aux.get(row["id"])
+        if not a or not any(a.values()):
+            continue
+        own = sum(int(row.get(k) or 0) for k in COUNTERS)
+        m = sum(main[row["id"]].values()) if row["id"] in main else None
+        if m is None or abs(own - m) <= abs(own - m - sum(a.values())):
+            found[row["id"]] = a
+    return found
 
 
 def is_anthropic(row):
@@ -80,7 +145,8 @@ def is_anthropic(row):
 def sync(quotient_home, weights, home=None, now=None):
     """Compare Hermes' totals with the last snapshot and append the growth to hermes.jsonl.
     The first time, each chat's whole total is dated at its last activity (or its end, or its start).
-    Returns the rows appended."""
+    1.1.4: the calls in the background (read_aux) are added, with their own snapshot; at the first sync after the
+    update they are only noted, so what they spent before does not land at that moment. Returns the rows appended."""
     now = now if now is not None else time.time()
     state_path = os.path.join(quotient_home, "hermes-state.json")
     log_path = os.path.join(quotient_home, "hermes.jsonl")
@@ -91,19 +157,31 @@ def sync(quotient_home, weights, home=None, now=None):
         state = {}
     first = not state
     seen = state.get("sessions", {})
+    known = set(seen)
+    aux_seen = state.get("aux")          # None: a snapshot from before 1.1.4
+    aux_now = {}
+    zero = {k: 0 for k in COUNTERS}
     added = []
     for row in read_sessions(home):
         if not is_anthropic(row):
             continue
         sid = row["id"]
         totals = {k: int(row.get(k) or 0) for k in COUNTERS}
-        before = seen.get(sid, {k: 0 for k in COUNTERS})
+        before = seen.get(sid, zero)
         grow = {k: max(0, totals[k] - int(before.get(k) or 0)) for k in COUNTERS}
         # a chat whose counters went down (rewound or repaired): start again from the new totals
         if any(totals[k] < int(before.get(k) or 0) for k in COUNTERS):
-            grow = dict(totals) if first else {k: 0 for k in COUNTERS}
+            grow = dict(totals) if first else dict(zero)
         seen[sid] = totals
-        wt = weigh_hermes(grow, weights)
+        aux = {k: int((row.get("aux") or {}).get(k) or 0) for k in COUNTERS}
+        aux_before = aux if aux_seen is None and sid in known else (aux_seen or {}).get(sid, zero)
+        aux_grow = {k: max(0, aux[k] - int(aux_before.get(k) or 0)) for k in COUNTERS}
+        if any(aux[k] < int(aux_before.get(k) or 0) for k in COUNTERS):
+            aux_grow = dict(zero)
+        aux_now[sid] = aux
+        background = weigh_hermes(aux_grow, weights, home)
+        grow = {k: grow[k] + aux_grow[k] for k in COUNTERS}
+        wt = weigh_hermes(grow, weights, home)
         if wt <= 0:
             continue
         when = now
@@ -115,12 +193,14 @@ def sync(quotient_home, weights, home=None, now=None):
                       "kind": "subagent" if row.get("source") == "subagent" else "chat",
                       "title": (row.get("title") or "")[:80], "model": row.get("model") or "",
                       "wt": round(wt), **grow})
+        if background > 0:
+            added[-1]["background"] = round(background)   # 1.1.4: of which in Hermes' calls in the background
     if added:
         os.makedirs(quotient_home, exist_ok=True)
         with open(log_path, "a", encoding="utf-8") as f:
             for r in added:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    state = {"sessions": seen, "synced": now}
+    state = {"sessions": seen, "aux": aux_now, "synced": now}
     tmp = state_path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f)
@@ -214,4 +294,5 @@ def summary(quotient_home, now=None, since=None):
     top = sorted(chats.items(), key=lambda kv: -kv[1]["wt"])[:5]
     return {"rows": len(rows), "five_hour": sum(r["wt"] for r in five), "week": sum(r["wt"] for r in week),
             "subagents": sum(r["wt"] for r in week if r.get("kind") == "subagent"), "top": top,
+            "background": sum(r.get("background") or 0 for r in week),
             "read_share": (sum(r.get("cache_read_tokens", 0) * 0.1 for r in week) / max(1, sum(r["wt"] for r in week)))}

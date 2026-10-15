@@ -10,7 +10,9 @@ Everything Quotient records: your quotes, the real costs, your limits, your sett
 
 An installment job also remembers which chat created it (the chat's id), so each installment's report comes back there; to tell you where the report waits, Quotient reads that chat's title from Claude Code's files on your computer. The notification at the end of an installment is shown by your own system (on Windows it stays in the notification center). None of this leaves your computer.
 
-If you use Hermes Agent, Quotient also reads Hermes' local session store, read-only: the token counters, the model and the title of each chat, never the text. This stays on your computer too.
+If you use Hermes Agent, Quotient also reads Hermes' local session store, read-only: the token counters (also those of its calls in the background), the model and the title of each chat, never the text. This stays on your computer too.
+
+Since 1.1.4, to tell when something around your jobs changes (a plugin installed, for example), Quotient also reads the **names** of the plugins turned on, of the MCP servers and of the hooks, from Claude Code's settings files and from Hermes' `config.yaml`. For a hook it keeps the event and the name of the script it runs. It never keeps their command lines, arguments, settings, keys or other secrets. The names stay in `~/.quotient/` (`env.jsonl` and your jobs) and are not part of the shared line.
 
 ## What is shared, and why
 
@@ -76,7 +78,9 @@ Token Quotient (in breve Quotient) è un plugin per Claude Code di Francesco Can
 
 Un lavoro a rate ricorda anche quale chat l'ha creato (il codice della chat), così il resoconto di ogni rata torna lì; per dirti dove ti aspetta, Quotient legge il titolo di quella chat dai file di Claude Code sul tuo computer. La notifica alla fine di una rata la mostra il tuo sistema (su Windows resta nel centro notifiche). Niente di tutto questo esce dal tuo computer.
 
-Se usi Hermes Agent, Quotient legge anche il suo archivio locale delle sessioni, in sola lettura: i contatori dei token, il modello e il titolo di ogni chat, mai il testo. Anche questo resta sul tuo computer.
+Se usi Hermes Agent, Quotient legge anche il suo archivio locale delle sessioni, in sola lettura: i contatori dei token (anche quelli delle sue chiamate in sottofondo), il modello e il titolo di ogni chat, mai il testo. Anche questo resta sul tuo computer.
+
+Dalla 1.1.4, per accorgersi quando cambia qualcosa intorno ai tuoi lavori (per esempio un plugin installato), Quotient legge anche i **nomi** dei plugin accesi, dei server MCP e degli hook, dai file delle impostazioni di Claude Code e dal `config.yaml` di Hermes. Di un hook tiene l'evento e il nome dello script che lancia. Non tiene mai le righe di comando, gli argomenti, le impostazioni, le chiavi o altri segreti. I nomi restano in `~/.quotient/` (`env.jsonl` e i tuoi lavori) e non fanno parte della riga condivisa.
 
 **Cosa viene condiviso**: una riga di numeri per ogni lavoro finito, esattamente questa e nient'altro:
 

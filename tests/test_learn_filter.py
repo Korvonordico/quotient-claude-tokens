@@ -71,10 +71,21 @@ class MidBandSteady(unittest.TestCase):
 
     def test_hermes_jobs_use_it(self):
         orig = q.learning, q.mid_factor
-        q.learning = lambda cfg, kind="chat": {"factor": 1.02}
+        q.learning = lambda cfg, kind="chat", wtype=None: {"factor": 1.02}
         q.mid_factor = lambda cfg: 1.84
         try:
             self.assertEqual(h.job_factor(q, self.cfg, 700000), 1.84)
             self.assertEqual(h.job_factor(q, self.cfg, 3000000), 1.02)
         finally:
             q.learning, q.mid_factor = orig
+
+    def test_quote_table_uses_it(self):
+        orig = q.learning, q.mid_factor
+        q.learning = lambda cfg, kind="chat", wtype=None: {"factor": 1.02}
+        q.mid_factor = lambda cfg: 1.84
+        try:
+            rows = q.quote_numbers(dict(q.config(), **self.cfg), {"good": 900000, "max": 2000000})["rows"]
+        finally:
+            q.learning, q.mid_factor = orig
+        self.assertAlmostEqual(rows[0]["work"], 900000 * 1.84)
+        self.assertAlmostEqual(rows[1]["work"], 2040000)

@@ -45,16 +45,31 @@ def _save(q, state):
 
 
 def _counters(sid):
-    """Counters of a chat plus its subagents, and its API calls."""
+    """Counters of a chat plus its subagents, and its API calls. 1.1.4: under "aux", the counters of Hermes' calls in
+    the background for them (hs.read_aux), kept apart so that what one call re-reads stays the chat's own."""
     total = {k: 0 for k in hs.COUNTERS}
+    aux = {k: 0 for k in hs.COUNTERS}
     calls = 0
     for row in hs.read_sessions():
         if row.get("id") == sid or row.get("parent_session_id") == sid:
             for k in hs.COUNTERS:
                 total[k] += int(row.get(k) or 0)
+                aux[k] += int((row.get("aux") or {}).get(k) or 0)
             if row.get("id") == sid:
                 calls = int(row.get("api_call_count") or 0)
+    total["aux"] = aux
     return total, calls
+
+
+def _grow(totals, start):
+    """What a chat's counters grew since a snapshot, the calls in the background included (1.1.4). A snapshot from
+    before 1.1.4 has no "aux": the background then counts from now, so what it spent before is not put in a job."""
+    grow = {k: max(0, totals[k] - int(start.get(k, totals[k]) or 0)) for k in hs.COUNTERS}
+    aux, aux0 = totals.get("aux") or {}, start.get("aux")
+    if isinstance(aux0, dict):
+        for k in hs.COUNTERS:
+            grow[k] += max(0, int(aux.get(k) or 0) - int(aux0.get(k) or 0))
+    return grow
 
 
 def _context_per_call(state_chat, totals, calls):
@@ -67,6 +82,15 @@ def _context_per_call(state_chat, totals, calls):
     if state_chat.get("ctx"):
         return state_chat["ctx"]
     return totals["cache_read_tokens"] / calls if calls else 0    # first look: the chat's average so far
+
+
+def _work_now(cfg, job, totals, calls):
+    """The work of an open job so far: its growth, without the replies about something else and the chat part."""
+    grow = _grow(totals, job["start"])
+    actual = hs.weigh_hermes(grow, cfg["weights"])
+    aside = min(actual, job.get("aside") or 0)
+    d_calls = max(0, calls - job.get("start_calls", calls) - (job.get("aside_calls") or 0))
+    return max(0.0, actual - aside - min(actual - aside, d_calls * (job.get("ctx") or 0) * cfg["weights"]["cache_read"]))
 
 
 def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None, timing=""):
@@ -88,17 +112,20 @@ def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None, timi
                 q.VERSION, limits, factor, mid_part, rate_part, q.fmt(cfg["threshold"]), q.fmt(ctx), chat, measured))
 
 
-def job_factor(q, cfg, raw):
-    """The factor a chosen level is corrected with, the medium band's included (16/10/2026: before, the jobs quoted in
-    Hermes took the plain factor, and the band was only shown in the line)."""
-    return q.factor_for(cfg, raw, {"factor": q.learning(cfg)["factor"], "factor_mid": q.mid_factor(cfg)})
+def job_factor(q, cfg, raw, wtype=None):
+    """The factor a chosen level is corrected with: its type of work's and the medium band's (16/10/2026: before, the
+    jobs quoted in Hermes took the plain factor, and the band was only shown in the line)."""
+    return q.chat_factor(cfg, raw, wtype)
 
 
 def hermes_protocol(q, cfg, factor):
     """Quotient's protocol, adapted: in Hermes the choice window is the clarify tool and there are no slash commands."""
     text = q.protocol(cfg, factor)
     text = text.replace("call the AskUserQuestion tool", "call the clarify tool (one call, both questions)")
-    return text + ("In Hermes: when the quoted job is finished (or abandoned), write `JOB: CLOSE` (or `JOB: DROP` if abandoned) "
+    return text + ("In Hermes: run quote-table with `--context <the tokens of the CHAT PART line>`, so it knows what each "
+                   "step re-reads. The clarify tool, too, shows 4 choices at most per question and adds 'Other' by "
+                   "itself: 1 to 4 options, and say what 'Other' is for. "
+                   "When the quoted job is finished (or abandoned), write `JOB: CLOSE` (or `JOB: DROP` if abandoned) "
                    "in the last message, so Quotient measures it. Installments (rate) run with Claude Code, and so does a "
                    "job done apart, now (`rate apart`: Claude Code's `claude -p`, on the same plan): say so in the window. "
                    "Their reports come back to this chat.\n")
@@ -131,6 +158,9 @@ def pre_llm_call(q, payload):
         text = hermes_protocol(q, cfg, factor) + short_line(q, cfg, factor, ctx, rate, steps, steps_rate, timing)
     else:
         text = short_line(q, cfg, factor, ctx, rate, steps, steps_rate, timing)
+    incomplete = chat.pop("quote_incomplete", None)
+    if incomplete:                       # 1.1.3: the quote of the reply before lacked numbers: give it again first
+        text += "\n" + q.incomplete_line(incomplete)
     open_job = chat.get("job")
     # Long chats (the lesson of M33: re-reading the chat is most of the cost). Two notices at most, a day apart.
     big = (cfg.get("chat") or {}).get("hermes_compress_at", 250000)
@@ -141,7 +171,7 @@ def pre_llm_call(q, payload):
                  "/compress (or a new chat with a summary) would make every next step cheaper." % (
                      q.fmt(ctx), q.fmt(ctx * cfg["weights"]["cache_read"])))
     if open_job:
-        spent = hs.weigh_hermes({k: totals[k] - open_job["start"][k] for k in hs.COUNTERS}, cfg["weights"])
+        spent = hs.weigh_hermes(_grow(totals, open_job["start"]), cfg["weights"])
         text += " Open job: %s, about %s wt spent of %s (raw)" % (open_job["choice"], q.fmt(spent),
                                                                   q.fmt(open_job["raw_estimate"]))
         if open_job.get("seconds") is not None:
@@ -152,11 +182,21 @@ def pre_llm_call(q, payload):
         text += (". If this message is about something else, answer it and end the reply with the line ASIDE: the job "
                  "stays open and that reply is counted apart." + q.pace_note(
                      open_job["raw_estimate"], open_job.get("factor"), spent - (open_job.get("aside") or 0),
-                     open_job.get("seconds")))
+                     open_job.get("seconds"), cfg, open_job.get("progress")))
         q.timer_put(cfg, "run", open_job.get("seconds") or 0, open_job.get("predicted_seconds"), open_job["choice"])
+    requote = chat.pop("requote_note", None)
+    if requote:                          # 1.1.4: the new quote from the job's own pace, shown once
+        text += "\n" + requote
     note = chat.pop("last_closed", None)
     if note:
         text += " " + note
+    for alert in (q.env_alert, q.fix_alert):   # 1.1.4: a change of the environment; a job that looks split
+        try:
+            found = alert()
+            if found:
+                text += " " + found
+        except Exception:
+            pass
     try:
         reports = q.rate_events("hermes:" + sid, own_only=True)   # 1.1.1: jobs started apart from this chat
         if reports:
@@ -181,7 +221,7 @@ def pre_llm_call(q, payload):
 def _close(q, cfg, chat, totals, calls, how):
     job = chat.pop("job")
     chat["closed"] = {"options": job["options"], "choice": job["choice"]}   # see quotient.same_quote
-    grow = {k: max(0, totals[k] - job["start"][k]) for k in hs.COUNTERS}
+    grow = _grow(totals, job["start"])
     actual = hs.weigh_hermes(grow, cfg["weights"])
     # 1.1.1: the replies about something else (ASIDE) are in the real cost, not in the work nor its steps
     aside = min(actual, job.get("aside") or 0)
@@ -195,6 +235,11 @@ def _close(q, cfg, chat, totals, calls, how):
            "begin": job.get("begin"), "week_start": job.get("week_start")}
     if aside:
         row.update(aside=round(aside), aside_turns=job.get("aside_turns") or 1)
+    if job.get("custom"):
+        row["custom"] = True
+    for key in ("type", "requote", "progress"):   # 1.1.4
+        if job.get(key) is not None:
+            row[key] = job[key]
     if job.get("seconds") is not None:
         row["seconds"] = job["seconds"]
         row["predicted_seconds"] = job.get("predicted_seconds")
@@ -216,6 +261,7 @@ def _close(q, cfg, chat, totals, calls, how):
             row["actual"] += runs["wt"]
             row["claude"] = runs["wt"]
             row["claude_runs"] = len(runs["runs"])
+            row["claude_sessions"] = [r.get("session") for r in runs["runs"] if r.get("session")]   # not counted again as work elsewhere
             q.add_families(row, runs["families"])
     q.close_job(row, cfg)
     chat["last_closed"] = q.closed_note(row)
@@ -234,6 +280,7 @@ def post_llm_call(q, payload):
     totals, calls = _counters(sid)
     quote = q.parse_quote(text)
     choice = q.parse_choice(text)
+    custom = q.parse_custom(text)        # 1.1.3: a choice of the user's own, with the agent's estimate for it
     pace = q.parse_pace(text)
     move = parse_end(text)
     closed = None
@@ -247,53 +294,77 @@ def post_llm_call(q, payload):
         return max(0.0, now - since) if secs is None else secs
 
     if q.same_quote(quote, choice, chat.get("job") or chat.get("closed")):
-        quote = choice = None
+        quote = choice = custom = None
+    if quote:
+        # 1.1.3: a quote the user saw without the time or the shares of a level is given again at the next message
+        gaps = q.quote_gaps(cfg, quote, text)
+        if gaps:
+            chat["quote_incomplete"] = gaps
+        else:
+            chat.pop("quote_incomplete", None)
     aside = bool(q.ASIDE_RE.search(text)) and not quote and not move
     if chat.get("job"):
         job = chat["job"]
         if aside:
             # 1.1.1: a reply about something else while the job is open: counted apart, the job stays open
             start = chat.get("turn_start") or {}
-            grow = {k: max(0, totals[k] - int(start.get(k, totals[k]) or 0)) for k in hs.COUNTERS}
+            grow = _grow(totals, start)
             job["aside"] = (job.get("aside") or 0) + hs.weigh_hermes(grow, cfg["weights"])
             job["aside_calls"] = (job.get("aside_calls") or 0) + max(0, calls - int(start.get("calls", calls) or 0))
             job["aside_turns"] = (job.get("aside_turns") or 0) + 1
         else:
             job["turns"] = job.get("turns", 1) + 1
             job["seconds"] = (job.get("seconds") or 0) + worked(t0)
+            progress = q.parse_progress(text)
+            if progress is not None:
+                job["progress"] = progress
         if move:
             closed = _close(q, cfg, chat, totals, calls, move)
         elif quote:                      # a new quote ends the job before it
             closed = _close(q, cfg, chat, totals, calls, "new-quote")
+        elif not aside:
+            # 1.1.4: past its first million, the job's own pace may make a new quote, shown once at the next message
+            rq = q.requote_due(cfg, job, _work_now(cfg, job, totals, calls), job.get("progress"))
+            if rq:
+                job["requote"] = rq
+                chat["requote_note"] = q.requote_text(cfg, rq, "chat", chat.get("ctx"), cfg.get("lang") or "en")
     if quote:
-        chat["quote"] = {"options": quote, "ts": time.time()}
+        chat["quote"] = {"options": quote, "ts": time.time(), "type": q.parse_type(text)}
     if choice:
         pending = (chat.get("quote") or {}).get("options") or {}
         # 14/10/2026: a job chosen for installments (or for a new chat) is not done in this chat: measuring the chat
         # as that job counted the wrong thing. The installments measure themselves.
         elsewhere = pace not in (None, "today") or bool(q.INSTALLMENT_RE.match(choice))
-        if choice in q.DECLINE or choice not in pending or elsewhere:
+        raw = custom[1] if custom and pending else pending.get(choice)
+        if choice in q.DECLINE or not raw or elsewhere:
             chat.pop("quote", None)
         else:
             # 14/10/2026: the CHOICE line comes in the last message of a reply, after that reply's work, so the job
             # starts where the reply started (as in Claude Code); measured from the end, it lost that work.
             start = chat.get("turn_start") or dict(totals, calls=calls)
             begin = {k: min(int(start.get(k) or 0), totals[k]) for k in hs.COUNTERS}
+            if isinstance(start.get("aux"), dict):   # 1.1.4: the calls in the background, from the same moment
+                begin["aux"] = {k: min(int(start["aux"].get(k) or 0), totals["aux"][k]) for k in hs.COUNTERS}
             start_calls = min(int(start.get("calls") or 0), calls)
             ctx = chat.get("ctx") or 0
             if not ctx and calls > start_calls:
                 # the first reply of a chat: nothing was measured before it, so what one call re-reads is taken
                 # from this reply (before, the chat part of such a job stayed at zero)
                 ctx = max(0, totals["cache_read_tokens"] - begin["cache_read_tokens"]) / (calls - start_calls)
-            factor = job_factor(q, cfg, pending[choice])
+            wtype = (chat.get("quote") or {}).get("type")      # 1.1.4: the type of work learns its own factor
+            factor = job_factor(q, cfg, raw, wtype)
             # its time: from `timer start` if the agent started the stopwatch in this reply, else from the reply's start
             by_command = q.timer_started_in(t0, now)
             chat["job"] = {"session": sid, "started": start.get("at") or q.now_iso(), "options": pending,
-                           "choice": choice, "raw_estimate": pending[choice], "factor": factor,
+                           "choice": choice, "raw_estimate": raw, "factor": factor,
                            "start": begin, "start_calls": start_calls, "ctx": ctx,
                            "model": extra.get("model") or "", "seconds": worked(by_command or t0),
-                           "predicted_seconds": q.expected_seconds(cfg, pending[choice], factor=factor),
+                           "predicted_seconds": q.expected_seconds(cfg, raw, factor=factor),
                            "begin": round(t0, 1), "week_start": q.week_used()}   # 1.1.1: for the check
+            if custom:
+                chat["job"]["custom"] = True   # 1.1.3: measured against the agent's estimate of the user's own choice
+            if wtype:
+                chat["job"]["type"] = wtype
             created = True
             chat.pop("quote", None)
             if move and not closed:      # chosen, done and closed in the same reply
