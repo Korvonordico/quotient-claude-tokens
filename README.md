@@ -21,7 +21,7 @@ The name holds both halves: *quotient* starts like *quote*, the price agreed bef
 ## What it does
 
 - **A quote before a big job.** Above a threshold you set (300,000 weighted tokens by default), Claude does not start. A choice window offers *essential*, *good* or *max*, each with what it includes and its estimated cost.
-- **You choose the pace.** All today, a plan in days with the amount per day, or any pace you write yourself.
+- **You choose the pace.** All today, apart now (in a separate session, started at once), a plan in days with the amount per day, or any pace you write yourself.
 - **The real cost after**, read from Claude Code's own records and set next to the estimate.
 - **How long, too.** Each level also says how long the job should take, learned from your own finished jobs. Quotient reads the time from what Claude Code and Hermes already record (no extra window), counts only the working time, and at the end sets the real time next to the expected one. After the first million weighted tokens of a job, its own pace re-estimates what is left.
 - **A correction factor.** Each quote is corrected by how far off the earlier ones were. Until you have 5 jobs of your own, it starts from a shared average of real jobs (numbers only, see [Privacy](#privacy)).
@@ -33,6 +33,8 @@ It also:
 - plans the week as a whole, so several installment jobs together never eat the share of the week you keep for yourself;
 - measures apart what Claude spends re-reading a long chat, and offers a new chat when that saves (see [Work and re-reading](#work-and-re-reading-why-a-long-chat-costs-more));
 - measures a job as one job even when it moves from one chat to another;
+- counts apart the replies about something else while a job runs: they are in the real cost, not in what the correction learns from;
+- sets each finished job against how much the weekly limit rose, and tells you when the two do not match (see [How we check the measures](#how-we-check-the-measures));
 - measures its own weight, so you can see what it costs next to what it helps;
 - opens the report as a page with charts (`/token-quotient:report page`, a local file);
 - has ready-made ways of working for long installment jobs: a book, a research, a code review (`rate templates`);
@@ -84,9 +86,10 @@ From then on Hermes gives Claude the quote protocol and the real limits at each 
 1. You ask for something big, or you say "this is a big job".
 2. Claude does not start. A window opens with two questions:
    - **Level**: essential, good or max, with the estimate and the expected time for each. For a job of about 500,000 tokens: max 500,000, good 250,000, essential 100,000.
-   - **Pace**: all today, or for example "2 days, about 250,000 a day" or "5 days, about 100,000 a day". In the free field you can write your own, such as "50,000 a day".
-3. If you choose **all today**, Claude does the job. Quotient measures what it really cost and how long it took, and Claude tells you at your next message.
-4. If you choose **installments**, a second window asks when the first one starts and at what time the next ones run.
+   - **Pace**: all today, apart now, or for example "2 days, about 250,000 a day" or "5 days, about 100,000 a day". In the free field you can write your own, such as "50,000 a day".
+3. If you choose **all today**, Claude does the job. Quotient measures what it really cost and how long it took, and Claude tells you at your next message. If you write about something else while the job runs, Claude answers and that reply is counted apart: at the end you get work, messages in between and total. Writing during the job adds to its cost, and Claude says so after the choice.
+4. If you choose **apart, now**, the job starts at once as one installment in a separate Claude Code session, and its report comes back to the chat when it ends. Its measure is clean and the chat does not re-read it, but you cannot talk to it while it works: the task must be written well, it asks no questions halfway, and a command that needs a permission may stop it. From Hermes too, it runs with Claude Code.
+5. If you choose **installments**, a second window asks when the first one starts and at what time the next ones run.
 
 Estimates are not guaranteed: at the start they can be quite far off, and they get closer with each finished job. If a reply costs more than the threshold and had no quote, Quotient tells you once, in one line, and counts it in the report.
 
@@ -126,6 +129,7 @@ Run them as `python scripts/quotient.py <command>` from the plugin's folder or a
 | `tick` | read Hermes' counters and the plan limits now (for a scheduled task) |
 | `rate new <job> --dir <folder> --task-file <file> --quote N (--days N \| --daily N) [--template book\|research\|code-review]` | create a job in installments |
 | `rate templates` | the ready-made ways of working: book, research, code review |
+| `rate apart <job> --dir <folder> --task-file <file> --quote N` | do a job apart, now: one installment in a separate session, started at once; its report comes back to the chat |
 | `rate run <job> [--force]` | run one installment now (`--force`: even if one already ran today) |
 | `rate once <job> --time HH:MM` | one installment at that time (tomorrow if it has passed); wakes the PC |
 | `rate schedule <job> --time HH:MM [--force]` | one installment every day at that time; wakes the PC |
@@ -159,6 +163,7 @@ Good to know:
 - Windows must allow wake timers. `rate check` tells you whether it does, and how to turn them on.
 - If you use the Claude desktop app, log in Claude Code once in a terminal (`claude auth login`): installments run outside the app. That login can expire: while an installment job is open, Quotient checks it every 6 hours on your messages (at no cost) and tells you in the chat, so you can renew it before the night. `rate check --live` makes one real call with the smallest model to be sure (a few cents). An installment that stops for the login spends nothing, and its notification says what to do.
 - You can start one more installment the same day, if you accept that it uses more of that day's limit.
+- The last part of each installment's cap (8%, `config rate.save_percent`) is kept for saving: there Quotient refuses what starts new work (helpers, web searches, commands) and lets Write and Edit through, so the installment and its helpers save what they found. Installments save as they go, and their helpers write their results to files. If one stops anyway, its handoff lists its helpers' files and what they did, so the next one takes them up instead of doing them again.
 - Waking and sleeping work on Windows. On macOS and Linux Quotient gives you the line to schedule it yourself.
 
 ## More on how it works
@@ -182,6 +187,8 @@ Over time it also estimates how many tokens 1% of each limit holds, so a quote c
 ### The time of a job
 
 A quote also says how long each level should take. Quotient measures the **working time** of every quoted job: the time Claude works, without your turns (from the end of a reply to your next message) and without the wait of the choice window. From your last 20 finished jobs it learns how many minutes a million weighted tokens of work take (the median), installments apart, and the expected time of a level is its corrected work times that. Like the correction factor, it gets closer with every job. Jobs measured before 1.1.0 get their time once from their logs: the chat's transcript, Hermes' message times, the installments' start and end.
+
+In the words of its first user, during two installments: "I know how long it takes, so I can step away from the computer."
 
 Claude marks the start of the work right after the choice (`timer start`). After the first million weighted tokens, at each of your messages Quotient also looks at the job's own pace: how long the rest of the estimate takes at that pace, or that the estimate is already passed, so Claude can tell you a new estimate halfway instead of at the end.
 
@@ -217,7 +224,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.1.0","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"1.1.1","family":"opus","estimate":225000,"actual":259000}
 ```
 
 - No dates, no times, no names, no text, no paths, no session or user ids. The service that collects the lines ([code in `server/`](server/)) does not keep IP addresses.
@@ -240,7 +247,7 @@ Each copy of Quotient learns from its own errors, but a new user has no errors y
 <details>
 <summary>Everything Quotient runs, sends and fetches</summary>
 
-- **On your computer, always**: its Python script, through `sh`, at the start of each session, at each message, at the end of each reply, before a compaction, and before each tool call inside an installment. It reads Claude Code's transcripts of your chats only for numbers: the token counts of each call, the machine lines Claude writes, and which tools Claude called (to measure the cost and Quotient's own weight). No text from them is ever sent anywhere.
+- **On your computer, always**: its Python script, through `sh`, at the start of each session, at each message, at the end of each reply, before a compaction, and before each tool call inside an installment. It reads Claude Code's transcripts of your chats only for numbers: the token counts of each call, the machine lines Claude writes, and which tools Claude called (to measure the cost and Quotient's own weight). At the end of an installment that stopped with helpers, it also reads each helper's short description and looks for its own refusal message in their transcripts, to list them in the job's handoff. No text from them is ever sent anywhere.
 - **It writes** only in `~/.quotient/` (or `QUOTIENT_HOME`), plus a report page for each installment in the job's own folder. The two exceptions touch `~/.claude/settings.json`, and only when you choose them: `setup-statusline --write` puts the status line there, and the long-chat choice "compact" writes `autoCompactWindow` there (taken back when you choose "keep" again).
 - **For installments, only after you choose them in the window**: Windows Task Scheduler tasks (`schtasks`) that run at the time you chose and, if you allow it, wake the PC; Claude Code itself (`claude -p`) in the job's folder, with the permission mode `acceptEdits`, no permission prompts, and only the tools you allow in `rate.extra_args`; PowerShell for the notification and to read when the next installment runs; sleep or hibernation afterwards, if you chose so and nobody is using the PC. `rate check` reads (never changes) the wake-timer setting with `powercfg`.
 - **It runs Claude Code's own `/usage` command** to read your plan usage: Claude Code answers it locally, with its own login, and Quotient keeps only the percentages and the reset times. At most every 10 minutes, with no tokens spent; Quotient never reads your login. Off with `config limits.live false`.
@@ -252,10 +259,19 @@ Each copy of Quotient learns from its own errors, but a new user has no errors y
 
 </details>
 
+## How we check the measures
+
+The correction learns from the measures: if the measures are wrong, it learns the wrong thing. This is how Quotient checks them, and what is not shown yet.
+
+- **Automatic tests.** 192 tests run at every change, on Windows and Ubuntu with Python 3.9 and 3.13, on made-up chats whose costs are known in advance: each API call counted once, the chat part, the working time, jobs that move between chats, installments, Hermes.
+- **Errors found and fixed.** In 1.0.0 the jobs measured in Hermes turned out to be 57 pieces of 4 real jobs: the agent wrote its quote again at every message, and each copy opened a new job. The correction factor had fallen to x0.14. The cause is fixed; the pieces already made were not repaired automatically. On 15/10/2026 a piece of a job was found counted apart from it, and it was put back by hand.
+- **The measures against the week (1.1.1).** Anthropic shows the share of the weekly limit used, and Quotient estimates how many weighted tokens 1% holds. Each finished job and each installment is set against how much the week rose in the same time. If the two are more than 3 times apart (`config check.factor`) and no other job was running, Claude tells you once that the measure of that job does not match the week, and the report lists it. Quotient changes nothing by itself. Jobs under 4 points of the week are not judged, because the percentages are whole numbers. Other chats, and use Quotient cannot see (claude.ai, the phone), move the week too: a warning is a hint to check, not a proof.
+- **Not shown yet.** The numbers come from few jobs, and the time of a job from one user only. Whether the quotes keep getting closer, and how well the expected time works for other people and other kinds of work, is still to be seen. The report shows the misses as they are, so you can judge.
+
 ## Known limitations
 
 - The first estimates will be rough. A 2026 study asked AI models to predict their own cost before coding tasks: eight models, correlation with the real cost at most 0.39, and systematically too low ([Bai et al., arXiv:2604.22750](https://arxiv.org/abs/2604.22750)). Quotient does not make the model better at guessing: it measures the miss and corrects the next guess.
-- It relies on Claude following the rules Quotient gives it. If a quote is skipped, that job is not measured (a big reply without a quote is counted and said once).
+- It relies on Claude following the rules Quotient gives it. If a quote is skipped, that job is not measured (a big reply without a quote is counted and said once); a reply about something else without its `ASIDE` line counts as work.
 - Quotient itself has a weight: its rules at the start of a session (about 1,700 tokens) and a line at each message (about 270 tokens in a long chat), which stay in the chat and are re-read. It measures that weight and shows it in the report, with the number of tokens counted from characters (an estimate).
 - The re-reading part of a quote assumes the cache works. After a pause longer than the cache lasts, the chat is written again at a higher price: that is measured afterwards, not foreseen.
 - What Quotient saves cannot be measured, because a job not done has no cost. The report gives an estimate (for example, what the choices below the maximum avoided) and says it is one.
@@ -267,17 +283,17 @@ Each copy of Quotient learns from its own errors, but a new user has no errors y
 
 **The unit.** Costs are in weighted tokens: input-token equivalents at the ratios of Anthropic's API prices (input 1, cache write 1.25 for 5 minutes or 2 for 1 hour, cache read 0.1, output 5). In a live test, the dollar cost Claude Code reported was exactly the weighted tokens times the model's input price.
 
-**How it hooks in.** At the start of a session Quotient gives Claude its rules once (about 5,900 characters, roughly 1,700 tokens); at each message, a short line (about 940 characters in a long chat, roughly 270 tokens, with the CHAT PART: how much re-reading this chat adds). Claude writes machine lines (`QUOTE:`, `CHOICE:`, `PACE:` with `today`, `new chat` or a plan, `JOB: CONTINUES`, `JOB: RESUME|CLOSE|DROP <id>` for a job of another chat, `LIMITS:`) in the last message of a reply; Quotient reads them at the end of the reply, adding up its cost with each API call counted once.
+**How it hooks in.** At the start of a session Quotient gives Claude its rules once (about 5,900 characters, roughly 1,700 tokens); at each message, a short line (about 940 characters in a long chat, roughly 270 tokens, with the CHAT PART: how much re-reading this chat adds). Claude writes machine lines (`QUOTE:`, `CHOICE:`, `PACE:` with `today`, `apart`, `new chat` or a plan, `JOB: CONTINUES`, `ASIDE` for a reply about something else, `JOB: RESUME|CLOSE|DROP <id>` for a job of another chat, `LIMITS:`) in the last message of a reply; Quotient reads them at the end of the reply, adding up its cost with each API call counted once.
 
 **Work and re-reading, exactly.** A call's prompt is read from the cache first, then written to it, then sent as plain input. For each call, the part of the prompt that the chat held when the job started (position 0 to the size of the job's first prompt) is priced with those weights: that is the re-reading; the rest of the cost is the work. A call after a compaction, whose prompt is shorter, adds no older chat. Jobs measured before 0.9.5 get their split once from their chat's transcript, if it still exists. The steps a quote will take are its corrected work divided by the work per step learned from finished jobs (30,000 weighted tokens until there are 3).
 
-**Installments.** Each one is a non-interactive run (`claude -p`) in the job's folder, started by Windows Task Scheduler through a small launcher in `~/.quotient`, so it keeps working after plugin updates. A hook refuses every tool except the handoff update once what is spent plus the next two steps (the size of the latest calls, at most 40% of the cap) would reach the day's cap, so the steps that close the installment fit inside it. Each installment keeps a `PROGRESS: <n>%` line in its handoff; from it Quotient tells how much and how many installments remain. The day's cap includes re-reading each installment's own start, learned from the installments before. Two installments of the same job never run at the same time. A job remembers the chat that created it (Claude Code passes the chat's id to the commands it runs; when it does not, Quotient takes it at the end of the reply). The notification uses Windows' own notification system through PowerShell (on macOS `osascript`, on Linux `notify-send`) and writes no file; `config rate.notify false` turns it off.
+**Installments.** Each one is a non-interactive run (`claude -p`) in the job's folder, started by Windows Task Scheduler through a small launcher in `~/.quotient`, so it keeps working after plugin updates. A hook refuses every tool except the handoff update once what is spent plus the next two steps (the size of the latest calls, at most 40% of the cap) would reach the day's cap, so the steps that close the installment fit inside it; before that, in the last 8% of the cap, it refuses only the tools that start new work (Write, Edit, MultiEdit, NotebookEdit, TodoWrite and a here-document into a file pass), and a helper's tool call counts the whole installment. At the end, if the installment stopped with helpers, their transcripts are listed in the handoff with how many searches, pages and reads each made. `rate apart` is `rate new` with one installment and its whole corrected quote as the cap, started at once in the background, apart from the chat. Each installment keeps a `PROGRESS: <n>%` line in its handoff; from it Quotient tells how much and how many installments remain. The day's cap includes re-reading each installment's own start, learned from the installments before. Two installments of the same job never run at the same time. A job remembers the chat that created it (Claude Code passes the chat's id to the commands it runs; when it does not, Quotient takes it at the end of the reply). The notification uses Windows' own notification system through PowerShell (on macOS `osascript`, on Linux `notify-send`) and writes no file; `config rate.notify false` turns it off.
 
 **Time.** The working time of a turn is the sum of the gaps between its consecutive entries (Claude Code's transcript, or the message times in Hermes' session store), except the gap before a prompt of yours and the gap before the answer to the choice window (`AskUserQuestion`, or Hermes' `clarify`). A job adds up its turns; its first turn counts from `timer start` when Claude ran it, else from the turn's start. An installment runs alone, so its time is its whole run. The expected time is the corrected work times the median minutes per million weighted tokens of work of your last 20 timed jobs of the same kind (chat or installments), shown once there are 3 of them. The hooks keep `~/.quotient/timer.json` (run, pause on your turn, end); the window reads it every second and writes a heartbeat, so only one opens.
 
 **Long chats.** A plugin cannot run `/compact` (hooks can only block or watch a compaction), so the choice is written as Claude Code's own `autoCompactWindow`; the environment variable `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, if you set it, wins over it. A `PreCompact` hook notes the chat's size before the summary, and the end of the next reply notes the size after it; the saving is that difference, at the cache price, at every later call of that chat (`compactions.jsonl`).
 
-**Your data.** Everything is in `~/.quotient/` (or `QUOTIENT_HOME`). `export` prints the exact lines sharing sends. The outbox is `share-outbox.jsonl`; the downloaded average is `average.json`; jobs open in a chat are in `chat-jobs.json` (forgotten after 7 days); the page with charts is `report.html`.
+**Your data.** Everything is in `~/.quotient/` (or `QUOTIENT_HOME`). `export` prints the exact lines sharing sends. The outbox is `share-outbox.jsonl`; the downloaded average is `average.json`; jobs open in a chat are in `chat-jobs.json` (forgotten after 7 days); the measures set against the week are in `checks.jsonl`; the page with charts is `report.html`.
 
 **The shared average.** Until you have 5 jobs of your own, the shared average counts as 5 jobs at its factor (the one of your model family when it has at least 5 jobs, else of all jobs), next to your own. From your fifth job on, only your jobs count.
 

@@ -90,7 +90,9 @@ def hermes_protocol(q, cfg, factor):
     text = q.protocol(cfg, factor)
     text = text.replace("call the AskUserQuestion tool", "call the clarify tool (one call, both questions)")
     return text + ("In Hermes: when the quoted job is finished (or abandoned), write `JOB: CLOSE` (or `JOB: DROP` if abandoned) "
-                   "in the last message, so Quotient measures it. Installments (rate) run with Claude Code.\n")
+                   "in the last message, so Quotient measures it. Installments (rate) run with Claude Code, and so does a "
+                   "job done apart, now (`rate apart`: Claude Code's `claude -p`, on the same plan): say so in the window. "
+                   "Their reports come back to this chat.\n")
 
 
 def pre_llm_call(q, payload):
@@ -136,11 +138,27 @@ def pre_llm_call(q, payload):
         if open_job.get("seconds") is not None:
             text += ", working time so far %s%s" % (q.fmt_duration(open_job["seconds"]), " of about %s expected" % (
                 q.fmt_duration(open_job["predicted_seconds"])) if open_job.get("predicted_seconds") else "")
-        text += "." + q.pace_note(open_job["raw_estimate"], open_job.get("factor"), spent, open_job.get("seconds"))
+        if open_job.get("aside"):
+            text += ", of which %s in messages in between" % q.fmt(open_job["aside"])
+        text += (". If this message is about something else, answer it and end the reply with the line ASIDE: the job "
+                 "stays open and that reply is counted apart." + q.pace_note(
+                     open_job["raw_estimate"], open_job.get("factor"), spent - (open_job.get("aside") or 0),
+                     open_job.get("seconds")))
         q.timer_put(cfg, "run", open_job.get("seconds") or 0, open_job.get("predicted_seconds"), open_job["choice"])
     note = chat.pop("last_closed", None)
     if note:
         text += " " + note
+    try:
+        reports = q.rate_events("hermes:" + sid, own_only=True)   # 1.1.1: jobs started apart from this chat
+        if reports:
+            text += "\n" + "\n".join(reports)
+    except Exception:
+        pass
+    try:
+        for line in q.check_alert(cfg):  # 1.1.1: a measure that does not match the week, told once
+            text += " " + line
+    except Exception:
+        pass
     _save(q, state)
     return {"context": text}
 
@@ -150,13 +168,18 @@ def _close(q, cfg, chat, totals, calls, how):
     chat["closed"] = {"options": job["options"], "choice": job["choice"]}   # see quotient.same_quote
     grow = {k: max(0, totals[k] - job["start"][k]) for k in hs.COUNTERS}
     actual = hs.weigh_hermes(grow, cfg["weights"])
-    d_calls = max(0, calls - job.get("start_calls", calls))
-    chat_part = min(actual, d_calls * (job.get("ctx") or 0) * cfg["weights"]["cache_read"])
+    # 1.1.1: the replies about something else (ASIDE) are in the real cost, not in the work nor its steps
+    aside = min(actual, job.get("aside") or 0)
+    d_calls = max(0, calls - job.get("start_calls", calls) - (job.get("aside_calls") or 0))
+    chat_part = min(actual - aside, d_calls * (job.get("ctx") or 0) * cfg["weights"]["cache_read"])
     row = {"started": job["started"], "session": "hermes:" + job["session"], "source": "hermes",
            "options": job["options"], "choice": job["choice"], "raw_estimate": job["raw_estimate"],
            "factor_used": job["factor"], "quote_cost": 0, "actual": round(actual), "chat": chat_part,
            "turns": job.get("turns", 1), "families": {q.family_of(job.get("model") or ""): round(actual)},
-           "calls": d_calls, "ctx": round(job.get("ctx") or 0), "closed_by": how}
+           "calls": d_calls, "ctx": round(job.get("ctx") or 0), "closed_by": how,
+           "begin": job.get("begin"), "week_start": job.get("week_start")}
+    if aside:
+        row.update(aside=round(aside), aside_turns=job.get("aside_turns") or 1)
     if job.get("seconds") is not None:
         row["seconds"] = job["seconds"]
         row["predicted_seconds"] = job.get("predicted_seconds")
@@ -197,9 +220,19 @@ def post_llm_call(q, payload):
 
     if q.same_quote(quote, choice, chat.get("job") or chat.get("closed")):
         quote = choice = None
+    aside = bool(q.ASIDE_RE.search(text)) and not quote and not move
     if chat.get("job"):
-        chat["job"]["turns"] = chat["job"].get("turns", 1) + 1
-        chat["job"]["seconds"] = (chat["job"].get("seconds") or 0) + worked(t0)
+        job = chat["job"]
+        if aside:
+            # 1.1.1: a reply about something else while the job is open: counted apart, the job stays open
+            start = chat.get("turn_start") or {}
+            grow = {k: max(0, totals[k] - int(start.get(k, totals[k]) or 0)) for k in hs.COUNTERS}
+            job["aside"] = (job.get("aside") or 0) + hs.weigh_hermes(grow, cfg["weights"])
+            job["aside_calls"] = (job.get("aside_calls") or 0) + max(0, calls - int(start.get("calls", calls) or 0))
+            job["aside_turns"] = (job.get("aside_turns") or 0) + 1
+        else:
+            job["turns"] = job.get("turns", 1) + 1
+            job["seconds"] = (job.get("seconds") or 0) + worked(t0)
         if move:
             closed = _close(q, cfg, chat, totals, calls, move)
         elif quote:                      # a new quote ends the job before it
@@ -231,11 +264,17 @@ def post_llm_call(q, payload):
                            "choice": choice, "raw_estimate": pending[choice], "factor": factor,
                            "start": begin, "start_calls": start_calls, "ctx": ctx,
                            "model": extra.get("model") or "", "seconds": worked(by_command or t0),
-                           "predicted_seconds": q.expected_seconds(cfg, pending[choice], factor=factor)}
+                           "predicted_seconds": q.expected_seconds(cfg, pending[choice], factor=factor),
+                           "begin": round(t0, 1), "week_start": q.week_used()}   # 1.1.1: for the check
             created = True
             chat.pop("quote", None)
             if move and not closed:      # chosen, done and closed in the same reply
                 closed = _close(q, cfg, chat, totals, calls, move)
+    if pace == "apart" and choice:
+        chat["apart_since"] = now      # 1.1.1: the job started apart (rate apart) reports to this chat
+    if chat.get("apart_since"):
+        if q.bind_new_apart("hermes:" + sid, chat["apart_since"] - 600) or now - chat["apart_since"] > 1800:
+            chat.pop("apart_since", None)
     job = chat.get("job")
     if job and job.get("seconds") is not None:
         # the job goes on after this reply: the stopwatch waits for the user
