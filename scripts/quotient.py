@@ -85,6 +85,8 @@ DEFAULTS = {
     # second is a measuring error (a long chat re-read counted as work), not a real job.
     "learn_min_raw": 0,
     "learn_max_speed": 0,
+    # learn_mid_min: chat jobs quoted from this many wt up to learn_min_raw learn a factor of their own (0 = off).
+    "learn_mid_min": 0,
     # Below this many measured jobs the factor is shown as uncertain.
     "min_jobs": 5,
     # A quote nobody chose is dropped after this many turns.
@@ -853,10 +855,40 @@ def teaches(job, cfg):
         return True
     if cfg.get("learn_min_raw") and job.get("raw_estimate", 0) < cfg["learn_min_raw"]:
         return False
+    return not too_fast(job, cfg)
+
+
+def too_fast(job, cfg):
     seconds = job.get("seconds") or 0
-    if cfg.get("learn_max_speed") and seconds > 0 and work_of(job) / seconds > cfg["learn_max_speed"]:
-        return False
-    return True
+    return bool(cfg.get("learn_max_speed") and seconds > 0 and work_of(job) / seconds > cfg["learn_max_speed"])
+
+
+def mid_band(cfg, raw):
+    """Is a quote in the medium band (learn_mid_min up to learn_min_raw)?"""
+    return bool(cfg.get("learn_mid_min") and cfg.get("learn_min_raw") and cfg["learn_mid_min"] <= (raw or 0) < cfg["learn_min_raw"])
+
+
+def mid_factor(cfg):
+    """The medium jobs' own factor (1.1.3; Francesco, 15/10/2026): with only the jobs quoted from 1M up teaching the
+    factor, the ones quoted between 500k and 1M (about x1.8 on the median of 10) would be corrected by x1.05. None
+    until there are min_jobs of them."""
+    if not (cfg.get("learn_mid_min") and cfg.get("learn_min_raw")):
+        return None
+    jobs = [j for j in finished_jobs() if kind_of(j) == "chat" and mid_band(cfg, j.get("raw_estimate"))
+            and not too_fast(j, cfg)]
+    return factor_from(jobs, cfg["history_window"]) if len(jobs) >= cfg["min_jobs"] else None
+
+
+def mid_text(cfg):
+    m = mid_factor(cfg)
+    return "; for quotes from %s to %s wt x%.2f" % (fmt(cfg["learn_mid_min"]), fmt(cfg["learn_min_raw"]), m) if m else ""
+
+
+def factor_for(cfg, raw, source):
+    """The factor a chosen level is corrected with: the medium jobs' own one when its quote is in that band."""
+    if source.get("factor_mid") and mid_band(cfg, raw):
+        return source["factor_mid"]
+    return source.get("factor", 1.0)
 
 
 def factor_from(jobs, window):
@@ -1560,7 +1592,7 @@ def protocol(cfg, factor):
         "[Quotient %s] Quote protocol for this session. Unit: weighted tokens (wt) = input + 1.25 x cache write (2 x for 1-hour cache) + 0.1 x cache read + 5 x output, the ratios of the API prices." % VERSION,
         "WHEN: before work that will likely cost more than the threshold (%s wt), and whenever the user calls a job big or asks for a quote. Do not start the work: quote first. Under the threshold, if nobody asks, just work." % fmt(cfg["threshold"]),
         "HOW:",
-        "1) Estimate the WORK at three levels sized to it: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate. Levels: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f; for installments x%.2f). The chat part of each level = its steps x the per-step re-read of the CHAT PART line: take the steps from the measured steps per 1M wt of work (on the corrected work) when Quotient gives them, plus one per message you expect from the user; do not guess them." % (fmt(big), factor, learning(cfg, "rate")["factor"]),
+        "1) Estimate the WORK at three levels sized to it: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate. Levels: essential (the minimum that does the job), good, max. Example for a 500k job: max 500k, good 250k, essential 100k. If 'good' is above %s wt, add a fourth level in between. Corrected estimate = raw x the factor (now x%.2f%s; for installments x%.2f). The chat part of each level = its steps x the per-step re-read of the CHAT PART line: take the steps from the measured steps per 1M wt of work (on the corrected work) when Quotient gives them, plus one per message you expect from the user; do not guess them." % (fmt(big), factor, mid_text(cfg), learning(cfg, "rate")["factor"]),
         "2) Write one machine line with your RAW estimates, always in English: QUOTE: essential=<n> good=<n> max=<n>",
         "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate (with a CHAT PART line: work + chat part = total), and, when the Quotient line gives the working time per 1M wt of work, its expected TIME (its corrected work x that time, e.g. 'circa 25 minuti'; for installments, the time of each day). 'Ritmo'/'Pace': all today, plus two installment plans that fit the job, plus 'a parte, adesso'/'apart, now' (the job starts at once as one installment in a separate session: its measure is clean and this chat does not re-read it; say in brief what it costs the user: they cannot talk to it while it works, the task must be written well, it asks no questions halfway, a command that needs a permission may stop it), plus 'in a new chat' when the CHAT PART line offers it. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
         "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
@@ -2433,17 +2465,18 @@ def hook_stop():
             note_chat_job(sid, job, path)
             timer_put(cfg, "pause", job["seconds"], job.get("predicted_seconds"), job.get("choice"))
     elif choice and (same_turn or pending):
-        source = {"options": quote, "factor": learning(cfg)["factor"], "quote_cost": 0} if same_turn else pending
+        source = {"options": quote, "factor": learning(cfg)["factor"], "factor_mid": mid_factor(cfg),
+                  "quote_cost": 0} if same_turn else pending
         state["pending"] = None
         raw = source["options"].get(choice)
         installments = (pace not in (None, "today", "new-chat")) or INSTALLMENT_RE.match(choice)
         if raw and choice not in DECLINE and not installments:
             job = {
                 "started": now_iso(), "session": sid, "options": source["options"],
-                "choice": choice, "raw_estimate": raw, "factor_used": source.get("factor", 1.0),
+                "choice": choice, "raw_estimate": raw, "factor_used": factor_for(cfg, raw, source),
                 "quote_cost": source.get("quote_cost", 0), "actual": cost, "turns": 1, "calls": calls,
                 "families": dict(families), "fresh": fresh, "base": base, "chat": 0,
-                "seconds": 0, "predicted_seconds": expected_seconds(cfg, raw, factor=source.get("factor", 1.0)),
+                "seconds": 0, "predicted_seconds": expected_seconds(cfg, raw, factor=factor_for(cfg, raw, source)),
                 # 1.1.1: where its cost starts (the start of this turn), and the week then
                 "begin": round(start_ep, 1), "week_start": week_used(),
             }
@@ -2478,7 +2511,7 @@ def hook_stop():
         if repeat and pending and pending.get("options") == quote:
             pending["quote_cost"] = pending.get("quote_cost", 0) + cost
         else:
-            state["pending"] = {"ts": now_iso(), "options": quote, "factor": learning(cfg)["factor"],
+            state["pending"] = {"ts": now_iso(), "options": quote, "factor": learning(cfg)["factor"], "factor_mid": mid_factor(cfg),
                                 "quote_cost": cost, "age": 0}
 
     # A reply above the threshold that nobody quoted: said once per chat at the next message, counted always.

@@ -74,15 +74,17 @@ def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None, timi
     limits = q.limits_line(lang) or ("limiti non letti" if lang == "it" else "limits not read")
     chat = q.fmt(ctx * cfg["weights"]["cache_read"]) if ctx else "?"
     rate_part = " (installments x%.2f)" % rate if rate is not None else ""
+    mid = q.mid_factor(cfg)
+    mid_part = " (quotes %s-%s x%.2f)" % (q.fmt(cfg["learn_mid_min"]), q.fmt(cfg["learn_min_raw"]), mid) if mid else ""
     measured = ""
     if steps:
         measured = "; a job takes about %d steps per 1M wt of work%s" % (
             round(steps[0]), " (installments %d)" % round(steps_rate[0]) if steps_rate else "")
     if timing:
         measured += "; working time %s" % timing
-    return ("[Quotient %s] %s · factor x%.2f%s · threshold %s wt · CHAT PART: each step re-reads about %s tokens "
+    return ("[Quotient %s] %s · factor x%.2f%s%s · threshold %s wt · CHAT PART: each step re-reads about %s tokens "
             "(%s wt)%s. Big job: quote first (QUOTE / CHOICE / JOB: CLOSE in the last message)." % (
-                q.VERSION, limits, factor, rate_part, q.fmt(cfg["threshold"]), q.fmt(ctx), chat, measured))
+                q.VERSION, limits, factor, mid_part, rate_part, q.fmt(cfg["threshold"]), q.fmt(ctx), chat, measured))
 
 
 def hermes_protocol(q, cfg, factor):

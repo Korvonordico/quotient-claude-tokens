@@ -32,3 +32,20 @@ class Teaches(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MidBand(unittest.TestCase):
+    cfg = {"learn_min_raw": 1000000, "learn_mid_min": 500000}
+
+    def test_band(self):
+        self.assertTrue(q.mid_band(self.cfg, 500000))
+        self.assertTrue(q.mid_band(self.cfg, 999999))
+        self.assertFalse(q.mid_band(self.cfg, 1000000))
+        self.assertFalse(q.mid_band(self.cfg, 499999))
+        self.assertFalse(q.mid_band({}, 700000))
+
+    def test_factor_for(self):
+        src = {"factor": 1.05, "factor_mid": 1.8}
+        self.assertEqual(q.factor_for(self.cfg, 700000, src), 1.8)
+        self.assertEqual(q.factor_for(self.cfg, 2000000, src), 1.05)
+        self.assertEqual(q.factor_for(self.cfg, 700000, {"factor": 1.05}), 1.05)
