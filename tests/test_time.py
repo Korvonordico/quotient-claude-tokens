@@ -85,6 +85,13 @@ class TestLearnedTime(Base):
         self.assertEqual(sorted(pv.time_misses()), [2.0, 2.0])
 
 
+class TestPace(Base):
+    def test_after_the_first_million_the_jobs_own_pace_speaks(self):
+        self.assertEqual(pv.pace_note(2000000, 1.0, 900000, 600), "")
+        self.assertIn("about 20 min more", pv.pace_note(3000000, 1.0, 1000000, 600))
+        self.assertIn("Already x2.0 the corrected estimate", pv.pace_note(1000000, 1.0, 2000000, 1200))
+
+
 class TestClaudeCodeTime(Base):
     T0 = 1791000000.0   # a fixed moment: the transcript's times, not the clock, give the time
 
@@ -270,7 +277,8 @@ class TestStopwatch(Base):
         pv.timer_put(cfg, "end", 120)
         self.assertEqual(pv.timer_state()["state"], "end")
 
-    def test_the_window_stays_off_in_tests_and_when_turned_off(self):
+    def test_the_window_is_off_unless_asked(self):
+        self.assertFalse(pv.config()["timer"]["window"])
         self.assertFalse(pv.timer_window_open(pv.config()))
         with mock.patch.dict(os.environ, {"QUOTIENT_TIMER_WINDOW": ""}):
             pv.store(("timer", "window"), False)

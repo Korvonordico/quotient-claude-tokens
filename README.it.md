@@ -23,7 +23,7 @@ Il nome tiene insieme le due metà: comincia come *quote*, che in inglese vuol d
 - **Il preventivo prima di un lavoro grande.** Sopra una soglia che scegli tu (300.000 token pesati di serie), Claude non comincia. Una finestra di scelta propone *essenziale*, *buono* o *massimo*, ognuno con quello che comprende e il suo costo stimato.
 - **Il ritmo lo scegli tu.** Tutto oggi, un piano in giorni con la quantità al giorno, oppure il ritmo che scrivi tu.
 - **Il costo vero, dopo**, letto dai file di Claude Code e messo accanto alla stima.
-- **Anche quanto tempo.** Ogni livello dice anche quanto dovrebbe durare il lavoro, imparato dai tuoi lavori finiti. Mentre il lavoro va, un piccolo cronometro sempre in primo piano conta il tempo di lavoro (si ferma quando tocca a te), e alla fine il tempo vero viene messo accanto a quello previsto.
+- **Anche quanto tempo.** Ogni livello dice anche quanto dovrebbe durare il lavoro, imparato dai tuoi lavori finiti. Quotient legge il tempo da quello che Claude Code e Hermes registrano già (nessuna finestra in più), conta solo il tempo di lavoro, e alla fine mette il tempo vero accanto a quello previsto. Dopo il primo milione di token pesati di un lavoro, il suo stesso ritmo ricalcola quello che manca.
 - **Un fattore di correzione.** Ogni preventivo viene corretto in base a quanto hanno sbagliato quelli di prima. Finché non hai 5 lavori tuoi, parte da una media condivisa di lavori veri (solo numeri, vedi [Privacy](#privacy)).
 - **Le rate lavorano mentre non ci sei.** Il PC si sveglia, fa il pezzo del giorno e torna a dormire. Una notifica e un resoconto nella chat del lavoro ti dicono cosa ha fatto.
 
@@ -85,7 +85,7 @@ Da lì in poi Hermes dà a Claude il protocollo del preventivo e i limiti veri a
 2. Claude non comincia. Si apre una finestra con due domande:
    - **Livello**: essenziale, buono o massimo, con la stima e il tempo previsto di ognuno. Per un lavoro da circa 500.000 token: massimo 500.000, buono 250.000, essenziale 100.000.
    - **Ritmo**: tutto oggi, oppure per esempio «2 giorni, circa 250.000 al giorno» o «5 giorni, circa 100.000 al giorno». Nel campo libero scrivi il tuo, come «50.000 al giorno».
-3. Se scegli **tutto oggi**, Claude fa partire il cronometro e fa il lavoro. Quotient misura quanto è costato davvero e quanto è durato, e Claude te lo dice al tuo messaggio dopo.
+3. Se scegli **tutto oggi**, Claude fa il lavoro. Quotient misura quanto è costato davvero e quanto è durato, e Claude te lo dice al tuo messaggio dopo.
 4. Se scegli **le rate**, una seconda finestra ti chiede quando parte la prima e a che ora partono le altre.
 
 Le stime non sono garantite: all'inizio possono sbagliare parecchio, e si avvicinano al vero a ogni lavoro finito. Se una risposta costa più della soglia e non ha avuto un preventivo, Quotient te lo dice una volta, in una riga, e la conta nel resoconto.
@@ -183,13 +183,9 @@ Col tempo stima anche quanti token vale l'1% di ogni limite, così un preventivo
 
 Un preventivo dice anche quanto dovrebbe durare ogni livello. Quotient misura il **tempo di lavoro** di ogni lavoro con preventivo: il tempo in cui Claude lavora, senza i tuoi turni (dalla fine di una risposta al tuo messaggio dopo) e senza l'attesa della finestra di scelta. Dai tuoi ultimi 20 lavori finiti impara quanti minuti servono per un milione di token pesati di lavoro (la mediana), a parte per le rate, e il tempo previsto di un livello è il suo lavoro corretto per quel numero. Come il fattore di correzione, si avvicina al vero a ogni lavoro. I lavori misurati prima della 1.1.0 ricevono il loro tempo una volta sola dai registri: la trascrizione della chat, gli orari dei messaggi di Hermes, l'inizio e la fine delle rate.
 
-Mentre un lavoro va, una piccola finestra sempre in primo piano conta il suo tempo di lavoro contro quello previsto:
+Claude segna l'inizio del lavoro subito dopo la scelta (`timer start`). Dopo il primo milione di token pesati, a ogni tuo messaggio Quotient guarda anche il ritmo del lavoro stesso: quanto ci vuole a quel ritmo per il resto della stima, o che la stima è già superata, così Claude ti dà una stima nuova a metà strada invece che alla fine.
 
-- la fa partire Claude quando comincia il lavoro, subito dopo la scelta;
-- si ferma quando tocca a te e riparte al tuo messaggio dopo;
-- alla fine mostra il risultato per mezzo minuto e si chiude. Se la chiudi tu, resta nascosta fino al lavoro dopo.
-
-Lo stesso cronometro sta nella riga di stato. La finestra ha bisogno di tkinter di Python; `config timer.window false` la spegne, e il tempo viene misurato lo stesso. Al tuo messaggio dopo Claude ti dice il costo e il tempo veri del lavoro contro quelli previsti. Il resoconto e la notifica di ogni rata dicono quanto ha lavorato, e `rate new` dice quanto dovrebbe durare ogni rata.
+Il tempo sta nella riga di stato di Claude Code. Esiste anche una piccola finestra con il cronometro, spenta di serie (`config timer.window true`; serve tkinter di Python). Al tuo messaggio dopo Claude ti dice il costo e il tempo veri del lavoro contro quelli previsti. Il resoconto e la notifica di ogni rata dicono quanto ha lavorato, e `rate new` dice quanto dovrebbe durare ogni rata.
 
 ### Lavoro e rilettura: perché una chat lunga costa di più
 
@@ -249,7 +245,7 @@ Ogni copia di Quotient impara dai suoi errori, ma chi comincia non ne ha ancora.
 - **Per le rate, solo dopo che le hai scelte nella finestra**: attività dell'Utilità di pianificazione di Windows (`schtasks`) che partono all'ora che hai scelto e, se lo permetti, svegliano il PC; Claude Code stesso (`claude -p`) nella cartella del lavoro, con la modalità di permessi `acceptEdits`, senza richieste di permesso, e solo con gli strumenti che permetti in `rate.extra_args`; PowerShell per la notifica e per leggere quando parte la prossima rata; la sospensione o l'ibernazione dopo, se l'hai scelto e nessuno sta usando il PC. `rate check` legge (non cambia mai) l'impostazione dei timer di riattivazione con `powercfg`.
 - **Usa il comando `/usage` di Claude Code** per leggere l'uso del tuo piano: risponde Claude Code stesso, sul tuo computer, con il suo login, e Quotient tiene solo le percentuali e gli orari di azzeramento. Al massimo ogni 10 minuti, senza spendere token; Quotient non legge mai il tuo login. Si spegne con `config limits.live false`.
 - **Con Hermes Agent** legge l'archivio locale delle sessioni di Hermes, in sola lettura: contatori dei token, modello e titolo della chat, e, per il tempo di lavoro di un lavoro con preventivo, quando è stato scritto ogni messaggio e da chi (mai il testo).
-- **La finestra del cronometro**: mentre va un lavoro con preventivo, Quotient avvia una sua piccola finestra (tkinter di Python) che legge solo `~/.quotient/timer.json`. Si spegne con `config timer.window false`.
+- **La finestra del cronometro**, solo se la accendi (`config timer.window true`): una sua piccola finestra (tkinter di Python) che legge solo `~/.quotient/timer.json`.
 - **Manda**, se la condivisione è accesa: una riga di numeri per ogni lavoro finito a `https://quotient-share.korvonordico.workers.dev`.
 - **Scarica**, una volta al giorno: `https://raw.githubusercontent.com/Korvonordico/quotient-data/main/average.json`, oppure `/v1/average` del servizio quando GitHub non risponde. Tutti e due sono dell'autore.
 - **La pagina con i grafici** è un file, `~/.quotient/report.html`, aperto nel tuo browser; non carica niente da internet.
@@ -264,7 +260,6 @@ Ogni copia di Quotient impara dai suoi errori, ma chi comincia non ne ha ancora.
 - La parte di rilettura di un preventivo presume che la cache funzioni. Dopo una pausa più lunga di quanto dura la cache, la chat viene scritta di nuovo a un prezzo più alto: questo si misura dopo, non si prevede.
 - Quanto Quotient fa risparmiare non si può misurare, perché un lavoro non fatto non ha un costo. Il resoconto dà una stima (per esempio quanto hanno evitato le scelte sotto il massimo) e dice che è una stima.
 - Il tempo di lavoro lascia fuori i tuoi turni e la finestra di scelta, non le altre attese dentro una risposta (una richiesta di permesso, un comando che aspetta il tuo ok): quelle contano come lavoro. Il tempo previsto è preciso quanto la stima dei token da cui viene, e i primi sono poco precisi.
-- La finestra del cronometro ha bisogno di tkinter, che c'è nella maggior parte dei Python per Windows e macOS; su Linux può servire il pacchetto `python3-tk`. Senza, il tempo viene misurato lo stesso e si vede nella riga di stato.
 - Anthropic potrebbe aggiungere una funzione simile dentro Claude Code. Andrebbe bene così.
 
 <details>

@@ -191,7 +191,7 @@ footer a:hover{color:var(--text)}
 
   <div class="wrap demo">
     <figure>
-      <img src="demo.svg" width="900" height="600" alt="Animated terminal. The user asks Claude Code for a big job. Quotient shows a quote with three levels, essential, good and max, each with its work, chat part and total, its expected time and its share of the 5-hour and weekly limits; the user picks good, a small always-on-top stopwatch counts the working time against the expected one, and Quotient reports the real cost and time against the estimate. Then a job too big for one day is paced over 4 days, about 400k and 20 minutes a night: each night at 03:00 the PC wakes, works up to the day's cap and goes back to sleep, and the report waits in the chat.">
+      <img src="demo.svg" width="900" height="600" alt="Animated terminal. The user asks Claude Code for a big job. Quotient shows a quote with three levels, essential, good and max, each with its work, chat part and total, its expected time and its share of the 5-hour and weekly limits; the user picks good, Quotient counts the working time against the expected one, and Quotient reports the real cost and time against the estimate. Then a job too big for one day is paced over 4 days, about 400k and 20 minutes a night: each night at 03:00 the PC wakes, works up to the day's cap and goes back to sleep, and the report waits in the chat.">
       <figcaption>One loop: a quote before the job, your choice, the real cost after, and a job too big for this week split into nightly installments. Estimates are not guaranteed: at the start they can be quite far off, and they get closer with each finished job.</figcaption>
     </figure>
   </div>
@@ -231,7 +231,7 @@ footer a:hover{color:var(--text)}
         <article class="card">
           <span class="label">While it works</span>
           <h3>How long, too</h3>
-          <p>Each level of a quote also says how long the job should take, learned from your own finished jobs. While it runs, a small always-on-top stopwatch counts the working time and pauses on your turn; at the end the real time is set next to the expected one, and the next guess gets closer.</p>
+          <p>Each level of a quote also says how long the job should take, learned from your own finished jobs. The time is read from what Claude Code and Hermes already record, your turns left out; after the first million tokens the job's own pace re-estimates what is left, and at the end the real time is set next to the expected one.</p>
           <div class="line"><span class="ok">08:40</span> <span class="dim">of about 9 min expected</span><br><span class="dim">time learned</span></div>
         </article>
 

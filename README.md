@@ -23,7 +23,7 @@ The name holds both halves: *quotient* starts like *quote*, the price agreed bef
 - **A quote before a big job.** Above a threshold you set (300,000 weighted tokens by default), Claude does not start. A choice window offers *essential*, *good* or *max*, each with what it includes and its estimated cost.
 - **You choose the pace.** All today, a plan in days with the amount per day, or any pace you write yourself.
 - **The real cost after**, read from Claude Code's own records and set next to the estimate.
-- **How long, too.** Each level also says how long the job should take, learned from your own finished jobs. While it runs, a small always-on-top stopwatch counts the working time (it stops while it is your turn), and at the end the real time is set next to the expected one.
+- **How long, too.** Each level also says how long the job should take, learned from your own finished jobs. Quotient reads the time from what Claude Code and Hermes already record (no extra window), counts only the working time, and at the end sets the real time next to the expected one. After the first million weighted tokens of a job, its own pace re-estimates what is left.
 - **A correction factor.** Each quote is corrected by how far off the earlier ones were. Until you have 5 jobs of your own, it starts from a shared average of real jobs (numbers only, see [Privacy](#privacy)).
 - **Installments that work while you are away.** The PC wakes up, does the day's piece and goes back to sleep. A notification and a report in the job's chat tell you what it did.
 
@@ -85,7 +85,7 @@ From then on Hermes gives Claude the quote protocol and the real limits at each 
 2. Claude does not start. A window opens with two questions:
    - **Level**: essential, good or max, with the estimate and the expected time for each. For a job of about 500,000 tokens: max 500,000, good 250,000, essential 100,000.
    - **Pace**: all today, or for example "2 days, about 250,000 a day" or "5 days, about 100,000 a day". In the free field you can write your own, such as "50,000 a day".
-3. If you choose **all today**, Claude starts the stopwatch and does the job. Quotient measures what it really cost and how long it took, and Claude tells you at your next message.
+3. If you choose **all today**, Claude does the job. Quotient measures what it really cost and how long it took, and Claude tells you at your next message.
 4. If you choose **installments**, a second window asks when the first one starts and at what time the next ones run.
 
 Estimates are not guaranteed: at the start they can be quite far off, and they get closer with each finished job. If a reply costs more than the threshold and had no quote, Quotient tells you once, in one line, and counts it in the report.
@@ -183,13 +183,9 @@ Over time it also estimates how many tokens 1% of each limit holds, so a quote c
 
 A quote also says how long each level should take. Quotient measures the **working time** of every quoted job: the time Claude works, without your turns (from the end of a reply to your next message) and without the wait of the choice window. From your last 20 finished jobs it learns how many minutes a million weighted tokens of work take (the median), installments apart, and the expected time of a level is its corrected work times that. Like the correction factor, it gets closer with every job. Jobs measured before 1.1.0 get their time once from their logs: the chat's transcript, Hermes' message times, the installments' start and end.
 
-While a job runs, a small always-on-top window counts its working time against the expected one:
+Claude marks the start of the work right after the choice (`timer start`). After the first million weighted tokens, at each of your messages Quotient also looks at the job's own pace: how long the rest of the estimate takes at that pace, or that the estimate is already passed, so Claude can tell you a new estimate halfway instead of at the end.
 
-- Claude starts it when the work begins, right after the choice;
-- it stops while it is your turn and starts again at your next message;
-- at the end it shows the result for half a minute and closes. Close it by hand and it stays hidden until the next job.
-
-The same stopwatch is in the status line. The window needs Python's tkinter; `config timer.window false` turns it off, and the time is measured anyway. At your next message Claude tells you the job's real cost and time against the expected ones. Each installment's report and notification say how long it worked, and `rate new` says how long each installment should take.
+The time is in Claude Code's status line. A small always-on-top stopwatch window exists too, off by default (`config timer.window true`; it needs Python's tkinter). At your next message Claude tells you the job's real cost and time against the expected ones. Each installment's report and notification say how long it worked, and `rate new` says how long each installment should take.
 
 ### Work and re-reading: why a long chat costs more
 
@@ -249,7 +245,7 @@ Each copy of Quotient learns from its own errors, but a new user has no errors y
 - **For installments, only after you choose them in the window**: Windows Task Scheduler tasks (`schtasks`) that run at the time you chose and, if you allow it, wake the PC; Claude Code itself (`claude -p`) in the job's folder, with the permission mode `acceptEdits`, no permission prompts, and only the tools you allow in `rate.extra_args`; PowerShell for the notification and to read when the next installment runs; sleep or hibernation afterwards, if you chose so and nobody is using the PC. `rate check` reads (never changes) the wake-timer setting with `powercfg`.
 - **It runs Claude Code's own `/usage` command** to read your plan usage: Claude Code answers it locally, with its own login, and Quotient keeps only the percentages and the reset times. At most every 10 minutes, with no tokens spent; Quotient never reads your login. Off with `config limits.live false`.
 - **With Hermes Agent**, it reads Hermes' local session store, read-only: token counters, model and chat title, and, for the working time of a quoted job, when each message was written and by whom (never its text).
-- **The stopwatch window**: while a quoted job runs, Quotient starts a small window of its own (Python's tkinter) that only reads `~/.quotient/timer.json`. Off with `config timer.window false`.
+- **The stopwatch window**, only if you turn it on (`config timer.window true`): a small window of its own (Python's tkinter) that only reads `~/.quotient/timer.json`.
 - **It sends**, unless sharing is off: one line of numbers per finished job to `https://quotient-share.korvonordico.workers.dev`.
 - **It fetches**, once a day: `https://raw.githubusercontent.com/Korvonordico/quotient-data/main/average.json`, or the service's `/v1/average` when GitHub does not answer. Both belong to the author.
 - **The page with charts** is a file, `~/.quotient/report.html`, opened in your browser; it loads nothing from the internet.
@@ -264,7 +260,6 @@ Each copy of Quotient learns from its own errors, but a new user has no errors y
 - The re-reading part of a quote assumes the cache works. After a pause longer than the cache lasts, the chat is written again at a higher price: that is measured afterwards, not foreseen.
 - What Quotient saves cannot be measured, because a job not done has no cost. The report gives an estimate (for example, what the choices below the maximum avoided) and says it is one.
 - The working time leaves out your turns and the choice window, not other waits inside a reply (a permission prompt, a command waiting for your approval): those count as work. The expected time is as good as the token estimate it comes from, and the first ones are rough.
-- The stopwatch window needs tkinter, which most Python installs on Windows and macOS have; on Linux it may need the `python3-tk` package. Without it the time is still measured and shown in the status line.
 - Anthropic could add something similar to Claude Code. That would be fine.
 
 <details>

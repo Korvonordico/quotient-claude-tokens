@@ -121,10 +121,10 @@ DEFAULTS = {
         "reserve_max_share": 0.4,
         "extra_args": [],
     },
-    # The time of a job (1.1.0): while a quoted job runs, a small always-on-top stopwatch shows its working time
-    # against the expected one (it needs tkinter). False: no window; the time is measured anyway.
+    # The time of a job (1.1.0) is read from the times Claude Code and Hermes already keep. True: also a small
+    # always-on-top stopwatch window (needs tkinter); off by default, the user did not want one more window.
     "timer": {
-        "window": True,
+        "window": False,
     },
     "share": {
         # On by default and declared (first-use window, README, PRIVACY.md): after each finished job, one line
@@ -966,6 +966,21 @@ def claude_active_seconds(entries, since, until):
     return total + max(0.0, until - prev)
 
 
+def pace_note(raw, factor, spent, seconds):
+    """After the first million wt of a job, its own pace says more than the quote: how long the rest of the estimate
+    takes at that pace, or that the estimate is already passed (idea of the user, 15/10/2026)."""
+    if not spent or spent < 1e6 or not seconds or not raw:
+        return ""
+    per_m = seconds / (spent / 1e6)
+    corrected = raw * (factor or 1.0)
+    if spent < corrected:
+        return (" At this job's own pace (%s per 1M wt) the rest of the corrected estimate takes about %s more." % (
+            fmt_duration(per_m), fmt_duration((corrected - spent) / 1e6 * per_m)))
+    return (" Already x%.1f the corrected estimate (%s wt) after %s: tell the user in one line, with your new estimate of "
+            "what is left and how long it takes at this pace (%s per 1M wt)." % (
+                spent / corrected, fmt(corrected), fmt_duration(seconds), fmt_duration(per_m)))
+
+
 def closed_note(row):
     """For the agent, at the user's next message after a quoted job closed: what it cost and how long it took."""
     corrected = (row.get("raw_estimate") or 0) * (row.get("factor_used") or 1.0)
@@ -1484,7 +1499,7 @@ def protocol(cfg, factor):
         "2) Write one machine line with your RAW estimates, always in English: QUOTE: essential=<n> good=<n> max=<n>",
         "3) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': the levels, each with what it includes and its corrected estimate (with a CHAT PART line: work + chat part = total), and, when the Quotient line gives the working time per 1M wt of work, its expected TIME (its corrected work x that time, e.g. 'circa 25 minuti'; for installments, the time of each day). 'Ritmo'/'Pace': all today, plus two installment plans that fit the job, plus 'in a new chat' when the CHAT PART line offers it. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window always has a free field: the user can write any pace there (e.g. '50.000 al giorno'), so mention it. Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
         "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
-        "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>`. If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there; a small window shows it, paused while it is the user's turn), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % cmd,
+        "4) After the answer write `CHOICE: <level>` and one of `PACE: today`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>`. If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % cmd,
         "Machine lines (QUOTE, CHOICE, PACE, JOB, LIMITS) go in the LAST message of your reply, the one after your last tool call: a progress note written in the middle of a reply may be kept only as a summary, and then Quotient never sees them. Write QUOTE and CHOICE once: later replies of the same job carry only the JOB line.",
         "5) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n>. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at 03:00), 'Ogni giorno'/'Every day' (the daily time; free field) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: whoever turned the PC on, it sleeps only when nobody is using it, after a 2-minute warning). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely. Each installment's report comes back to the chat that ran `rate new`, at the user's next message there (other chats get a one-line notice, twice at most); `rate here <name>` run in another chat moves the reports there." % (cmd, cmd),
         "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them, and how many wt 1% holds when it can estimate it. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
@@ -1984,7 +1999,8 @@ def hook_prompt():
         lines.append("A job is in progress (level '%s', raw estimate %s wt, spent so far %s wt, of which %s re-reading "
                      "the older chat%s). If it is not finished at the end of this reply, end it with the line: JOB: CONTINUES" % (
                          job.get("choice"), fmt(job.get("raw_estimate")), fmt(job.get("actual")), fmt(job.get("chat") or 0),
-                         timing))
+                         timing) + pace_note(job.get("raw_estimate"), job.get("factor_used"), job.get("actual"),
+                                            job.get("seconds")))
         if not scheduled:
             timer_put(cfg, "run", job.get("seconds") or 0, job.get("predicted_seconds"), job.get("choice"))
     elif pending:

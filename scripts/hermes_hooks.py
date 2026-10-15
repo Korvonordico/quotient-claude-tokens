@@ -136,7 +136,7 @@ def pre_llm_call(q, payload):
         if open_job.get("seconds") is not None:
             text += ", working time so far %s%s" % (q.fmt_duration(open_job["seconds"]), " of about %s expected" % (
                 q.fmt_duration(open_job["predicted_seconds"])) if open_job.get("predicted_seconds") else "")
-        text += "."
+        text += "." + q.pace_note(open_job["raw_estimate"], open_job.get("factor"), spent, open_job.get("seconds"))
         q.timer_put(cfg, "run", open_job.get("seconds") or 0, open_job.get("predicted_seconds"), open_job["choice"])
     note = chat.pop("last_closed", None)
     if note:
