@@ -2,6 +2,15 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.1.2] - 2026-10-15
+
+### Added
+
+- **The week checked against the 5 hours** (the user's idea). Both percentages rise with the same use: within one 5-hour window and one week, the points the 5 hours rose are set against the points the week rose (`window_ratio`). The ratio, times the size of 1% of the 5 hours, is a second estimate of the week, with its margin (the percentages are whole numbers: two standard deviations of the rounding, which partly cancels over the windows). The report shows the two estimates side by side and says when they are more than 1.5 times apart (`config ratio.factor`). When the week's own estimate has fewer than 3 points and the ratio has them, the ratio is used in its place (in the quotes' line, the week's plan, the checks and the installments' reports), and that is said. On the author's readings of 5 to 15 October 2026 the two came out x1.00 apart. Nothing new is sent to the server.
+- **A change of subscription.** Each user learns the size of their own limits on their own PC, but the size was learned from every window ever recorded, so after a change of plan the old size stayed mixed in for a long time. Now, when the last three 5-hour windows (5 points or more each, on more than one day) are all more than 1.6 times away from the earlier ones in the same direction (`config plan.factor`), and the week in the same time is too, Quotient takes it as a change of plan: from the start of those windows on it learns only from the new readings, writes the change in `plan-changes.jsonl`, and Claude tells the user once, in Claude Code or Hermes: the limit seems to have changed, maybe they changed subscription, Quotient starts learning it again. A day of heavy use outside Quotient makes the limit look smaller, which is why one window or one day is not enough.
+- **`plan-changed`**: the user says the subscription changed, and the size is learned again from now (until the week has points of its own, from the ratio with the 5 hours of before, said so). `plan-changed --undo` takes the last change back; the windows already judged are not judged again.
+- The README (English and Italian) says that the size of the limits is learned by each user for their plan, how the 5-hour/week check works, and what happens when you change plan.
+
 ## [1.1.1] - 2026-10-15
 
 ### Fixed
@@ -239,6 +248,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.1.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.2
 [1.1.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.0.1

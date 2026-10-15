@@ -159,6 +159,12 @@ def pre_llm_call(q, payload):
             text += " " + line
     except Exception:
         pass
+    try:
+        plan = q.plan_alert(cfg)  # 1.1.2: the limit looks changed (a change of subscription), told once in any chat
+        if plan:
+            text += " " + plan
+    except Exception:
+        pass
     _save(q, state)
     return {"context": text}
 

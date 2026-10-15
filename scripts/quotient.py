@@ -16,6 +16,7 @@ Commands:
   config [KEY [VALUE]] show or change the settings
   export               the exact lines that sharing sends (numbers only)
   share [status|on|off] the shared average: what is sent, and turning it on or off
+  plan-changed [--undo] you changed subscription: learn the size of the limit again from now
   rate ...             the work in installments (see `rate --help`)
 """
 
@@ -36,7 +37,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -132,6 +133,23 @@ DEFAULTS = {
         "factor": 3,
         "min_points": 4,
         "hours": 3,
+    },
+    # 1.1.2: the two percentages rise with the same use, so the points the 5 hours rise for 1 point of the week give a
+    # second estimate of the week (a check). The two estimates are said not to agree beyond x`factor`; the ratio takes
+    # the place of the direct estimate when that one has fewer than `min_points` points of the week and the ratio has them.
+    "ratio": {
+        "factor": 1.5,
+        "min_points": 3,
+    },
+    # 1.1.2: a change of subscription. The last `windows` 5-hour windows (each with `min_points` points or more, in
+    # `days` different days at least) all beyond x`factor` from the earlier ones in the same direction, and the week in
+    # the same time (`week_points` points or more) beyond it too: the limit has changed, Quotient learns it again.
+    "plan": {
+        "factor": 1.6,
+        "windows": 3,
+        "min_points": 5,
+        "days": 2,
+        "week_points": 3,
     },
     # The time of a job (1.1.0) is read from the times Claude Code and Hermes already keep. True: also a small
     # always-on-top stopwatch window (needs tkinter); off by default, the user did not want one more window.
@@ -1615,7 +1633,7 @@ def remaining(job, runs):
 
 def report_lines(name, job, runs, told, folder):
     """The full report of the installments the user has not seen yet, for the chat that created the job."""
-    per_point = (capacity("seven_day") or {}).get("per_point")
+    per_point = (week_capacity() or {}).get("per_point")
     lines = ["Installment report of job '%s'. New since the user last saw it:" % name]
     for i, r in enumerate(runs[told:], start=told + 1):
         cap = r.get("cap") or job.get("daily_cap") or 0
@@ -1996,10 +2014,11 @@ def hook_prompt():
     hints.append("Plan limits: %s." % current if current else "Plan limits: not read yet (see LIMITS in the protocol).")
     sizes = []
     for window, label in (("seven_day", "the week"), ("five_hour", "the 5 hours")):
-        c = capacity(window)
+        c = week_capacity(cfg) if window == "seven_day" else capacity(window)
         if c:
-            sizes.append("1%% of %s ~ %s wt, so 100%% ~ %s wt (between %s and %s; rough, from %d points)" % (
-                label, fmt(c["per_point"]), fmt(c["per_point"] * 100), fmt(c["low"]), fmt(c["high"]), c["points"]))
+            sizes.append("1%% of %s ~ %s wt, so 100%% ~ %s wt (between %s and %s; rough, from %d points%s)" % (
+                label, fmt(c["per_point"]), fmt(c["per_point"] * 100), fmt(c["low"]), fmt(c["high"]), c["points"],
+                week_source(c)))
     if sizes:
         hints.append("Estimate: " + "; ".join(sizes) + ".")
     lines = ["[Quotient %s] Threshold %s wt. %s %s Quote rules: see the Quotient protocol at the start of the session." % (
@@ -2019,6 +2038,12 @@ def hook_prompt():
             lines += check_alert(cfg)
         except Exception:  # a check that cannot be made must never stop a message
             pass
+    try:
+        plan = plan_alert(cfg, scheduled)   # 1.1.2: the limit looks changed (a change of subscription), told once
+        if plan:
+            lines.append(plan)
+    except Exception:
+        pass
     job = state.get("job")
     pending = state.get("pending")
     closed_told = state.get("last_closed") if not scheduled else None
@@ -2702,34 +2727,239 @@ def refresh_limits(cfg=None, force=False):
     return snap
 
 
-def capacity(window):
+def window_rows(window, since=0, until=None, turns=None):
+    """One row per window (same reset time) from the readings in [since, until): its first and last reading, the points
+    the percentage rose between them and the weighted tokens Quotient measured in between. Windows whose percentage did
+    not rise are left out."""
+    groups = {}
+    for row in read_jsonl(limits_path()):
+        if row.get(window) is None or not row.get(window + "_resets") or not row.get("epoch"):
+            continue
+        if row["epoch"] < since or (until is not None and row["epoch"] >= until):
+            continue
+        groups.setdefault(round(row[window + "_resets"] / 300), []).append(row)
+    turns = measured_turns() if turns is None else turns
+    rows = []
+    for group in groups.values():
+        group.sort(key=lambda r: r["epoch"])
+        first, last = group[0], group[-1]
+        points = last[window] - first[window]
+        if points <= 0:
+            continue
+        rows.append({"begin": first["epoch"], "end": last["epoch"], "resets": last[window + "_resets"], "points": points,
+                     "wt": sum(w for t, w in turns if first["epoch"] < (t or 0) <= last["epoch"])})
+    rows.sort(key=lambda r: r["begin"])
+    return rows
+
+
+def capacity(window, since=None, turns=None):
     """How many weighted tokens 1% of a window holds, from readings and measured turns.
 
     Within one window (same reset time) the rise of the percentage is set against the
     weighted tokens Quotient measured in between. Percentages are whole numbers in some
     sources, so each window carries an error of up to one point: that is the margin.
+    Only the readings after the last change of plan count (1.1.2).
     """
-    groups = {}
-    for row in read_jsonl(limits_path()):
-        if row.get(window) is None or not row.get(window + "_resets"):
-            continue
-        groups.setdefault(round(row[window + "_resets"] / 300), []).append(row)
-    turns = measured_turns()
-    total_wt, total_points, count = 0.0, 0.0, 0
-    for rows in groups.values():
-        rows.sort(key=lambda r: r["epoch"])
-        first, last = rows[0], rows[-1]
-        points = last[window] - first[window]
-        if points <= 0:
-            continue
-        total_wt += sum(w for t, w in turns if first["epoch"] < t <= last["epoch"])
-        total_points += points
-        count += 1
+    rows = window_rows(window, plan_since() if since is None else since, turns=turns)
+    total_wt = sum(r["wt"] for r in rows)
+    total_points = sum(r["points"] for r in rows)
+    count = len(rows)
     if total_points < 3 or total_wt <= 0:
         return None
     return {"per_point": total_wt / total_points, "points": total_points, "windows": count,
             "low": total_wt / (total_points + count) * 100,
             "high": total_wt / max(total_points - count, 0.5) * 100}
+
+
+def window_ratio(since=None):
+    """How many points the 5 hours rise for 1 point of the week (1.1.2, the user's idea). The two percentages rise with
+    the same use: within one 5-hour window and one week (same reset times) the two rises are set side by side, and they
+    are summed over all such windows. The week rises slowly, so its own estimate has few points; this ratio times the
+    size of 1% of the 5 hours, which has many, is a second estimate of the week. It needs no measured turns.
+
+    The percentages are whole numbers: each window's two rises can be up to a point off. Over n windows those errors
+    partly cancel (the variance of each rise is about 1/6 of a point squared), so the margin takes two standard
+    deviations, 2 x sqrt(n/6) points, on each sum."""
+    since = plan_since() if since is None else since
+    groups = {}
+    for row in read_jsonl(limits_path()):
+        if not row.get("epoch") or row["epoch"] < since or not row.get("five_hour_resets") or not row.get("seven_day_resets"):
+            continue
+        if row.get("five_hour") is None or row.get("seven_day") is None:
+            continue
+        groups.setdefault((round(row["five_hour_resets"] / 300), round(row["seven_day_resets"] / 300)), []).append(row)
+    five, week, count = 0.0, 0.0, 0
+    for group in groups.values():
+        group.sort(key=lambda r: r["epoch"])
+        d5 = group[-1]["five_hour"] - group[0]["five_hour"]
+        dw = group[-1]["seven_day"] - group[0]["seven_day"]
+        if d5 < 0 or dw < 0 or d5 == dw == 0:
+            continue
+        five, week, count = five + d5, week + dw, count + 1
+    if five <= 0 or week <= 0:
+        return None
+    margin = 2 * math.sqrt(count / 6.0)
+    return {"ratio": five / week, "low": max(five - margin, 0.0) / (week + margin),
+            "high": (five + margin) / max(week - margin, 0.5), "five_points": five, "week_points": week,
+            "windows": count, "since": since}
+
+
+def week_capacity(cfg=None, turns=None):
+    """How much 1% of the week holds: the direct estimate (capacity) when it has its points; otherwise, when the
+    5-hour/week ratio has them, the ratio times 1% of the 5 hours, said so (source "ratio"). After a change of plan told
+    by hand the ratio may still come from the readings of before ("ratio-before"), on the guess that the new plan keeps
+    the same proportion between the two windows; the report says it, and the direct estimate replaces it in a few days."""
+    cfg = cfg or config()
+    turns = measured_turns(cfg) if turns is None else turns
+    direct = capacity("seven_day", turns=turns)
+    if direct:
+        return dict(direct, source="direct")
+    five = capacity("five_hour", turns=turns)
+    if not five:
+        return None
+    least = float(merge(DEFAULTS["ratio"], cfg.get("ratio") or {})["min_points"])
+    since = plan_since()
+    ratio, source = window_ratio(since), "ratio"
+    if since and (not ratio or ratio["week_points"] < least):
+        ratio, source = window_ratio(0), "ratio-before"
+    if not ratio or ratio["week_points"] < least:
+        return None
+    return {"per_point": ratio["ratio"] * five["per_point"], "points": ratio["week_points"], "windows": ratio["windows"],
+            "low": ratio["low"] * five["low"], "high": ratio["high"] * five["high"], "source": source, "ratio": ratio}
+
+
+def week_source(c):
+    """A few words for the agent on where the estimate of the week comes from, when it is not the direct one."""
+    if not c or c.get("source") in (None, "direct"):
+        return ""
+    return ("; from the 5-hour/week ratio, the week's own estimate has too few points" if c["source"] == "ratio" else
+            "; from the 5-hour/week ratio of before the change of plan, the week's own estimate has too few points")
+
+
+# ---------------------------------------------------------------- a change of subscription (1.1.2)
+# Each user learns the size of their own limit on their own PC (Pro, Max and the others differ). When the subscription
+# changes, the windows of the old plan would stay mixed in for a long time: Quotient looks for the last windows all far
+# from the earlier ones in the same direction, and from there on uses only the windows after the change. A day of much
+# use outside Quotient (claude.ai, the phone) makes the limit look smaller for a while: one far window is not enough.
+
+def plan_changes_path():
+    return os.path.join(home(), "plan-changes.jsonl")
+
+
+def plan_state():
+    """(since, quiet, row): the epoch of the last change of plan still standing (0: none), the epoch of the last one
+    taken back (0: none; the windows that began before it are not judged again), and the row of that change."""
+    changes, quiet = [], 0
+    for row in read_jsonl(plan_changes_path()):
+        if row.get("undo"):
+            if changes:
+                changes.pop()
+            quiet = max(quiet, row.get("epoch") or 0)
+        elif row.get("epoch"):
+            changes.append(row)
+    last = changes[-1] if changes else None
+    return (last["epoch"] if last else 0), quiet, last
+
+
+def plan_since():
+    """From when the size of the limit is learned: the last change of plan still standing, or 0."""
+    return plan_state()[0]
+
+
+def plan_detect(cfg=None, now=None):
+    """Whether the limit has changed since the last change of plan (see DEFAULTS["plan"]). The last 5-hour windows must
+    all be far from the earlier ones in the same direction and fall in more than one day, and the week, from the start
+    of the first of them, must be as far in the same direction. Writes the change to plan-changes.jsonl and returns it,
+    or None. From the start of the first far window on, only the readings after it count."""
+    cfg = cfg or config()
+    p = merge(DEFAULTS["plan"], cfg.get("plan") or {})
+    since, quiet, _ = plan_state()
+    turns = measured_turns(cfg)
+    n, factor = int(p["windows"]), float(p["factor"])
+    five = [w for w in window_rows("five_hour", since, turns=turns) if w["points"] >= float(p["min_points"]) and w["wt"] > 0]
+    if n < 1 or len(five) < 2 * n:
+        return None
+    recent, older = five[-n:], five[:-n]
+    if recent[0]["begin"] < quiet:
+        return None  # the user took the last change back: only windows after that are judged
+    base = sum(w["wt"] for w in older) / sum(w["points"] for w in older)
+    ratios = [w["wt"] / w["points"] / base for w in recent]
+    if all(r >= factor for r in ratios):
+        direction = "bigger"
+    elif all(r <= 1 / factor for r in ratios):
+        direction = "smaller"
+    else:
+        return None
+    if len({datetime.fromtimestamp(w["begin"]).date() for w in recent}) < int(p["days"]):
+        return None  # a day of much use outside Quotient is not a change of plan
+    start = recent[0]["begin"]
+    before = window_rows("seven_day", since, until=start, turns=turns)
+    after = window_rows("seven_day", start, turns=turns)
+    pb, pa = sum(w["points"] for w in before), sum(w["points"] for w in after)
+    wb, wa = sum(w["wt"] for w in before), sum(w["wt"] for w in after)
+    least = float(p["week_points"])
+    if pb < least or pa < least or wb <= 0:
+        return None  # the week cannot tell yet
+    week = (wa / pa) / (wb / pb)
+    if not (week >= factor if direction == "bigger" else week <= 1 / factor):
+        return None
+    row = {"ts": now_iso(), "epoch": round(start), "source": "detected", "direction": direction,
+           "five_hour": [round(r, 2) for r in ratios], "week": round(week, 2), "found": round(now or time.time())}
+    append_jsonl(plan_changes_path(), row)
+    return row
+
+
+def plan_alert(cfg, scheduled=False):
+    """One line for the agent, once, when the limit looks changed (a change of subscription). The check runs only when a
+    new reading of the limits came in since the last check; a scheduled prompt checks but leaves the telling to the user's
+    next message."""
+    path = os.path.join(home(), "plan-state.json")
+    st = load_json(path, {})
+    last = read_jsonl(limits_path(), tail_bytes=4096)
+    newest = last[-1].get("epoch") if last else None
+    if newest and newest != st.get("checked"):
+        st["checked"] = newest
+        save_json(path, st)
+        plan_detect(cfg)
+    if scheduled:
+        return None
+    _, _, row = plan_state()
+    told = st.get("told") if isinstance(st.get("told"), list) else []
+    if not row or row.get("source") != "detected" or row.get("found") in told:
+        return None
+    st["told"] = told + [row.get("found")]
+    save_json(path, st)
+    bigger = row.get("direction") == "bigger"
+    return ("PLAN: the plan limit looks %s than before: the last %d five-hour windows held x%s the weighted tokens per 1%% "
+            "of the earlier ones, and the week in the same time x%s. Maybe the user changed subscription%s. From %s on, "
+            "Quotient learns the size of the limit again, from the readings after it only. Tell the user once, in ONE "
+            "line, in their language: their limit seems to have changed, maybe they changed subscription: Quotient "
+            "starts learning it again (if they did not, `plan-changed --undo` takes it back)." % (
+                "bigger" if bigger else "smaller", len(row.get("five_hour") or []),
+                "/".join("%.1f" % r for r in row.get("five_hour") or []), "%.1f" % (row.get("week") or 0),
+                "" if bigger else ", or used Claude a lot where Quotient cannot see (claude.ai, the phone)",
+                when(row["epoch"], "en")))
+
+
+def cmd_plan_changed(args):
+    """The user says the subscription changed: from now on the size of the limit is learned from the readings after now
+    only. --undo takes the last change back (found by Quotient or told by hand)."""
+    it = config().get("lang") == "it"
+    now = round(time.time())
+    if getattr(args, "undo", False):
+        since, _, _ = plan_state()
+        if not since:
+            out("Nessun cambio di piano da annullare.\n" if it else "No change of plan to take back.\n")
+            return
+        append_jsonl(plan_changes_path(), {"ts": now_iso(), "epoch": now, "undo": True, "took_back": since})
+        out(("Annullato il cambio di piano del %s: le finestre di prima tornano a contare.\n" if it else
+             "The change of plan of %s is taken back: the windows of before count again.\n") % when(since, "it" if it else "en"))
+        return
+    append_jsonl(plan_changes_path(), {"ts": now_iso(), "epoch": now, "source": "user"})
+    out("Fatto: da adesso Quotient reimpara quanto vale il tuo limite, solo dalle letture da qui in poi. Nel frattempo la "
+        "settimana si stima, se si può, dal rapporto con le 5 ore (il resoconto lo dice).\n" if it else
+        "Done: from now on Quotient learns the size of your limit again, from the readings after now only. Meanwhile the "
+        "week is estimated, when it can be, from its ratio with the 5 hours (the report says so).\n")
 
 
 def weeks():
@@ -2808,7 +3038,7 @@ def measure_checks(cfg, now=None):
             if now - end > hours:
                 new.append(dict(row, result="no reading"))
             continue
-        cap = cap or capacity("seven_day")
+        cap = cap or week_capacity(cfg)
         if not cap:
             continue  # how much 1% holds is not known yet: wait for it
         r0, r1 = before[-1], after[0]
@@ -2941,7 +3171,7 @@ def week_plan(cfg):
     it becomes a share of the week only when Quotient has estimated how much 1% holds.
     """
     week = latest_limits().get("seven_day")
-    cap = capacity("seven_day")
+    cap = week_capacity(cfg)
     now = time.time()
     resets = (week or {}).get("resets") or now + 7 * 86400
     days_left = max(1, math.ceil((resets - now) / 86400))
@@ -3161,6 +3391,8 @@ COMMANDS = [
     ("backfill-time", "work out the time of the jobs measured before 1.1.0, from the logs (done by itself once)",
      "ricava dai registri il tempo dei lavori misurati prima della 1.1.0 (lo fa da sola una volta)"),
     ("setup-statusline [--write]", "show the plan limits in the status line", "mostra i limiti del piano nella riga di stato"),
+    ("plan-changed [--undo]", "you changed subscription: Quotient learns the size of your limit again from now (--undo: take the last change back)",
+     "hai cambiato abbonamento: Quotient reimpara da adesso quanto vale il tuo limite (--undo: annulla l'ultimo cambio)"),
     ("rate new <job> --dir <folder> --task-file <file> --quote N (--days N | --daily N) [--template book|research|code-review]",
      "create a job in installments (a template gives it a tested way of working)",
      "crea un lavoro a rate (un modello gli da' un modo di lavorare gia' provato)"),
@@ -3235,6 +3467,15 @@ TEXT = {
         "capacity_five_hour": "The 5 hours hold about %s wt (between %s and %s; rough estimate from %d percentage points).",
         "no_capacity_seven_day": "The size of the week is not estimated yet: it needs a few percentage points measured.",
         "no_capacity_five_hour": "The size of the 5 hours is not estimated yet.",
+        "ratio": "From the 5 hours: %s points of the 5 hours for 1 point of the week (between %s and %s; %s points of the week in %d windows), so the week holds about %s wt (between %s and %s).",
+        "ratio_agree": "The two estimates of the week agree (x%.2f apart).",
+        "ratio_disagree": "The two estimates of the week do NOT agree: x%.2f apart, more than x%s. Use Quotient cannot see, or readings far apart, move one more than the other: the direct one is used; worth checking the readings.",
+        "ratio_used": "The week's own estimate has fewer than %s points: the one from the 5 hours is used in its place.",
+        "ratio_used_before": "The week's own estimate has fewer than %s points: the one from the 5 hours is used in its place, with the ratio of before the change of plan (on the guess that the new plan keeps the same proportion between the 5 hours and the week).",
+        "no_ratio": "The ratio between the 5 hours and the week is not measured yet: it needs readings of both within the same windows.",
+        "plan_since": "The size of the limit is learned from %s on (%s): the windows of before do not count.",
+        "plan_detected": "a change of plan Quotient found; plan-changed --undo takes it back",
+        "plan_user": "a change of plan you told",
         "weeks_head": "Week (resets)          used    measured",
         "running": "(in progress)",
         "too_early": "Too early to say whether the weeks are getting lighter: %d complete week(s), at least 4 are needed.",
@@ -3274,6 +3515,15 @@ TEXT = {
         "capacity_five_hour": "Le 5 ore valgono circa %s token pesati (fra %s e %s: stima grezza da %d punti percentuali).",
         "no_capacity_seven_day": "Quanto vale la settimana non è ancora stimato: servono alcuni punti percentuali misurati.",
         "no_capacity_five_hour": "Quanto valgono le 5 ore non è ancora stimato.",
+        "ratio": "Dalle 5 ore: %s punti delle 5 ore per 1 punto della settimana (fra %s e %s; %s punti della settimana in %d finestre), quindi la settimana vale circa %s token pesati (fra %s e %s).",
+        "ratio_agree": "Le due stime della settimana vanno d'accordo (distanti x%.2f).",
+        "ratio_disagree": "Le due stime della settimana NON vanno d'accordo: distanti x%.2f, oltre x%s. L'uso che Quotient non vede, o letture lontane fra loro, spostano una più dell'altra: si usa quella diretta; conviene controllare le letture.",
+        "ratio_used": "La stima propria della settimana ha meno di %s punti: al suo posto si usa quella dalle 5 ore.",
+        "ratio_used_before": "La stima propria della settimana ha meno di %s punti: al suo posto si usa quella dalle 5 ore, col rapporto di prima del cambio di piano (supponendo che il piano nuovo tenga la stessa proporzione fra 5 ore e settimana).",
+        "no_ratio": "Il rapporto fra le 5 ore e la settimana non è ancora misurato: servono letture di tutte e due dentro le stesse finestre.",
+        "plan_since": "Quanto vale il limite si impara dal %s (%s): le finestre di prima non contano.",
+        "plan_detected": "un cambio di piano trovato da Quotient; plan-changed --undo lo annulla",
+        "plan_user": "un cambio di piano detto da te",
         "weeks_head": "Settimana (si azzera)   usato   misurato",
         "running": "(in corso)",
         "too_early": "Troppo presto per dire se le settimane si alleggeriscono: %d settimane complete, ne servono almeno 4.",
@@ -3342,6 +3592,27 @@ def hermes_lines(cfg, t, lang):
                                       share_of(s["read_share"] * s["week"], s["week"], lang))]
     for _sid, c in s["top"][:3]:
         lines.append(t["hermes_top"] % (fmt(c["wt"]), c["title"] or _sid))
+    return lines
+
+
+def ratio_lines(cfg, t, direct, five, turns=None):
+    """The second estimate of the week, from the 5 hours and the ratio between the two windows (1.1.2), beside the
+    direct one: whether they agree, or which one is used."""
+    least = merge(DEFAULTS["ratio"], cfg.get("ratio") or {})
+    week = None if direct else week_capacity(cfg, turns)
+    ratio = week["ratio"] if week else window_ratio()
+    if not ratio or not five:
+        return [t["no_ratio"]]
+    est = ratio["ratio"] * five["per_point"] * 100
+    lines = [t["ratio"] % ("%.1f" % ratio["ratio"], "%.1f" % ratio["low"], "%.1f" % ratio["high"], "%g" % ratio["week_points"],
+                           ratio["windows"], fmt(est), fmt(ratio["low"] * five["low"]), fmt(ratio["high"] * five["high"]))]
+    if direct:
+        mine = direct["per_point"] * 100
+        apart = max(est, mine) / max(min(est, mine), 1.0)
+        lines.append(t["ratio_agree"] % apart if apart <= float(least["factor"]) else
+                     t["ratio_disagree"] % (apart, "%g" % float(least["factor"])))
+    elif week:
+        lines.append(t["ratio_used" if week["source"] == "ratio" else "ratio_used_before"] % ("%g" % float(least["min_points"])))
     return lines
 
 
@@ -3421,10 +3692,17 @@ def report(args=None):
                                            fmt(r["points"] * r["per_point"]), r["ratio"]))
     current = limits_line(lang)
     lines += ["", t["limits"] % (current or t["no_limits"])]
+    since, _, change = plan_state()
+    if since:
+        lines.append(t["plan_since"] % (when(since, lang), t["plan_detected" if change.get("source") == "detected"
+                                                              else "plan_user"]))
+    turns = measured_turns(cfg)
+    sizes = {}
     for window in ("seven_day", "five_hour"):
-        c = capacity(window)
+        c = sizes[window] = capacity(window, turns=turns)
         lines.append(t["capacity_" + window] % (fmt(c["per_point"] * 100), fmt(c["low"]), fmt(c["high"]), c["points"])
                      if c else t["no_capacity_" + window])
+    lines += ratio_lines(cfg, t, sizes["seven_day"], sizes["five_hour"], turns)
     rows = weeks()
     if rows:
         lines += ["", t["weeks_head"]]
@@ -4108,7 +4386,7 @@ def installment_toast(name, job, runs, cfg, page=None):
         else:
             body = str(run["error"])[:150].strip().rstrip(".") + ". "
     else:
-        per_point = (capacity("seven_day") or {}).get("per_point")
+        per_point = (week_capacity(cfg) or {}).get("per_point")
         title = ("Quotient · rata %d di «%s» finita" if it else "Quotient · installment %d of '%s' done") % (n, name)
         body = ("%s–%s · %s token pesati su %s" if it else "%s–%s · %s weighted tokens of %s") % (
             (run.get("started") or "")[11:16], (run.get("finished") or "")[11:16],
@@ -4955,6 +5233,8 @@ def main(argv=None):
     p.add_argument("--kind", choices=("chat", "rate"), default="chat")
     sub.add_parser("timer-window", help="(internal) the stopwatch window")
     sub.add_parser("backfill-time", help="work out the time of jobs measured before 1.1.0 from the logs")
+    p = sub.add_parser("plan-changed", help="you changed subscription: learn the size of the limit again from now")
+    p.add_argument("--undo", action="store_true", help="take the last change of plan back")
     p = sub.add_parser("config")
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
@@ -5057,6 +5337,8 @@ def main(argv=None):
         timer_window()
     elif args.cmd == "backfill-time":
         out("Jobs given a time from the logs: %d\n" % backfill_time())
+    elif args.cmd == "plan-changed":
+        cmd_plan_changed(args)
     elif args.cmd == "hermes":
         cfg = config()
         t = TEXT.get(cfg.get("lang"), TEXT["en"])
