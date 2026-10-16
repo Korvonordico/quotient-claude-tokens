@@ -4,6 +4,10 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [1.1.7] - 2026-10-16
 
+### Added
+
+- **The 5-hour limit of each plan in the shared average** (the user's request: so other people confirm the limit of each plan). The shared line also carries `per_point_5h`, how many weighted tokens 1% of the 5 hours holds on this PC, rounded to 3 significant digits, only when learned from the user's own readings (never the plan's value sent back) and only in the range 1,000 to 100,000,000 (the 5 hours hold about a tenth of the week: 409,000 against 3.58 million on the author's PC). The service takes it, keeps it in a new column (`server/migrate-1.1.7.sql`) and publishes, for each plan with 30 jobs that sent it, the median with its middle half, like the week, in keys of their own (`jobs_5h`, `per_point_5h`, `p25_5h`, `p75_5h`): old lines are still accepted, the averages already published do not change, and a 1.1.6 copy reads the file as before. A new user of that plan starts from it for the 5 hours too (in the quotes, the share of the 5 hours, and the line at each message, which says it is not measured here yet), until their own readings are enough. It is said as an estimate taken from other users, with its margin: Anthropic does not publish the limits and changes them (it doubled Claude Code's 5-hour limits on 6 May 2026). A service not updated yet answers `400` to the new field: the line goes again as a 1.1.6 service takes it (plan and the week), then with the five fields only. `/token-quotient:share`, the README, PRIVACY.md, the site and the service's page say it.
+
 ### Fixed
 
 - **A message waited for the limits.** In Hermes, with no job open, the hook before each message read the limits itself (`claude -p /usage`, about 4 seconds) once every 10 minutes, and the message waited. In Hermes' logs of 12-15 October 2026 the hook reached its 20-second limit 14 times and the message went without its line. Now no hook waits for `/usage`: with no job open too, the reading runs in a separate process at the usual pace (`limits.every`, 10 minutes), and at most one is started per interval, even before it writes anything. The line shows the last reading saved; the new one reaches the next message. The check of the measures against the week waits for its reading the same way. Commands run by hand (`report`, `limits`, `tick`, `quote-table`) still read in the foreground when they need fresh numbers.
@@ -21,7 +25,7 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
   | 10M | 10,164,755 | 10,164,755 |
 
   The line in `quote-table`, the protocol and the README say the new rule.
-- The README showed `@@TESTCOUNT@@` instead of the number of tests (since the 1.1.6 merge). Now 334 tests, 19 of them new in `tests/test_v117.py`, one of which checks the README, the privacy page and the site for the version and for placeholders.
+- The README showed `@@TESTCOUNT@@` instead of the number of tests (since the 1.1.6 merge). Now 346 tests, 31 of them new in `tests/test_v117.py`, one of which checks the README, the privacy page and the site for the version and for placeholders.
 
 ### Changed
 

@@ -71,7 +71,7 @@
     "share": {
       "type": "boolean",
       "title": "Share anonymous numbers / Condividi numeri anonimi",
-      "description": "After each finished job, send only its raw estimate, real cost, model family and Quotient version, and when known the plan you chose and the weighted tokens in 1% of your week (no dates, no text, no ids) to the shared average. Off: no job is sent; the shared average is still downloaded once a day and used. See PRIVACY.md. / Dopo ogni lavoro manda solo stima, costo vero, famiglia del modello e versione, e se noti il piano scelto e i token pesati in 1% della settimana (niente date, testi o codici) alla media condivisa. Spento: nessun lavoro parte; la media condivisa si scarica lo stesso una volta al giorno.",
+      "description": "After each finished job, send only its raw estimate, real cost, model family and Quotient version, and when known the plan you chose and the weighted tokens in 1% of your week and of your 5 hours (no dates, no text, no ids) to the shared average. Off: no job is sent; the shared average is still downloaded once a day and used. See PRIVACY.md. / Dopo ogni lavoro manda solo stima, costo vero, famiglia del modello e versione, e se noti il piano scelto e i token pesati in 1% della settimana e delle 5 ore (niente date, testi o codici) alla media condivisa. Spento: nessun lavoro parte; la media condivisa si scarica lo stesso una volta al giorno.",
       "default": true
     },
     "compact": {
