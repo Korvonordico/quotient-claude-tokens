@@ -21,6 +21,26 @@ The user's idea: with more ways to see what a job costs and how big the limit is
 - **The real prices.** On the author's data (55 Hermes chats fitted exactly, and Claude Code's `total_cost_usd` of 37 installments, estimate/real median 1.000): a cache read costs 0.05 x input, not 0.1 x as Quotient weighs it, so jobs with much re-reading weigh more than they cost; output 5 x, cache writes 1.25 x (5 minutes) and 2 x (1 hour) as weighed. The weights are left as they are (they are the plan's own ratios, not certain): the report shows the prices implied, and `config weights.cache_read 0.05` is the user's choice. Installments with web searches cost up to 23% more than their tokens.
 - **Hermes' hidden calls** (the user's hint: the size of the limit halved from 10/10, the day Hermes was installed). Hermes keeps its calls on the side only inside a turn; on the author's PC its command approvals (444, Opus), compressions of long chats (21), titles (24), web guard (94, Haiku) and images (about 435) since 10/10 are kept nowhere: about 4 to 6 million weighted tokens on 274 million of Hermes, about 2%. The report says it, and the check against the week names it as a possible part of a gap. It does not explain the halving: the 5-hour windows after 10/10 with mostly Claude Code held 254,000 to 283,000 weighted tokens per 1% (Hermes alone 350,000 to 450,000; before 10/10, 651,000 to 839,000), and the week per 1% went from 3.84 to 3.22 million (-16%) against about -50% for the 5 hours.
 
+## [1.1.5] - 2026-10-16
+
+### Fixed
+
+- **A complete quote in Hermes was called incomplete.** The check of a quote (1.1.3) looked only at the last message of Hermes' reply. In Hermes the table of the quote and the clarify window come in the messages before, and the QUOTE line in the last one, after the work: so a complete quote was reported as incomplete at the next message. The check now also reads the reply's earlier messages and the choices of its clarify windows, from Hermes' session store, read-only, between the start of the reply and its end (`reply_texts`); if the store cannot be read, it checks the last message as before. PRIVACY.md says so.
+- **A chat compressed in the middle of a job.** A job's chat part is what re-reading, at each step, what the chat held when the job started cost. When the chat was compressed (Hermes) or compacted (Claude Code) while the job ran, a step re-read less from then on, but Hermes kept counting the size from before: on 16/10/2026 a job measured 0.42 of its estimate instead of about 0.8, and the factor learned it. Hermes now counts reply by reply: a reply whose steps sent less, on average, than the job's starting size counts that, the smallest so far (`ctx_floor`; the whole prompt, so a cache gone cold is not taken for a compression). Claude Code counted nothing after a compaction, and all of it again once the chat had grown back: each call now counts up to the shortest prompt so far.
+- **`fix chat <job>`.** `fix list` finds the jobs measured before, whose chat was compressed while they ran, and `fix chat` works their chat part out again: Claude Code exactly, from the transcript; Hermes, which keeps no numbers call by call, as an estimate from Quotient's log of its counters (each row weighed by its time inside the job). A copy first, and `fix undo`.
+- The line of the factor in `quote-table` lacked a semicolon before the medium band.
+
+### Docs
+
+- The README (English and Italian), read word by word as a new user would, against the code:
+  - the second window of the setup also asks about long chats (keep them, or let them compact themselves), not only about the shared average;
+  - the pace options as the code makes them: with one or two levels 2 or 3 days, with three 3 or 5 days, with four 3, 5 or 7 days and no "apart"; "in a new chat" takes the place of the last option when the chat is long;
+  - `fix chat <job>` in the table of commands and in the repairs, and `fix list` finding the jobs whose chat was compressed while they ran;
+  - privacy: in a reply that gives a quote, Quotient reads Claude's text and the choice window (since 1.1.3), and in Hermes also the reply's earlier messages (1.1.5), only to check the quote; it never reads the user's messages ("never the text" said too little). Also in PRIVACY.md and on the site;
+  - Quotient's rules at the start of a session are about 9,900 characters, roughly 2,800 tokens (the README still said 5,900 and 1,700);
+  - the number of automatic tests.
+- The site's link to the Hermes setup pointed to a section that does not exist (`#hermes-agent-too`); it now opens "Quick start: Hermes Agent". In this changelog, 1.1.3 links to its commit (it has no GitHub release, so the old link led nowhere), and 1.1.4 has its link.
+
 ## [1.1.4] - 2026-10-16
 
 The user asked what was left to make the estimates as good as they can be. Four things. Three more came from using Quotient through Hermes (the last three under Added).
@@ -302,7 +322,10 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
-[1.1.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.3
+[1.1.6]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.6
+[1.1.5]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.5
+[1.1.4]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.4
+[1.1.3]: https://github.com/Korvonordico/quotient-claude-tokens/commit/6a1dd3d
 [1.1.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.2
 [1.1.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.0

@@ -285,12 +285,12 @@ footer a:hover{color:var(--text)}
       <div class="runs">
         <div>
           <h3>In Claude Code</h3>
-          <p>Hooks run its Python script at the start of a session, at each message and at the end of each reply. It reads Claude Code's transcripts only for numbers: token counts, the machine lines Claude writes, and which tools were called. Installments run Claude Code itself, in the background, in the job's folder.</p>
+          <p>Hooks run its Python script at the start of a session, at each message and at the end of each reply. It reads Claude Code's transcripts for numbers: token counts, the machine lines Claude writes, and which tools were called; in a reply that gives a quote, also what Claude wrote and the choice window, only to check the quote. Installments run Claude Code itself, in the background, in the job's folder.</p>
         </div>
         <div>
           <h3>Hermes Agent too</h3>
-          <p>If you use <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> with your Claude login, its chats spend the same 5-hour and weekly limits. Quotient reads Hermes' token counters (read-only: numbers, model and chat title, never the text) and, with two shell hooks, quotes and measures jobs there as well.</p>
-          <p><a href="https://github.com/Korvonordico/quotient-claude-tokens#hermes-agent-too">How to add the hooks</a></p>
+          <p>If you use <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> with your Claude login, its chats spend the same 5-hour and weekly limits. Quotient reads Hermes' token counters (read-only: numbers, model and chat title; in a reply that gives a quote, also what Hermes wrote, only to check the quote; never your messages) and, with two shell hooks, quotes and measures jobs there as well.</p>
+          <p><a href="https://github.com/Korvonordico/quotient-claude-tokens#quick-start-hermes-agent">How to add the hooks</a></p>
         </div>
       </div>
     </div>

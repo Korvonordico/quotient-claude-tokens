@@ -5,7 +5,8 @@ use the same 5-hour and weekly limits. Hermes keeps, per chat, running totals of
 (SQLite, read here read-only). It does not keep one line per API call, so Quotient takes a snapshot of the totals
 and records what grew since the last snapshot: each growth is one row of hermes.jsonl, with the time it was seen.
 
-Nothing is sent anywhere and no chat text is read: only the token counters, the model and the chat title.
+Nothing is sent anywhere. Read: the token counters, the model and the chat title; and, only to check a quote (1.1.5,
+reply_texts), the text of Hermes' own replies in that reply, kept nowhere. Never the user's messages.
 """
 
 import json
@@ -248,6 +249,58 @@ def messages(sid, since, until, home=None):
     return [(float(t), r, n) for t, r, n in rows if t is not None]
 
 
+def reply_texts(sid, since, until, home=None):
+    """The lines Hermes wrote in a chat between two moments (epoch seconds), and the choices of its clarify windows, one
+    string each (1.1.5): in Hermes the quote's table and the window come in the messages before the last one, the QUOTE
+    line in the last one, so the check of the quote needs them all. Only Hermes' replies, never the user's messages;
+    read in memory, kept nowhere. [] if the session store cannot be read."""
+    path = db_path(home)
+    if not sid or not os.path.isfile(path):
+        return []
+    uri = "file:" + path.replace("\\", "/") + "?mode=ro"
+    try:
+        con = sqlite3.connect(uri, uri=True, timeout=5)
+    except sqlite3.Error:
+        return []
+    try:
+        cols = {r[1] for r in con.execute("pragma table_info(messages)")}
+        if not {"session_id", "role", "timestamp", "content"} <= cols:
+            return []
+        calls = "tool_calls" if "tool_calls" in cols else "NULL"
+        rows = con.execute("select content, %s from messages where session_id = ? and role = 'assistant' and "
+                           "timestamp >= ? and timestamp <= ? order by timestamp, id" % calls,
+                           (sid, since, until)).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+    found = []
+    for content, tool_calls in rows:
+        if isinstance(content, str):
+            found += content.splitlines()
+        try:
+            listed = json.loads(tool_calls) if tool_calls else []
+        except (TypeError, ValueError):
+            continue
+        for call in listed if isinstance(listed, list) else []:
+            f = (call.get("function") or {}) if isinstance(call, dict) else {}
+            if not str(f.get("name") or "").endswith("clarify"):
+                continue
+            args = f.get("arguments")
+            try:
+                args = json.loads(args) if isinstance(args, str) else args
+            except ValueError:
+                continue
+            if not isinstance(args, dict):
+                continue
+            for q in args.get("questions") or []:
+                for choice in (q.get("choices") or []) if isinstance(q, dict) else []:
+                    if isinstance(choice, dict):
+                        choice = "%s %s" % (choice.get("label") or "", choice.get("description") or "")
+                    found.append(str(choice))
+    return found
+
+
 def last_user_message(sid, before, home=None):
     """When the user last wrote in a chat, at or before a moment (the start of that turn), or None."""
     rows = messages(sid, before - 7 * 86400, before, home) or []
@@ -272,6 +325,34 @@ def active_seconds(sid, since, until, home=None):
         total += max(0.0, ts - prev)
         prev = ts
     return total + max(0.0, until - prev)
+
+
+def compressions(sid, since, until, home=None):
+    """When Hermes compressed a chat between two moments (epoch seconds): for each summary it put in the chat's place,
+    (its time, the time of the first answer after it). [] when Hermes or its messages are not there."""
+    path = db_path(home)
+    if not os.path.isfile(path):
+        return []
+    try:
+        con = sqlite3.connect("file:" + path.replace("\\", "/") + "?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return []
+    try:
+        cols = {r[1] for r in con.execute("pragma table_info(messages)")}
+        if not {"session_id", "timestamp", "content", "role"} <= cols:
+            return []
+        found = []
+        for (when,) in con.execute("select timestamp from messages where session_id = ? and timestamp > ? and "
+                                   "timestamp <= ? and role != 'tool' and content like '[CONTEXT COMPACTION%' "
+                                   "order by timestamp", (sid, since, until)).fetchall():
+            nxt = con.execute("select min(timestamp) from messages where session_id = ? and role = 'assistant' and "
+                              "timestamp > ?", (sid, when)).fetchone()[0]
+            found.append((float(when), float(nxt or when)))
+        return found
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
 
 
 def read_log(quotient_home):

@@ -697,11 +697,17 @@ def span_cost(usage, lo, hi, weights):
 
 
 def chat_part(calls, lo, hi, weights):
-    """What re-reading the older chat (prompt positions lo..hi) cost in these calls. A call whose prompt is
-    shorter than hi comes after a compaction: the older chat is no longer in it, so it adds nothing."""
+    """What re-reading the older chat (prompt positions lo..hi) cost in these calls. After a compaction a prompt is
+    shorter than hi: the older chat is then what the compacted prompt holds, so from that call on each call counts up
+    to the shortest prompt so far (16/10/2026: before, the calls after a compaction counted nothing, and all of hi
+    again once the chat had grown back past it)."""
     if hi <= lo:
         return 0
-    return round(sum(span_cost(c["usage"], lo, hi, weights) for c in calls if prompt_tokens(c["usage"]) >= hi))
+    total, top = 0.0, hi
+    for c in calls:
+        top = min(top, prompt_tokens(c["usage"]))
+        total += span_cost(c["usage"], lo, top, weights)
+    return round(total)
 
 
 def work_of(job):
@@ -2667,8 +2673,8 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
     mid = mid_factor(cfg) if kind == "chat" else None
     if mid:
         top = cfg["learn_min_raw"]
-        lines[-1] = lines[-1][:-2] + ((" Per i preventivi sotto %s x%.2f, e da %s in su mai meno di %s)." if it else
-                                       " For quotes under %s x%.2f, and from %s up never under %s).") % (
+        lines[-1] = lines[-1][:-2] + (("; per i preventivi sotto %s x%.2f, e da %s in su mai meno di %s)." if it else
+                                       "; for quotes under %s x%.2f, and from %s up never under %s).") % (
             amount(top, lang), mid, amount(top, lang), amount(top * mid, lang)))
 
     names = list(options)
@@ -2700,15 +2706,16 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
 def quote_gaps(cfg, quote, text, window=()):
     """What a quote shown to the user lacks (1.1.3): for each level, the expected time (when Quotient knows the time of
     work) and its share of the 5 hours and of the week (when it knows their size). `text` is what the reply wrote,
-    `window` the options of the window's level question. [(level, ['time', 'shares']), ...], [] when complete."""
+    `window` the options of the window's level question (in Hermes, 1.1.5: also the lines of the reply's messages
+    before the last one). [(level, ['time', 'shares']), ...], [] when complete."""
     last = load_json(os.path.join(home(), "quote-table.json"), {}) or {}
     kind = last.get("kind") if last.get("options") == quote else "chat"
     need_time = bool(minutes_per_million(cfg, kind))
     windows = (1 if kind != "rate" and capacity("five_hour") else 0) + (1 if week_capacity(cfg) else 0)
     if not need_time and not windows:
         return []
-    segments = [line for line in (text or "").splitlines()
-                if not (QUOTE_RE.match(line) or CHOICE_RE.match(line) or PACE_RE.match(line))] + list(window)
+    segments = [line for line in (text or "").splitlines() + [str(w) for w in window]
+                if not (QUOTE_RE.match(line) or CHOICE_RE.match(line) or PACE_RE.match(line))]
     gaps = []
     for name in quote:
         words = (name,) + tuple((LEVEL_WORDS.get(name) or {}).get("also", ()))
@@ -4722,15 +4729,118 @@ def fix_log(row):
     append_jsonl(os.path.join(home(), "fix.jsonl"), dict(row, ts=now_iso()))
 
 
+# 16/10/2026: a job's chat part is what re-reading, at each step, what the chat held when the job started cost. When
+# the chat is compressed (Hermes) or compacted (Claude Code) while the job runs, a step re-reads less from then on; the
+# jobs measured before that was counted (see _chat_part in hermes_hooks and chat_part) are found by `fix list` and
+# worked out again by `fix chat <job>`.
+
+def compressions_in(job):
+    """When the chat of a job was compressed or compacted while it ran: [(its time, the first answer after it)] in
+    epoch seconds, [] when nothing says so or the data are gone. Installments are left out."""
+    begin = float(job.get("begin") or 0) or ts_epoch(job.get("started"))
+    end = ts_epoch(job.get("finished"))
+    sid = str(job.get("session") or "")
+    if not begin or not end or end <= begin or sid.startswith("rate:"):
+        return []
+    if sid.startswith("hermes:"):
+        try:
+            import hermes_source as hs
+            return hs.compressions(sid[7:], begin, end)
+        except Exception:
+            return []
+    path = find_transcript(sid) if sid else None
+    if not path:
+        return []
+    return [(ts_epoch(e.get("timestamp")),) * 2 for e in read_jsonl(path)
+            if (e.get("subtype") == "compact_boundary" or e.get("isCompactSummary"))
+            and begin < ts_epoch(e.get("timestamp")) <= end]
+
+
+def chat_again(cfg, job, when):
+    """The chat part of a job whose chat was compressed (`when`: from compressions_in), worked out again: (chat part,
+    'transcript' or 'hermes-log'), or None without data. Claude Code: call by call from the transcript (chat_part).
+    Hermes keeps no numbers call by call: from Quotient's log of its counters, the steps before the compression count
+    the size the job started with (`ctx`, their number from what they read) and the steps after count what they sent on
+    average, if less; an estimate."""
+    sid, w = str(job.get("session") or ""), cfg["weights"]
+    if sid.startswith("hermes:"):
+        import hermes_source as hs
+        begin = float(job.get("begin") or 0) or ts_epoch(job.get("started"))
+        end = ts_epoch(job.get("finished"))
+        ctx, calls = float(job.get("ctx") or 0), int(job.get("calls") or 0)
+        # each row of the log is what the counters grew since the row before: the part inside the job, by its time
+        log = sorted((r for r in hs.read_log(home()) if r.get("session") == sid[7:]), key=lambda r: r.get("epoch") or 0)
+        rows, prev = [], None
+        for r in log:
+            at = r.get("epoch") or 0
+            start, prev = (prev if prev is not None else at - 1), at
+            inside = max(0.0, min(at, end) - max(start, begin))
+            if inside > 0 and at > start:
+                rows.append((at, inside / (at - start), r))
+        if not ctx or not calls or not rows:
+            return None
+
+        def total(part, keys):
+            return sum(f * sum(r.get(k) or 0 for k in keys) for _, f, r in part)
+        pre = [x for x in rows if x[0] <= when[1]]
+        post = [x for x in rows if x[0] > when[1]]
+        pre_calls = min(calls, int(round(total(pre, ("cache_read_tokens",)) / ctx)))
+        post_calls = calls - pre_calls
+        sent = total(post, ("cache_read_tokens", "cache_write_tokens", "input_tokens"))
+        size = min(ctx, sent / post_calls) if post_calls and sent else ctx
+        return min((pre_calls * ctx + post_calls * size) * w["cache_read"], job.get("actual") or 0), "hermes-log"
+    path = find_transcript(sid) if sid else None
+    if not path:
+        return None
+    begin, end = ts_epoch(job.get("started")), ts_epoch(job.get("finished"))
+    entries = [e for e in read_jsonl(path) if not e.get("isSidechain")]
+    starts = [ts_epoch(e.get("timestamp")) for e in entries if is_turn_start(e)]
+    first = max([s for s in starts if s <= begin + 5] or [0])
+    calls = ordered_calls([e for e in entries if first <= ts_epoch(e.get("timestamp")) <= end + 5])
+    if not first or not calls:
+        return None
+    return min(chat_part(calls, 0, prompt_tokens(calls[0]["usage"]), w), job.get("actual") or 0), "transcript"
+
+
+def rechat(job, chat, how):
+    """A job with its chat part worked out again (the old values kept under `chat_fixed`)."""
+    new = dict(job, chat=round(chat), chat_fixed={"at": now_iso(), "how": how, "chat": job.get("chat"),
+                                                   "work": job.get("work")})
+    new["work"] = max(0, round((job.get("actual") or 0) - chat - (job.get("aside") or 0)))
+    if new.get("raw_estimate"):
+        new["ratio"] = round(work_of(new) / new["raw_estimate"], 4)
+    return new
+
+
+def compression_problems(cfg):
+    """The jobs whose chat was compressed while they ran and whose chat part comes out different worked out again
+    (not the ones measured after the fix, nor the ones already worked out). Only for `fix list`: it reads transcripts."""
+    found = []
+    for job in read_jsonl(jobs_path()):
+        if not (job.get("raw_estimate") and job.get("actual")) or job.get("chat_fixed") or job.get("ctx_floor"):
+            continue
+        when = compressions_in(job)
+        again = chat_again(cfg, job, when[0]) if when else None
+        if again and abs(again[0] - (job.get("chat") or 0)) >= 1000:
+            found.append({"what": "chat", "id": "chat:%s" % job_key(job), "jobs": [job], "chat": again[0],
+                          "how": again[1], "command": "fix chat %s" % job_key(job)})
+    return found
+
+
+def how_text(how):
+    return "from its transcript" if how == "transcript" else "an estimate from Quotient's log of Hermes"
+
+
 def cmd_fix(args):
     cfg = config()
     what = args.what or "list"
     jobs = read_jsonl(jobs_path())
     cmd = run_cmd()
     if what == "list":
-        problems = fix_problems(cfg)
+        problems = fix_problems(cfg) + compression_problems(cfg)
         if not problems:
-            out("Nothing to repair: no job looks split, and no measure is far from the week.\n")
+            out("Nothing to repair: no job looks split, no measure is far from the week, and no chat part needs "
+                "working out again after a compression.\n")
             return
         lines = ["What Quotient proposes to repair (nothing changes without the command; each makes a copy first, and "
                  "`fix undo` takes the last one back):"]
@@ -4740,6 +4850,14 @@ def cmd_fix(args):
                 lines.append("- split: '%s' %s (work %s) ended %s before '%s' %s (work %s) of the same chat. Join them: "
                              "%s %s" % (a.get("choice"), job_key(a), fmt(work_of(a)), fmt_duration(p["gap"]),
                                         b.get("choice"), job_key(b), fmt(work_of(b)), cmd, p["command"]))
+            elif p["what"] == "chat":
+                j = p["jobs"][0]
+                new = rechat(j, p["chat"], p["how"])
+                lines.append("- compressed: '%s' %s: its chat was compressed while it ran; chat part %s -> %s wt, work %s -> "
+                             "%s, ratio x%.2f -> x%.2f (%s). Work it out again: %s %s" % (
+                                 j.get("choice"), job_key(j), fmt(j.get("chat") or 0), fmt(p["chat"]), fmt(work_of(j)),
+                                 fmt(work_of(new)), work_of(j) / j["raw_estimate"], work_of(new) / j["raw_estimate"],
+                                 how_text(p["how"]), cmd, p["command"]))
             else:
                 r, j = p["row"], p["jobs"][0]
                 lines.append("- measure: '%s' %s was measured at %s wt, the week rose %s point(s) (~%s wt), x%.2f. If you "
@@ -4752,7 +4870,7 @@ def cmd_fix(args):
     if what == "undo":
         log = read_jsonl(os.path.join(home(), "fix.jsonl"))
         undone = {r.get("undid") for r in log if r.get("action") == "undo"}
-        last = next((r for r in reversed(log) if r.get("action") in ("merge", "exclude") and r.get("ts") not in undone), None)
+        last = next((r for r in reversed(log) if r.get("action") in ("merge", "exclude", "chat") and r.get("ts") not in undone), None)
         if not last:
             out("Nothing to undo.\n")
             return
@@ -4797,6 +4915,31 @@ def cmd_fix(args):
                 a.get("choice"), job_key(a), fmt(work_of(a)), b.get("choice"), job_key(b), fmt(work_of(b)),
                 fmt(work_of(merged)), fmt(merged.get("raw_estimate")), merged.get("ratio") or 0, before["chat"],
                 after["chat"], before["rate"], after["rate"], excluded_path(), copies["jobs"], cmd))
+        return
+    if what == "chat":
+        if len(refs) != 1:
+            sys.exit("quotient: fix chat <job> (its number in the report or its key, see fix list)")
+        i = fix_find(refs[0], jobs)
+        if i is None:
+            sys.exit("quotient: no such job (see fix list)")
+        job = jobs[i]
+        when = compressions_in(job)
+        again = chat_again(cfg, job, when[0]) if when else None
+        if not again:
+            sys.exit("quotient: no compression found while this job ran, or its data are gone")
+        before = factors_now(cfg)
+        copies = fix_backup()
+        new = rechat(job, again[0], again[1])
+        write_rows(jobs_path(), [new if n == i else j for n, j in enumerate(jobs)])
+        after = factors_now(cfg)
+        fix_log({"action": "chat", "keys": [job_key(job)], "backup": copies, "factor_before": before,
+                 "factor_after": after})
+        out("Chat part of '%s' %s worked out again (%s): %s -> %s wt; work %s -> %s, ratio x%.2f -> x%.2f. Factor x%.2f "
+            "-> x%.2f (installments x%.2f -> x%.2f). Copy of jobs.jsonl before: %s. To take it back: %s fix undo\n" % (
+                job.get("choice"), job_key(job), how_text(again[1]), fmt(job.get("chat") or 0), fmt(again[0]),
+                fmt(work_of(job)), fmt(work_of(new)), work_of(job) / job["raw_estimate"],
+                work_of(new) / job["raw_estimate"], before["chat"], after["chat"], before["rate"], after["rate"],
+                copies["jobs"], cmd))
         return
     if what == "exclude":
         if len(refs) != 1:
@@ -7326,8 +7469,8 @@ def main(argv=None):
     p.add_argument("--context", type=int, help="tokens each step re-reads now (Hermes: the CHAT PART line)")
     p.add_argument("--new-chat", action="store_true", help="offer 'in a new chat' among the pace options")
     p.add_argument("--type", help="the type of work: code, writing, research or other (each learns its own factor)")
-    p = sub.add_parser("fix", help="the guided repair of the measures: list, merge <a> <b>, exclude <job>, undo")
-    p.add_argument("what", nargs="?", choices=("list", "merge", "exclude", "undo"), default="list")
+    p = sub.add_parser("fix", help="the guided repair of the measures: list, merge <a> <b>, exclude <job>, chat <job>, undo")
+    p.add_argument("what", nargs="?", choices=("list", "merge", "exclude", "chat", "undo"), default="list")
     p.add_argument("jobs", nargs="*", help="jobs: their number in the report or their key (see fix list)")
     p.add_argument("--why", help="with exclude: why the measure is wrong (kept with the job)")
     sub.add_parser("timer-window", help="(internal) the stopwatch window")
