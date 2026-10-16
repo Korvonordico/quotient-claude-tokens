@@ -1108,25 +1108,29 @@ def check_average(data):
 
 def clean_plan(stats):
     """The numbers of one plan in the shared average (1.1.6): jobs, and the wt in 1% of the week with its middle half;
-    None if missing or implausible."""
+    1.1.7: the same for the 5 hours (jobs_5h, per_point_5h, p25_5h, p75_5h), which a 1.1.6 copy does not read. Each
+    window is kept only when its numbers are plausible; None if neither is."""
     if not isinstance(stats, dict):
         return None
-    try:
-        clean = {"jobs": int(stats.get("jobs") or 0), "per_point": float(stats.get("per_point") or 0)}
-        for k in ("p25", "p75"):
-            if stats.get(k) is not None:
-                clean[k] = float(stats[k])
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if not 1 <= clean["jobs"] <= 10 ** 9:
-        return None
-    if not all(math.isfinite(v) and PER_POINT_MIN <= v <= PER_POINT_MAX for k, v in clean.items() if k != "jobs"):
-        return None
-    return clean
+    clean = {}
+    for end, low, high in (("", PER_POINT_MIN, PER_POINT_MAX), ("_5h", PER_POINT_5H_MIN, PER_POINT_5H_MAX)):
+        try:
+            part = {"jobs" + end: int(stats.get("jobs" + end) or 0), "per_point" + end: float(stats.get("per_point" + end) or 0)}
+            for k in ("p25" + end, "p75" + end):
+                if stats.get(k) is not None:
+                    part[k] = float(stats[k])
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not 1 <= part["jobs" + end] <= 10 ** 9:
+            continue
+        if all(math.isfinite(v) and low <= v <= high for k, v in part.items() if not k.startswith("jobs")):
+            clean.update(part)
+    return clean or None
 
 
 def plan_average(cfg=None):
-    """The shared size of 1% of the week for the user's plan (1.1.6), or None (no plan chosen, or not published)."""
+    """The shared size of 1% of the week (1.1.6) and of the 5 hours (1.1.7) for the user's plan, or None (no plan
+    chosen, or not published)."""
     cfg = cfg or config()
     plan = cfg.get("subscription")
     if plan not in PLANS:
@@ -2169,14 +2173,19 @@ def backfill_time(deadline=None, home_hermes=None):
 # ---------------------------------------------------------------- sharing
 
 SHARE_FIELDS = ("v", "q", "family", "estimate", "actual")
-# 1.1.6: sent only when known: the plan the user chose, and how many wt 1% of the week held on this PC (3 digits)
-SHARE_OPTIONAL = ("plan", "per_point")
+# 1.1.6: sent only when known: the plan the user chose, and how many wt 1% of the week held on this PC (3 digits);
+# 1.1.7: and how many wt 1% of the 5 hours held (per_point_5h)
+SHARE_OPTIONAL = ("plan", "per_point", "per_point_5h")
+# What an older service takes besides the five fields, newest first: the line is sent again without the rest on a 400
+SHARE_OLDER = (("plan", "per_point"), ())
 PLANS = ("pro", "max5", "max20", "other")
 PER_POINT_MIN, PER_POINT_MAX = 10000, 1000000000
+# 1.1.7: the 5 hours hold about a tenth of the week (the author's: 409k wt in 1% against 3.58M), so a tenth of the range
+PER_POINT_5H_MIN, PER_POINT_5H_MAX = 1000, 100000000
 OUTBOX_MAX = 200
 NOTICE = ("Quotient shares anonymous numbers of each finished job (raw estimate and real cost, rounded; model "
-          "family; Quotient version; the plan, only if you chose it, and the weighted tokens in 1% of your week, "
-          "rounded: no dates, no text, no ids) to build a shared average that helps everyone "
+          "family; Quotient version; the plan, only if you chose it, and the weighted tokens in 1% of your week and "
+          "of your 5 hours, rounded: no dates, no text, no ids) to build a shared average that helps everyone "
           "start from real data. Turn it off any time with /token-quotient:share off or in the plugin settings: you "
           "keep using the shared average. Details: "
           "https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md")
@@ -2233,12 +2242,27 @@ def learned_per_point(cfg=None):
     return value if PER_POINT_MIN <= value <= PER_POINT_MAX else None
 
 
-def share_row(job, cfg=None, per_point=None):
+def learned_per_point_5h(cfg=None):
+    """How many wt 1% of the 5 hours held on this PC, from the user's own readings only, rounded to 3 significant
+    digits (1.1.7, Francesco: the 5-hour limit of each plan confirmed by other people too). None when not known yet;
+    never the plan's shared value given back."""
+    try:
+        c = capacity("five_hour")
+    except Exception:
+        return None
+    if not c:
+        return None
+    value = round3(c["per_point"])
+    return value if PER_POINT_5H_MIN <= value <= PER_POINT_5H_MAX else None
+
+
+def share_row(job, cfg=None, per_point=None, per_point_5h=None):
     """The exact line sent for a finished job: format, Quotient version, model family, raw estimate and
     real cost (rounded to 3 significant digits). Nothing else: no date, no text, no path, no session or
     user id. None if implausible. From 0.9.5 the real cost is the work (what the estimate is about),
     without re-reading an older chat; the version in the line tells the two apart. 1.1.6: with cfg, also the plan
-    (only if the user chose one) and the size of 1% of the week learned here (per_point, when known)."""
+    (only if the user chose one) and the size of 1% of the week learned here (per_point, when known); 1.1.7: and of
+    the 5 hours (per_point_5h, when known)."""
     try:
         estimate, actual = round3(float(job["raw_estimate"])), round3(float(work_of(job)))
     except (KeyError, TypeError, ValueError, OverflowError):
@@ -2251,6 +2275,8 @@ def share_row(job, cfg=None, per_point=None):
         row["plan"] = cfg["subscription"]
     if per_point and PER_POINT_MIN <= int(per_point) <= PER_POINT_MAX:
         row["per_point"] = int(per_point)
+    if per_point_5h and PER_POINT_5H_MIN <= int(per_point_5h) <= PER_POINT_5H_MAX:
+        row["per_point_5h"] = int(per_point_5h)
     return row
 
 
@@ -2289,7 +2315,7 @@ def queue_share(job, cfg):
     middle of a reply. With sharing off, or before the notice was shown, nothing is queued."""
     if not share_active(cfg):
         return share_row(job, cfg)
-    row = share_row(job, cfg, learned_per_point(cfg))
+    row = share_row(job, cfg, learned_per_point(cfg), learned_per_point_5h(cfg))
     if row:
         append_jsonl(outbox_path(), row)
     return row
@@ -2349,10 +2375,14 @@ def flush_share(cfg, deadline):
         line = {k: row.get(k) for k in SHARE_FIELDS}
         line.update({k: row[k] for k in SHARE_OPTIONAL if row.get(k) is not None})
         status, _ = http("POST", endpoint + "/v1/jobs", line, cfg["share"].get("timeout", 3))
-        if status == 400 and len(line) > len(SHARE_FIELDS):
-            # 1.1.6: a service not updated yet takes only the five fields: the line goes without the new two
-            status, _ = http("POST", endpoint + "/v1/jobs", {k: row.get(k) for k in SHARE_FIELDS},
-                             cfg["share"].get("timeout", 3))
+        for older in SHARE_OLDER:
+            # a service not updated yet refuses the fields it does not know (400): the line goes again without them,
+            # first as a 1.1.6 service takes it (plan, per_point), then with the five fields only
+            fewer = {k: v for k, v in line.items() if k in SHARE_FIELDS or k in older}
+            if status != 400 or len(fewer) == len(line):
+                continue
+            line = fewer
+            status, _ = http("POST", endpoint + "/v1/jobs", line, cfg["share"].get("timeout", 3))
         if status is None or status == 429 or status >= 500:
             left = rows[i:]
             break
@@ -2394,28 +2424,38 @@ def fetch_average(cfg, deadline):
     return False
 
 
+def plan_status(cfg):
+    """The line of share_status on the plan's shared sizes (1.1.6 the week, 1.1.7 the 5 hours too)."""
+    p = plan_average(cfg)
+    if not p:
+        return "By plan: %s." % ("choose your plan in /token-quotient:setup" if cfg.get("subscription") not in PLANS
+                                 else "no shared size for your plan yet")
+    parts = ["1%% of %s holds about %s wt for its users (%d jobs)" % (label, fmt(p["per_point" + end]), p["jobs" + end])
+             for end, label in (("", "the week"), ("_5h", "the 5 hours")) if p.get("per_point" + end)]
+    return ("Your plan (%s): %s; an estimate from other users, with its margin, used until this PC has its own "
+            "readings." % (cfg.get("subscription"), ", ".join(parts)))
+
+
 def share_status(cfg):
     on = share_enabled(cfg)
     active = share_active(cfg)
     state = load_json(os.path.join(home(), "share-state.json"), {})
     waiting = len(read_jsonl(outbox_path()))
     avg = shared_average()
-    example = share_row({"raw_estimate": 225000, "actual": 259311, "family": "opus"}, cfg, learned_per_point(cfg))
+    example = share_row({"raw_estimate": 225000, "actual": 259311, "family": "opus"}, cfg, learned_per_point(cfg),
+                        learned_per_point_5h(cfg))
     lines = [
         "Sharing: %s." % ("ON (the default)" if active else "ON, it starts after the notice is shown" if on else "OFF"),
         "What is sent after each finished job, and nothing else (no date, no text, no path, no id):",
         "  " + json.dumps(example, separators=(",", ":")),
-        "  (plan: only if you chose it, now %s; per_point: the weighted tokens in 1%% of your week, when known)" % (
-            cfg.get("subscription") or "not said"),
+        "  (plan: only if you chose it, now %s; per_point and per_point_5h: the weighted tokens in 1%% of your week and "
+        "of your 5 hours, when known)" % (cfg.get("subscription") or "not said"),
         "Lines sent so far: %d. Lines waiting to be sent: %d." % (state.get("sent", 0), waiting),
         ("Shared average: x%.2f from %d real jobs%s; used until you have %d jobs of your own, and held between "
          "x0.25 and x4." % (avg["all"]["factor"], avg["all"]["jobs"],
                             " (published %s)" % avg["updated"] if avg.get("updated") else "", cfg["min_jobs"])
          if avg else "Shared average: not available yet."),
-        ("Your plan (%s): 1%% of the week holds about %s wt for its users (%d jobs); used until this PC has its own "
-         "readings." % (cfg.get("subscription"), fmt(plan_average(cfg)["per_point"]), plan_average(cfg)["jobs"])
-         if plan_average(cfg) else "By plan: %s." % ("choose your plan in /token-quotient:setup" if cfg.get("subscription")
-                                                     not in PLANS else "no shared size for your plan yet")),
+        plan_status(cfg),
         "Turn sharing %s with: share %s (or /token-quotient:share %s). Either way the shared average is downloaded "
         "once a day; to stop that too: config share.average_url \"\" and config share.endpoint \"\"." % (
             ("off", "off", "off") if on else ("on", "on", "on")),
@@ -2506,7 +2546,7 @@ def quote_numbers(cfg, options, kind="chat", context=None, wtype=None, factor=No
     mid = mid_factor(cfg) if factor is None and kind == "chat" else None   # hermes branch: the medium band
     if factor is None:
         factor = learning(cfg, kind, wtype)["factor"]
-    five, week = capacity("five_hour"), week_capacity(cfg)
+    five, week = five_capacity(cfg), week_capacity(cfg)
     latest = latest_limits()
     steps = steps_per_million(cfg, kind)
     overhead = installment_overhead(cfg) if kind == "rate" else 0.0
@@ -2737,7 +2777,7 @@ def quote_gaps(cfg, quote, text, window=()):
     last = load_json(os.path.join(home(), "quote-table.json"), {}) or {}
     kind = last.get("kind") if last.get("options") == quote else "chat"
     need_time = bool(minutes_per_million(cfg, kind))
-    windows = (1 if kind != "rate" and capacity("five_hour") else 0) + (1 if week_capacity(cfg) else 0)
+    windows = (1 if kind != "rate" and five_capacity(cfg) else 0) + (1 if week_capacity(cfg) else 0)
     if not need_time and not windows:
         return []
     segments = [line for line in (text or "").splitlines() + [str(w) for w in window]
@@ -3357,7 +3397,7 @@ def hook_prompt():
     # and the quote rules are in the protocol, the steps and the time per million in quote-table's numbers
     sizes = []
     for window, label in (("five_hour", "the 5 hours"), ("seven_day", "the week")):
-        c = week_capacity(cfg) if window == "seven_day" else capacity(window)
+        c = week_capacity(cfg) if window == "seven_day" else five_capacity(cfg)
         if c:
             sizes.append("%s ~%s wt%s" % (label, fmt(c["per_point"]), week_source(c)))
     if sizes:
@@ -4313,15 +4353,27 @@ def week_capacity(cfg=None, turns=None):
             "low": ratio["low"] * five["low"], "high": ratio["high"] * five["high"], "source": source, "ratio": ratio}
 
 
-def plan_capacity(cfg):
+def plan_capacity(cfg, window="seven_day"):
     """1.1.6: until the user's own readings are enough, the shared size of 1% of the week of the plan they chose, as an
-    estimate: its margin is the middle half of the users of that plan (source "plan")."""
+    estimate: its margin is the middle half of the users of that plan (source "plan"). 1.1.7: the same for the 5 hours
+    (window "five_hour")."""
     p = plan_average(cfg)
-    if not p:
+    end = "_5h" if window == "five_hour" else ""
+    if not p or not p.get("per_point" + end):
         return None
-    return {"per_point": p["per_point"], "points": 0, "windows": 0, "low": p.get("p25") or p["per_point"] * 0.7,
-            "high": p.get("p75") or p["per_point"] * 1.4, "source": "plan", "plan": cfg.get("subscription"),
-            "jobs": p["jobs"]}
+    per = p["per_point" + end]
+    return {"per_point": per, "points": 0, "windows": 0, "low": p.get("p25" + end) or per * 0.7,
+            "high": p.get("p75" + end) or per * 1.4, "source": "plan", "plan": cfg.get("subscription"),
+            "jobs": p["jobs" + end]}
+
+
+def five_capacity(cfg=None, turns=None):
+    """How much 1% of the 5 hours holds (1.1.7): the user's own estimate when it has its points; until then the shared
+    one of their plan, as an estimate with its margin (source "plan"), like the week."""
+    direct = capacity("five_hour", turns=turns)
+    if direct:
+        return dict(direct, source="direct")
+    return plan_capacity(cfg or config(), "five_hour")
 
 
 def week_source(c):

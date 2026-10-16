@@ -286,6 +286,111 @@ class TestShorterLine(Base):
         self.assertIn("end the reply with the line ASIDE", prompt())   # again after a reply counted apart
 
 
+AVERAGE_5H = {"schema": 1, "updated": "2026-10-16", "all": {"jobs": 40, "factor": 1.2},
+              "plans": {"max5": {"jobs": 12, "per_point": 3000000, "p25": 2500000, "p75": 3800000,
+                                 "jobs_5h": 31, "per_point_5h": 300000, "p25_5h": 250000, "p75_5h": 380000},
+                        "pro": {"jobs_5h": 30, "per_point_5h": 90000},                  # the 5 hours only
+                        "max20": {"jobs": 30, "per_point": 9000000, "jobs_5h": 30, "per_point_5h": 5}}}   # 5h implausible
+
+
+class TestFiveHoursShared(Base):
+    """16/10/2026, Francesco: the 5-hour limit of each plan in the shared average too, so other people confirm it."""
+    job = {"raw_estimate": 225000, "actual": 259311, "work": 259311, "family": "opus"}
+
+    def setUp(self):
+        super().setUp()
+        pv.store(("share", "enabled"), True)
+        pv.store(("share", "endpoint"), "https://quotient.example")
+        pv.store(("share", "notice_shown"), True)
+
+    def test_the_line_carries_the_5_hours_only_when_known(self):
+        row = pv.share_row(self.job, pv.config(), 3120000, 312000)
+        self.assertEqual((row["per_point"], row["per_point_5h"]), (3120000, 312000))
+        self.assertNotIn("per_point_5h", pv.share_row(self.job, pv.config(), 3120000, 5))       # out of range
+        self.assertNotIn("per_point_5h", pv.share_row(self.job, pv.config(), 3120000))
+        self.assertNotIn("per_point_5h", pv.share_row(self.job, pv.config(), None, 999999999))  # above the range
+        self.assertEqual(set(pv.share_row(self.job, pv.config(), None, 312000)), set(pv.SHARE_FIELDS) | {"per_point_5h"})
+
+    def test_learned_here_only_and_rounded(self):
+        pv.save_json(pv.average_path(), pv.check_average(AVERAGE_5H))
+        pv.store(("subscription",), "max5")
+        self.assertIsNone(pv.learned_per_point_5h(pv.config()))       # the plan's value is never sent back as ours
+        own = {"per_point": 412345.6, "points": 40, "windows": 6, "low": 3.9e7, "high": 4.3e7}
+        with mock.patch.object(pv, "capacity", side_effect=lambda w, **k: own if w == "five_hour" else None):
+            self.assertEqual(pv.learned_per_point_5h(pv.config()), 412000)
+            self.assertEqual(pv.five_capacity(pv.config())["source"], "direct")
+            row = pv.queue_share(self.job, pv.config())
+        self.assertEqual(row["per_point_5h"], 412000)
+        self.assertEqual(pv.read_jsonl(pv.outbox_path())[-1]["per_point_5h"], 412000)
+
+    def test_an_older_service_gets_the_line_again_in_two_steps(self):
+        line = {"v": 1, "q": pv.VERSION, "family": "opus", "estimate": 100000, "actual": 120000, "plan": "max5",
+                "per_point": 3000000, "per_point_5h": 300000}
+        pv.append_jsonl(pv.outbox_path(), line)
+        self.net.side_effect = [(400, b""), (204, b"")]                # a 1.1.6 service
+        self.assertEqual(pv.flush_share(pv.config(), 9e12), 1)
+        first, second = [c.args[2] for c in self.net.call_args_list]
+        self.assertEqual(first["per_point_5h"], 300000)
+        self.assertEqual(set(second), set(pv.SHARE_FIELDS) | {"plan", "per_point"})
+        self.net.reset_mock()
+        pv.append_jsonl(pv.outbox_path(), line)
+        self.net.side_effect = [(400, b""), (400, b""), (204, b"")]   # a service older than 1.1.6
+        self.assertEqual(pv.flush_share(pv.config(), 9e12), 1)
+        calls = [c.args[2] for c in self.net.call_args_list]
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(set(calls[2]), set(pv.SHARE_FIELDS))
+        self.assertEqual(pv.read_jsonl(pv.outbox_path()), [])
+
+    def test_a_line_with_the_5_hours_only_goes_again_with_the_five_fields(self):
+        pv.append_jsonl(pv.outbox_path(), {"v": 1, "q": pv.VERSION, "family": "opus", "estimate": 100000,
+                                           "actual": 120000, "per_point_5h": 300000})
+        self.net.side_effect = [(400, b""), (204, b"")]
+        self.assertEqual(pv.flush_share(pv.config(), 9e12), 1)
+        calls = [c.args[2] for c in self.net.call_args_list]
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(set(calls[1]), set(pv.SHARE_FIELDS))
+        self.net.reset_mock()
+        pv.append_jsonl(pv.outbox_path(), {"v": 1, "q": pv.VERSION, "family": "opus", "estimate": 100000,
+                                           "actual": 120000})
+        self.net.side_effect = [(400, b"")]                             # five fields refused: dropped, no retry
+        self.assertEqual(pv.flush_share(pv.config(), 9e12), 0)
+        self.assertEqual(self.net.call_count, 1)
+        self.assertEqual(pv.read_jsonl(pv.outbox_path()), [])
+
+    def test_the_average_keeps_each_window_apart(self):
+        plans = pv.check_average(AVERAGE_5H)["plans"]
+        self.assertEqual(plans["max5"], AVERAGE_5H["plans"]["max5"])
+        self.assertEqual(plans["pro"], {"jobs_5h": 30, "per_point_5h": 90000})
+        self.assertEqual(plans["max20"], {"jobs": 30, "per_point": 9000000})     # the week stays, the 5 hours go
+        self.assertIsNone(pv.clean_plan({"jobs_5h": 30, "per_point_5h": 5}))
+        self.assertEqual(pv.clean_plan({"jobs": 12, "per_point": 300000}), {"jobs": 12, "per_point": 300000.0})
+
+    def test_a_new_user_starts_from_the_5_hours_of_their_plan(self):
+        pv.save_json(pv.average_path(), pv.check_average(AVERAGE_5H))
+        self.assertIsNone(pv.five_capacity(pv.config()))              # no plan chosen: nothing to start from
+        pv.store(("subscription",), "max5")
+        cfg = pv.config()
+        c = pv.five_capacity(cfg)
+        self.assertEqual((c["source"], c["per_point"], c["low"], c["high"], c["jobs"]),
+                         ("plan", 300000, 250000, 380000, 31))
+        self.assertIn("NOT measured here yet", pv.week_source(c))
+        self.assertEqual(pv.week_capacity(cfg)["per_point"], 3000000)
+        prompt = self.run_hook(pv.hook_prompt, {"session_id": "s1", "transcript_path": self.t.path})
+        self.assertIn("the 5 hours ~300k wt; NOT measured here yet: the shared average of the users of the max5 plan "
+                      "(31 jobs)", prompt)
+        rows = pv.quote_numbers(cfg, {"good": 900000})["rows"]
+        self.assertAlmostEqual(rows[0]["five_hour"], rows[0]["total"] / 300000)
+        status = pv.share_status(cfg)
+        self.assertIn("1% of the week holds about 3.00M wt for its users (12 jobs), 1% of the 5 hours holds about 300k "
+                      "wt for its users (31 jobs); an estimate from other users, with its margin", status)
+        pv.store(("subscription",), "pro")                               # a plan with the 5 hours only
+        cfg = pv.config()
+        self.assertEqual(pv.five_capacity(cfg)["per_point"], 90000)
+        self.assertIsNone(pv.week_capacity(cfg))
+        self.assertIn("1% of the 5 hours holds about 90k wt for its users (30 jobs)", pv.share_status(cfg))
+        self.assertNotIn("1% of the week", pv.plan_status(cfg))
+
+
 class TestDocs(unittest.TestCase):
     """The 1.1.6 merge left `@@TESTCOUNT@@` in the README instead of the number of tests."""
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
