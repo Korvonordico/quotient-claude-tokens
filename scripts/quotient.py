@@ -37,7 +37,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.1.4"
+VERSION = "1.1.5"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -2474,15 +2474,16 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
 def quote_gaps(cfg, quote, text, window=()):
     """What a quote shown to the user lacks (1.1.3): for each level, the expected time (when Quotient knows the time of
     work) and its share of the 5 hours and of the week (when it knows their size). `text` is what the reply wrote,
-    `window` the options of the window's level question. [(level, ['time', 'shares']), ...], [] when complete."""
+    `window` the options of the window's level question (in Hermes, 1.1.5: also the lines of the reply's messages
+    before the last one). [(level, ['time', 'shares']), ...], [] when complete."""
     last = load_json(os.path.join(home(), "quote-table.json"), {}) or {}
     kind = last.get("kind") if last.get("options") == quote else "chat"
     need_time = bool(minutes_per_million(cfg, kind))
     windows = (1 if kind != "rate" and capacity("five_hour") else 0) + (1 if week_capacity(cfg) else 0)
     if not need_time and not windows:
         return []
-    segments = [line for line in (text or "").splitlines()
-                if not (QUOTE_RE.match(line) or CHOICE_RE.match(line) or PACE_RE.match(line))] + list(window)
+    segments = [line for line in (text or "").splitlines() + [str(w) for w in window]
+                if not (QUOTE_RE.match(line) or CHOICE_RE.match(line) or PACE_RE.match(line))]
     gaps = []
     for name in quote:
         words = (name,) + tuple((LEVEL_WORDS.get(name) or {}).get("also", ()))

@@ -324,8 +324,14 @@ def post_llm_call(q, payload):
     if q.same_quote(quote, choice, chat.get("job") or chat.get("closed")):
         quote = choice = custom = None
     if quote:
-        # 1.1.3: a quote the user saw without the time or the shares of a level is given again at the next message
-        gaps = q.quote_gaps(cfg, quote, text)
+        # 1.1.3: a quote the user saw without the time or the shares of a level is given again at the next message.
+        # 1.1.5: the table and the clarify window come in the reply's messages before the last one, the QUOTE line in
+        # the last one: all of them count (before, a complete quote was sent back as incomplete).
+        try:
+            window = hs.reply_texts(sid, t0, now + 1)
+        except Exception:
+            window = []
+        gaps = q.quote_gaps(cfg, quote, text, window)
         if gaps:
             chat["quote_incomplete"] = gaps
         else:
