@@ -135,9 +135,12 @@ def pre_llm_call(q, payload):
     cfg = q.config()
     sid = payload.get("session_id") or ""
     q.measured_turns(cfg)
-    q.refresh_limits(cfg)
     state = _load(q)
     chat = state.setdefault(sid, {})
+    if chat.get("job"):
+        q.limits_soon(cfg)   # 1.1.6: a job open: the limits read every minute, in the background
+    else:
+        q.refresh_limits(cfg)
     totals, calls = _counters(sid)
     ctx = _context_per_call(chat, totals, calls)
     chat["ctx"] = ctx
@@ -182,7 +185,7 @@ def pre_llm_call(q, payload):
         text += (". If this message is about something else, answer it and end the reply with the line ASIDE: the job "
                  "stays open and that reply is counted apart." + q.pace_note(
                      open_job["raw_estimate"], open_job.get("factor"), spent - (open_job.get("aside") or 0),
-                     open_job.get("seconds"), cfg, open_job.get("progress")))
+                     open_job.get("seconds"), cfg, open_job.get("progress"), open_job.get("packages")))
         q.timer_put(cfg, "run", open_job.get("seconds") or 0, open_job.get("predicted_seconds"), open_job["choice"])
     requote = chat.pop("requote_note", None)
     if requote:                          # 1.1.4: the new quote from the job's own pace, shown once
@@ -237,7 +240,7 @@ def _close(q, cfg, chat, totals, calls, how):
         row.update(aside=round(aside), aside_turns=job.get("aside_turns") or 1)
     if job.get("custom"):
         row["custom"] = True
-    for key in ("type", "requote", "progress"):   # 1.1.4
+    for key in ("type", "requote", "progress", "packages"):   # 1.1.4; the packages 1.1.6
         if job.get(key) is not None:
             row[key] = job[key]
     if job.get("seconds") is not None:
@@ -324,7 +327,9 @@ def post_llm_call(q, payload):
             closed = _close(q, cfg, chat, totals, calls, "new-quote")
         elif not aside:
             # 1.1.4: past its first million, the job's own pace may make a new quote, shown once at the next message
-            rq = q.requote_due(cfg, job, _work_now(cfg, job, totals, calls), job.get("progress"))
+            work_now = _work_now(cfg, job, totals, calls)
+            q.add_package(job, work_now, q.parse_progress(text), cfg)   # 1.1.6: a package at each million
+            rq = q.requote_due(cfg, job, work_now, job.get("progress"))
             if rq:
                 job["requote"] = rq
                 chat["requote_note"] = q.requote_text(cfg, rq, "chat", chat.get("ctx"), cfg.get("lang") or "en")
@@ -375,6 +380,8 @@ def post_llm_call(q, payload):
         if q.bind_new_apart("hermes:" + sid, chat["apart_since"] - 600) or now - chat["apart_since"] > 1800:
             chat.pop("apart_since", None)
     job = chat.get("job")
+    if job or closed:
+        q.limits_soon(cfg)   # 1.1.6: a reading near the end of each step of a job, in the background
     if job and job.get("seconds") is not None:
         # the job goes on after this reply: the stopwatch waits for the user
         q.timer_put(cfg, "pause", job["seconds"], job.get("predicted_seconds"), job["choice"],

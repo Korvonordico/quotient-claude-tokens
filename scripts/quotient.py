@@ -16,8 +16,9 @@ Commands:
   config [KEY [VALUE]] show or change the settings
   export               the exact lines that sharing sends (numbers only)
   share [status|on|off] the shared average: what is sent, and turning it on or off
-  plan-changed [--undo] you changed subscription: learn the size of the limit again from now
-  rate ...             the work in installments (see `rate --help`)
+  plan-changed [--undo] [--plan P] you changed subscription: learn the size of the limit again from now
+  telemetry [status|on|off] [--write] Claude Code's own telemetry as a second measure
+  rate ...           the work in installments (see `rate --help`)
 """
 
 import argparse
@@ -30,6 +31,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import html
 import urllib.error
@@ -37,7 +39,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.1.4"
+VERSION = "1.1.6"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -134,6 +136,9 @@ DEFAULTS = {
         # at most once every this many seconds. live false: only the status line.
         "live": True,
         "every": 600,
+        # 1.1.6: while a job or an installment is open, at most once every this many seconds (in the background, the
+        # message does not wait): more readings, so the size of the limit is learned in fewer uses.
+        "job_every": 60,
     },
     # Count the chats of Hermes Agent (same Claude login, same limits) in the weeks and in the report.
     "hermes": True,
@@ -194,6 +199,23 @@ DEFAULTS = {
         "days": 2,
         "week_points": 3,
     },
+    # 1.1.6: the user's subscription, chosen in the setup window or with `plan-changed --plan`: pro, max5, max20, other,
+    # or "unknown" ("I don't know"); empty until asked. Only a chosen plan goes in the shared line, and a new user
+    # starts from the shared size of 1% of the week of that plan until their own readings are enough.
+    "subscription": "",
+    # 1.1.6: Claude Code's own telemetry as a second measure (see telemetry.py; `telemetry on` prints the settings).
+    # A local receiver on 127.0.0.1:`port` keeps numbers only; it stops after `idle_minutes` without data. A finished
+    # job or installment whose two measures differ beyond `percent` (and `min_wt` or more) is told once. The telemetry's
+    # cache writes do not say 5 minutes or 1 hour: `cache_write` "1h" (what Claude Code writes in its main work) or "5m".
+    "telemetry": {
+        "enabled": False,
+        "port": 4318,
+        "interval_ms": 30000,
+        "idle_minutes": 120,
+        "percent": 25,
+        "min_wt": 100000,
+        "cache_write": "1h",
+    },
     # The time of a job (1.1.0) is read from the times Claude Code and Hermes already keep. True: also a small
     # always-on-top stopwatch window (needs tkinter); off by default, the user did not want one more window.
     "timer": {
@@ -243,7 +265,7 @@ PROGRESS_RE = re.compile(r"^[\s>*_`#-]*(?:PROGRESS|AVANZAMENTO)[*_`]*\s*:[\s*_`~
 # the window's questions that belong to Quotient (its own actions are counted as its weight)
 QUOTIENT_HEADERS = {"livello", "level", "ritmo", "pace", "prima rata", "first installment", "ogni giorno",
                     "every day", "dopo la rata", "after it", "soglia", "threshold", "riserva", "reserve",
-                    "lingua", "language", "il pc", "the pc", "media condivisa", "shared average"}
+                    "lingua", "language", "il pc", "the pc", "media condivisa", "shared average", "piano", "plan"}
 # Quotient run by Claude: the installed plugin's script (folder token-quotient, or quotient before 0.9.8) or the launcher
 QUOTIENT_CMD_RE = re.compile(r"[\\/](?:token-)?quotient[\\/]+[\w.-]+[\\/]+scripts[\\/]+(?:quotient\.py|run\.sh)|"
                              r"\.quotient[\\/]+launcher\.py", re.I)
@@ -1061,7 +1083,43 @@ def check_average(data):
             if s is None:
                 return None
             clean["families"][name] = s
+    plans = data.get("plans") or {}
+    if isinstance(plans, dict):
+        # 1.1.6: the size of 1% of the week by plan; a plan whose numbers are wrong is left out, the rest is kept
+        for name, stats in plans.items():
+            s = clean_plan(stats) if name in PLANS else None
+            if s:
+                clean.setdefault("plans", {})[name] = s
     return clean
+
+
+def clean_plan(stats):
+    """The numbers of one plan in the shared average (1.1.6): jobs, and the wt in 1% of the week with its middle half;
+    None if missing or implausible."""
+    if not isinstance(stats, dict):
+        return None
+    try:
+        clean = {"jobs": int(stats.get("jobs") or 0), "per_point": float(stats.get("per_point") or 0)}
+        for k in ("p25", "p75"):
+            if stats.get(k) is not None:
+                clean[k] = float(stats[k])
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not 1 <= clean["jobs"] <= 10 ** 9:
+        return None
+    if not all(math.isfinite(v) and PER_POINT_MIN <= v <= PER_POINT_MAX for k, v in clean.items() if k != "jobs"):
+        return None
+    return clean
+
+
+def plan_average(cfg=None):
+    """The shared size of 1% of the week for the user's plan (1.1.6), or None (no plan chosen, or not published)."""
+    cfg = cfg or config()
+    plan = cfg.get("subscription")
+    if plan not in PLANS:
+        return None
+    avg = shared_average()
+    return ((avg or {}).get("plans") or {}).get(plan)
 
 
 def shared_average():
@@ -1599,17 +1657,24 @@ def claude_active_seconds(entries, since, until):
     return total + max(0.0, until - prev)
 
 
-def pace_note(raw, factor, spent, seconds, cfg=None, progress=None):
+def pace_note(raw, factor, spent, seconds, cfg=None, progress=None, packages=None):
     """After the first million wt of a job, its own pace says more than the quote: how long the rest of the estimate
     takes at that pace, or that the estimate is already passed (idea of the user, 15/10/2026). 1.1.4: from then on the
-    agent writes how much of the job is done (PROGRESS), and Quotient makes a new quote from it (requote_due)."""
+    agent writes how much of the job is done (PROGRESS), and Quotient makes a new quote from it (requote_due). 1.1.6:
+    with packages, the whole job from the cost so far divided by the progress, with its margin."""
     after = float(merge(DEFAULTS["requote"], (cfg or {}).get("requote") or {})["after"])
     if not spent or spent < after or not raw:
         return ""
-    ask = "" if progress is not None else (
-        " Past %s wt of work: in the last message of each reply of this job write the line PROGRESS: <n>%% (how much of "
-        "the whole job is done, your honest estimate); Quotient makes a new quote from it when what is left changed "
-        "a lot." % fmt(after))
+    ask = ""
+    if progress is None:
+        ask = (" Past %s wt of work: in the last message of each reply of this job write the line PROGRESS: <n>%% (how "
+               "much of the whole job is done, your honest estimate); Quotient makes a new quote from it when what is "
+               "left changed a lot." % fmt(after))
+    elif packages and int(spent // after) > int(packages[-1]["work"] // after):
+        ask = " Another %s wt of work: write PROGRESS: <n>%% again in this reply." % fmt(after)   # 1.1.6: a new package
+    est = package_estimate(packages, cfg)
+    if est:
+        ask = " By cost so far / progress: %s." % estimate_words(est) + ask
     if not seconds:
         return ask
     per_m = seconds / (spent / 1e6)
@@ -1634,9 +1699,116 @@ def requote_due(cfg, job, work, progress):
     new = work * (100.0 - progress) / progress
     if abs(new - old) <= float(rq["percent"]) / 100.0 * max(old, 1.0):
         return None
-    return {"at": round(work), "progress": progress, "rest_old": round(old), "rest": round(new),
-            "total": round(work + new), "corrected": round(corrected), "ts": now_iso(),
-            "seconds": round(new * job["seconds"] / work) if job.get("seconds") else None}
+    rq = {"at": round(work), "progress": progress, "rest_old": round(old), "rest": round(new),
+          "total": round(work + new), "corrected": round(corrected), "ts": now_iso(),
+          "seconds": round(new * job["seconds"] / work) if job.get("seconds") else None}
+    est = package_estimate(job.get("packages"), cfg)
+    if est:
+        rq.update(low=est["low"], high=est["high"], packages=est["packages"])   # 1.1.6: the margin of the packages
+    return rq
+
+
+# ---------------------------------------------------------------- 1.1.6: the work in packages (the user's idea)
+# "Quotient measures the work in packages of a million: each package says what it cost and how long it took; even
+# half-way through a package it works the right estimate out again from all the packages done." A package closes at
+# each requote.after wt of work with a PROGRESS line; an installment is one package. The whole job = the cost so far
+# divided by the progress (the time likewise), with a margin that narrows at each package; when the job closes,
+# Quotient keeps how far each PROGRESS line was from the truth, and that error is the margin of the next jobs.
+
+def add_package(job, work, progress, cfg):
+    """A package of a chat job: the first PROGRESS line written after each requote.after wt of work (work, working
+    time, progress). Returns the package, or None."""
+    after = float(merge(DEFAULTS["requote"], cfg.get("requote") or {})["after"])
+    if progress is None or not 0 < progress < 100 or work < after:
+        return None
+    packs = job.setdefault("packages", [])
+    if packs and int(work // after) <= int(packs[-1]["work"] // after):
+        return None
+    pack = {"work": round(work), "seconds": round(job.get("seconds") or 0), "progress": progress, "ts": now_iso()}
+    packs.append(pack)
+    return pack
+
+
+def run_packages(runs):
+    """The packages of an installment job: one per installment with a PROGRESS line, its cost and time so far."""
+    packs, work, seconds = [], 0.0, 0.0
+    for r in runs:
+        work += r.get("wt") or 0
+        seconds += run_seconds(r)
+        p = r.get("progress")
+        if p is not None and 0 < p < 100:
+            packs.append({"work": round(work), "seconds": round(seconds), "progress": p})
+    return packs
+
+
+def progress_error(cfg=None, kind=None):
+    """How many points the agents' PROGRESS lines were off, from the jobs that closed with packages: the median of the
+    last 20 jobs' own medians; 10 points until 3 jobs have it. Returns (points, jobs)."""
+    found = [j["progress_check"]["median"] for j in finished_jobs()
+             if (j.get("progress_check") or {}).get("median") is not None and (kind is None or kind_of(j) == kind)]
+    found = found[-20:]
+    return (median(found), len(found)) if len(found) >= 3 else (10.0, len(found))
+
+
+def package_estimate(packs, cfg=None, kind=None):
+    """The whole job from its packages: cost so far x 100 / progress (time likewise), from the last package; the margin
+    is the PROGRESS error learned (progress_error) and at least the spread of the packages' own estimates. None
+    without packages."""
+    packs = [p for p in packs or [] if p.get("progress") and 0 < p["progress"] < 100 and p.get("work")]
+    if not packs:
+        return None
+    last = packs[-1]
+    error, learned = progress_error(cfg, kind)
+    p = last["progress"]
+    total = last["work"] * 100.0 / p
+    low, high = last["work"] * 100.0 / min(99.9, p + error), last["work"] * 100.0 / max(p - error, p / 2.0, 1.0)
+    totals = [x["work"] * 100.0 / x["progress"] for x in packs[-3:]]
+    if len(totals) >= 2:
+        spread = (max(totals) - min(totals)) / 2.0
+        low, high = min(low, total - spread), max(high, total + spread)
+    est = {"total": round(total), "low": round(max(low, last["work"])), "high": round(high), "progress": p,
+           "work": last["work"], "packages": len(packs), "error": error, "learned": learned}
+    if last.get("seconds"):
+        est["seconds"] = round(last["seconds"] * 100.0 / p)
+        est["seconds_low"] = round(last["seconds"] * est["low"] / last["work"])
+        est["seconds_high"] = round(last["seconds"] * est["high"] / last["work"])
+    return est
+
+
+def estimate_words(est, lang="en"):
+    """'the whole job about 3.2M wt (between 2.8M and 3.9M), about 2h 10m in all, from 2 package(s)'."""
+    it = lang == "it"
+    text = ("tutto il lavoro circa %s wt (fra %s e %s)" if it else "the whole job about %s wt (between %s and %s)") % (
+        fmt(est["total"]), fmt(est["low"]), fmt(est["high"]))
+    if est.get("seconds"):
+        text += (", circa %s in tutto" if it else ", about %s in all") % fmt_duration(est["seconds"])
+    return text + ((", da %d pacchetti" if it else ", from %d package(s)") % est["packages"])
+
+
+def progress_check(packs, final):
+    """When a job closes: how far each package's PROGRESS was from the truth (its work over the final work), in points."""
+    if not packs or not final:
+        return None
+    errors = [round(abs(p["progress"] - 100.0 * p["work"] / final), 1) for p in packs if p.get("work")]
+    if not errors:
+        return None
+    return {"packages": len(errors), "errors": errors, "median": round(median(errors), 1)}
+
+
+def package_lines(cfg, lang):
+    """1.1.6 in the report: how near the PROGRESS lines came to the truth."""
+    it = lang == "it"
+    jobs = [j for j in finished_jobs() if (j.get("progress_check") or {}).get("median") is not None]
+    if not jobs:
+        return []
+    error, learned = progress_error(cfg)
+    packs = sum(j["progress_check"]["packages"] for j in jobs)
+    return [("Avanzamento (PROGRESS): %d lavori chiusi a pacchetti (%d pacchetti); la riga sbagliava di %.0f punti "
+             "(mediana)%s." if it else
+             "Progress (PROGRESS): %d job(s) closed in packages (%d packages); the line was off by %.0f points "
+             "(median)%s.") % (len(jobs), packs, median([j["progress_check"]["median"] for j in jobs]),
+                               "" if learned >= 3 else (", il margine usa ancora 10 punti" if it else
+                                                        ", the margin still uses 10 points"))]
 
 
 def requote_text(cfg, rq, kind="chat", context=None, lang="en"):
@@ -1667,10 +1839,13 @@ def requote_text(cfg, rq, kind="chat", context=None, lang="en"):
                 "" if left is None else ((" (resta %s)" if it else " (%s left)") % percent(left, lang) if left >= 0 else
                                          (" (non ci sta)" if it else " (does not fit)"))))
         lines.append("| " + " | ".join(cells) + " |")
-    lines += ["", ("Tutto il lavoro: preventivo corretto %s, adesso circa %s (x%.2f). È una stima, buona quanto la riga "
-                   "PROGRESS." if it else "The whole job: corrected quote %s, now about %s (x%.2f). An estimate, as good "
+    lines += ["", ("Tutto il lavoro: preventivo corretto %s, adesso circa %s (x%.2f)%s. È una stima, buona quanto la riga "
+                   "PROGRESS." if it else "The whole job: corrected quote %s, now about %s (x%.2f)%s. An estimate, as good "
                    "as the PROGRESS line.") % (amount(rq["corrected"], lang), amount(rq["total"], lang),
-                                              rq["total"] / max(rq["corrected"], 1.0)),
+                                              rq["total"] / max(rq["corrected"], 1.0),
+                                              ((", fra %s e %s" if it else ", between %s and %s") % (
+                                                  amount(rq["low"], lang), amount(rq["high"], lang))
+                                               if rq.get("low") and rq.get("high") else "")),
               "", "[for the agent, not to copy] NEW QUOTE: before anything else, show the table above ONCE to the user "
               "as it is, in their language, then ask with the choice window whether to go on like this: go on as "
               "planned / a smaller level for the rest (say which, with your raw estimate of it) / stop here (then close "
@@ -1959,9 +2134,14 @@ def backfill_time(deadline=None, home_hermes=None):
 # ---------------------------------------------------------------- sharing
 
 SHARE_FIELDS = ("v", "q", "family", "estimate", "actual")
+# 1.1.6: sent only when known: the plan the user chose, and how many wt 1% of the week held on this PC (3 digits)
+SHARE_OPTIONAL = ("plan", "per_point")
+PLANS = ("pro", "max5", "max20", "other")
+PER_POINT_MIN, PER_POINT_MAX = 10000, 1000000000
 OUTBOX_MAX = 200
 NOTICE = ("Quotient shares anonymous numbers of each finished job (raw estimate and real cost, rounded; model "
-          "family; Quotient version: no dates, no text, no ids) to build a shared average that helps everyone "
+          "family; Quotient version; the plan, only if you chose it, and the weighted tokens in 1% of your week, "
+          "rounded: no dates, no text, no ids) to build a shared average that helps everyone "
           "start from real data. Turn it off any time with /token-quotient:share off or in the plugin settings: you "
           "keep using the shared average. Details: "
           "https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md")
@@ -1985,11 +2165,45 @@ def round3(n):
     return int(round(n / step) * step)
 
 
-def share_row(job):
+def plan_word(text):
+    """The plan from the user's words or a setting (1.1.6): 'Max 5x' -> max5, 'Pro' -> pro, 'Max 20x' -> max20,
+    'Team' or 'altro' -> other, 'non so' -> unknown; None when it is not a plan."""
+    t = re.sub(r"[\s_-]+", "", str(text or "").strip().lower())
+    if not t:
+        return None
+    if t in ("unknown", "nonso", "nonlaso", "idontknow", "dontknow", "?", "boh", "altrononso", "othernotsure"):
+        return "unknown"
+    if "20" in t:
+        return "max20"
+    if "5" in t or t in ("max", "max5x"):
+        return "max5"
+    if t in ("pro", "claudepro"):
+        return "pro"
+    if t in ("other", "altro", "team", "enterprise", "free", "api", "altri"):
+        return "other"
+    return None
+
+
+def learned_per_point(cfg=None):
+    """How many wt 1% of the week held on this PC, from the user's own readings (direct, or from the 5-hour ratio),
+    rounded to 3 significant digits: what the shared line carries (1.1.6). None when it is not known yet, or when it
+    would only be the shared average of the plan given back."""
+    try:
+        c = week_capacity(cfg)
+    except Exception:
+        return None
+    if not c or c.get("source") == "plan":
+        return None
+    value = round3(c["per_point"])
+    return value if PER_POINT_MIN <= value <= PER_POINT_MAX else None
+
+
+def share_row(job, cfg=None, per_point=None):
     """The exact line sent for a finished job: format, Quotient version, model family, raw estimate and
     real cost (rounded to 3 significant digits). Nothing else: no date, no text, no path, no session or
     user id. None if implausible. From 0.9.5 the real cost is the work (what the estimate is about),
-    without re-reading an older chat; the version in the line tells the two apart."""
+    without re-reading an older chat; the version in the line tells the two apart. 1.1.6: with cfg, also the plan
+    (only if the user chose one) and the size of 1% of the week learned here (per_point, when known)."""
     try:
         estimate, actual = round3(float(job["raw_estimate"])), round3(float(work_of(job)))
     except (KeyError, TypeError, ValueError, OverflowError):
@@ -1997,7 +2211,12 @@ def share_row(job):
     if not (1000 <= estimate <= 100000000 and 1000 <= actual <= 100000000 and 0.1 <= actual / estimate <= 10):
         return None
     family = job.get("family") if job.get("family") in FAMILY_NAMES else "other"
-    return {"v": 1, "q": VERSION, "family": family, "estimate": estimate, "actual": actual}
+    row = {"v": 1, "q": VERSION, "family": family, "estimate": estimate, "actual": actual}
+    if cfg is not None and cfg.get("subscription") in PLANS:
+        row["plan"] = cfg["subscription"]
+    if per_point and PER_POINT_MIN <= int(per_point) <= PER_POINT_MAX:
+        row["per_point"] = int(per_point)
+    return row
 
 
 def share_enabled(cfg):
@@ -2033,8 +2252,10 @@ def write_outbox(rows):
 def queue_share(job, cfg):
     """Put the finished job's line in the outbox. It leaves at the next session start, never in the
     middle of a reply. With sharing off, or before the notice was shown, nothing is queued."""
-    row = share_row(job)
-    if row and share_active(cfg):
+    if not share_active(cfg):
+        return share_row(job, cfg)
+    row = share_row(job, cfg, learned_per_point(cfg))
+    if row:
         append_jsonl(outbox_path(), row)
     return row
 
@@ -2091,7 +2312,12 @@ def flush_share(cfg, deadline):
             left = rows[i:]
             break
         line = {k: row.get(k) for k in SHARE_FIELDS}
+        line.update({k: row[k] for k in SHARE_OPTIONAL if row.get(k) is not None})
         status, _ = http("POST", endpoint + "/v1/jobs", line, cfg["share"].get("timeout", 3))
+        if status == 400 and len(line) > len(SHARE_FIELDS):
+            # 1.1.6: a service not updated yet takes only the five fields: the line goes without the new two
+            status, _ = http("POST", endpoint + "/v1/jobs", {k: row.get(k) for k in SHARE_FIELDS},
+                             cfg["share"].get("timeout", 3))
         if status is None or status == 429 or status >= 500:
             left = rows[i:]
             break
@@ -2139,16 +2365,22 @@ def share_status(cfg):
     state = load_json(os.path.join(home(), "share-state.json"), {})
     waiting = len(read_jsonl(outbox_path()))
     avg = shared_average()
-    example = share_row({"raw_estimate": 225000, "actual": 259311, "family": "opus"})
+    example = share_row({"raw_estimate": 225000, "actual": 259311, "family": "opus"}, cfg, learned_per_point(cfg))
     lines = [
         "Sharing: %s." % ("ON (the default)" if active else "ON, it starts after the notice is shown" if on else "OFF"),
         "What is sent after each finished job, and nothing else (no date, no text, no path, no id):",
         "  " + json.dumps(example, separators=(",", ":")),
+        "  (plan: only if you chose it, now %s; per_point: the weighted tokens in 1%% of your week, when known)" % (
+            cfg.get("subscription") or "not said"),
         "Lines sent so far: %d. Lines waiting to be sent: %d." % (state.get("sent", 0), waiting),
         ("Shared average: x%.2f from %d real jobs%s; used until you have %d jobs of your own, and held between "
          "x0.25 and x4." % (avg["all"]["factor"], avg["all"]["jobs"],
                             " (published %s)" % avg["updated"] if avg.get("updated") else "", cfg["min_jobs"])
          if avg else "Shared average: not available yet."),
+        ("Your plan (%s): 1%% of the week holds about %s wt for its users (%d jobs); used until this PC has its own "
+         "readings." % (cfg.get("subscription"), fmt(plan_average(cfg)["per_point"]), plan_average(cfg)["jobs"])
+         if plan_average(cfg) else "By plan: %s." % ("choose your plan in /token-quotient:setup" if cfg.get("subscription")
+                                                     not in PLANS else "no shared size for your plan yet")),
         "Turn sharing %s with: share %s (or /token-quotient:share %s). Either way the shared average is downloaded "
         "once a day; to stop that too: config share.average_url \"\" and config share.endpoint \"\"." % (
             ("off", "off", "off") if on else ("on", "on", "on")),
@@ -2694,6 +2926,9 @@ def report_lines(name, job, runs, told, folder):
         lines.append("The installments say ~%.0f%% of the whole job is done: at the cost so far, about %s wt remain, "
                      "~%d more installment(s) of %s wt (an estimate, as good as the PROGRESS line)." % (
                          left[0], fmt(left[1]), left[2], fmt(job.get("daily_cap"))))
+        est = package_estimate(run_packages(runs), config(), "rate")
+        if est:   # 1.1.6: each installment is a package; the margin narrows at each one
+            lines.append("By cost so far / progress: %s." % estimate_words(est))
     last = runs[-1]
     rq = last.get("requote") if job.get("status") != "done" else None
     if rq:
@@ -2932,15 +3167,22 @@ def setup_instructions(cfg):
             "open the choice window (AskUserQuestion) in the user's language with four questions, each with a free field: "
             "'Soglia'/'Threshold' (from how many weighted tokens a job gets a quote: 100.000 = often, 300.000 = the default, "
             "1.000.000 = only huge jobs); 'Riserva'/'Reserve' (share of the weekly limit kept for normal use: 10%%, 20%%, 30%%); "
-            "'Lingua'/'Language' of the report (italiano, English); 'Il PC'/'The PC' for scheduled installments: wake it and put it "
+            "'Lingua'/'Language' of the report (italiano, English); 'Piano'/'Plan', the user's Claude subscription: Pro / Max "
+            "5x / Max 20x / another one or I don't know (the free field takes another plan's name); say that a chosen plan "
+            "lets Quotient start from the size of that plan's limits measured by its other users, and goes in the shared "
+            "line only if they share. "
+            "Current values: threshold %s, reserve %d%%, language %s, plan %s.\n"
+            "Then open a second choice window. First question, 'Il PC'/'The PC' for scheduled installments: wake it and put it "
             "back to sleep / wake it and hibernate it / wake it and leave it on / never touch the PC (installments run only if it "
-            "is already on). Current values: threshold %s, reserve %d%%, language %s, wake %s, after %s. Then save them with: "
-            "%s setup --threshold <n> --reserve <n> --lang it|en --wake yes|no --after sleep|hibernate|nothing  and tell the "
-            "user that /token-quotient:setup opens this window again whenever they want to change it.\n"
-            "Then open a second choice window with one question, 'Media condivisa'/'Shared average': does the user "
+            "is already on); current: wake %s, after %s. Save the five answers with: "
+            "%s setup --threshold <n> --reserve <n> --lang it|en --plan pro|max5|max20|other|unknown --wake yes|no "
+            "--after sleep|hibernate|nothing  and tell the user that /token-quotient:setup opens these windows again whenever "
+            "they want to change them.\n"
+            "In that second window add a question, 'Media condivisa'/'Shared average': does the user "
             "take part in the shared average, which helps the program give everyone better first quotes? Say what it "
             "shares: only the raw estimate and the real cost (rounded), the model family and the Quotient version of "
-            "each finished job; no dates, no text, no ids; and that people who do not take part still get the average. "
+            "each finished job, and when known the plan they chose and how many weighted tokens 1%% of the week holds "
+            "on this PC; no dates, no text, no ids; and that people who do not take part still get the average. "
             "Options: take part (recommended, the default) / do not take part; the free field lets them write anything "
             "else (do what it asks if Quotient can, else explain the two options). Save with: %s setup --share yes|no "
             "and say that /token-quotient:share on|off changes it any time.\n"
@@ -2949,7 +3191,7 @@ def setup_instructions(cfg):
             "chat when it pays) / let it compact itself at the size Quotient recommends from the user's numbers (now about "
             "%s tokens) / at a size the user writes in the free field (100.000 to 1.000.000 tokens). Say that a summary "
             "loses some details and that Quotient warns before it. Save with: %s setup --compact keep|auto|<tokens>\n" % (
-                fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"],
+                fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"], cfg.get("subscription") or "not said",
                 "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], run_cmd(), run_cmd(),
                 "{:,}".format(recommended_compact(cfg)[0]).replace(",", "."), run_cmd()))
 
@@ -2970,6 +3212,12 @@ def cmd_setup(args):
             values[("rate", "after")] = "nothing"  # a PC that is never woken is never put to sleep either
     if getattr(args, "share", None) in ("yes", "no"):
         values[("share", "enabled")] = to_bool(args.share)
+    plan = getattr(args, "plan", None)
+    if isinstance(plan, str) and plan.strip():
+        word = plan_word(plan)
+        if not word:
+            sys.exit("quotient: --plan takes pro, max5, max20, other or unknown")
+        values[("subscription",)] = word   # 1.1.6
     values[("share", "notice_shown")] = True  # the setup window declares sharing
     compact = getattr(args, "compact", None)
     compact = compact if isinstance(compact, str) else None
@@ -2987,10 +3235,11 @@ def cmd_setup(args):
     if compact:
         out(apply_compact(cfg) + "\n")
     out("Quotient is set up: threshold %s wt, reserve %d%% of the week, report in %s, wake the PC for installments: %s, "
-        "after installments: %s, sharing anonymous numbers: %s.\nChange it any time with /token-quotient:setup "
+        "after installments: %s, sharing anonymous numbers: %s, plan: %s.\nChange it any time with /token-quotient:setup "
         "(sharing: /token-quotient:share).\n" % (
             fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"],
-            "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], "on" if share_enabled(cfg) else "off"))
+            "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], "on" if share_enabled(cfg) else "off",
+            cfg.get("subscription") or "not said"))
 
 
 def hook_claude_link():
@@ -3029,6 +3278,11 @@ def hook_session():
     try:
         backfill_time(time.time() + 5)
     except Exception:  # an old job whose logs cannot be read stays without a time
+        pass
+    try:
+        import telemetry
+        telemetry.ensure(sys.modules[__name__], cfg)   # 1.1.6: the receiver of Claude Code's telemetry, when it is on
+    except Exception:
         pass
     text = protocol(cfg, learning(cfg)["factor"])
     if not cfg.get("configured"):
@@ -3092,6 +3346,15 @@ def hook_prompt():
             lines += check_alert(cfg)
         except Exception:  # a check that cannot be made must never stop a message
             pass
+    if (cfg.get("telemetry") or {}).get("enabled"):
+        try:
+            import telemetry   # 1.1.6: the receiver if it stopped; a job whose two measures disagree, told once
+            telemetry.ensure(sys.modules[__name__], cfg)
+            found = None if scheduled else telemetry.alert(sys.modules[__name__], cfg)
+            if found:
+                lines.append(found)
+        except Exception:
+            pass
     try:
         plan = plan_alert(cfg, scheduled)   # 1.1.2: the limit looks changed (a change of subscription), told once
         if plan:
@@ -3116,9 +3379,10 @@ def hook_prompt():
                          " and %s messages in between" % fmt(job["aside"]) if job.get("aside") else "",
                          timing) + pace_note(job.get("raw_estimate"), job.get("factor_used"),
                                             job.get("actual") - (job.get("aside") or 0), job.get("seconds"), cfg,
-                                            job.get("progress")))
+                                            job.get("progress"), job.get("packages")))
         if not scheduled:
             timer_put(cfg, "run", job.get("seconds") or 0, job.get("predicted_seconds"), job.get("choice"))
+        limits_soon(cfg)   # 1.1.6: a job open: the limits read every minute, in the background
     elif pending:
         lines.append("A quote waits for the user's choice (raw: %s). If this message chooses, write `CHOICE: <level>` "
                      "(for a choice of their own, `CHOICE: custom=<your raw estimate of it>`) and `PACE: ...` as the "
@@ -3216,6 +3480,9 @@ def close_job(job, cfg=None):
         job["aside"] = round(job["aside"])   # 1.1.1: the replies about something else, in the real cost only
     job["work"] = max(0, round(job["actual"] - job["chat"] - (job.get("aside") or 0)))
     job["ratio"] = round(work_of(job) / job["raw_estimate"], 4) if job.get("raw_estimate") else None
+    if job.get("packages"):
+        # 1.1.6: how far each package's PROGRESS line was from the truth; the margin of the next jobs
+        job["progress_check"] = progress_check(job["packages"], work_of(job))
     job["family"] = main_family(job.get("families") or {})
     job["check"] = 1                 # 1.1.1: set against the week (measure_checks)
     job["week_end"] = week_used()
@@ -3445,6 +3712,8 @@ def hook_stop():
     continues = bool(CONTINUES_RE.search(text))
     job = state.get("job")
     had_job = bool(job)
+    if had_job and not os.environ.get("QUOTIENT_JOB"):
+        limits_soon(cfg)                 # 1.1.6: a job open: the limits read every minute, in the background
     pending = state.get("pending")
     if same_quote(quote, choice, job or state.get("closed")):
         quote = choice = custom = None   # the same QUOTE/CHOICE lines again: the same job
@@ -3510,6 +3779,8 @@ def hook_stop():
         else:
             # 1.1.4: past its first million, the job's own pace may make a new quote, shown once at the next message
             work_now = job["actual"] - (job.get("chat") or 0) - (job.get("aside") or 0)
+            if not aside and not repeat:
+                add_package(job, work_now, progress, cfg)   # 1.1.6: a package at each million with a PROGRESS line
             rq = None if aside else requote_due(cfg, job, work_now, job.get("progress"))
             if rq:
                 job["requote"] = rq
@@ -3816,19 +4087,66 @@ def measured_turns(cfg=None):
     return rows
 
 
-def refresh_limits(cfg=None, force=False):
-    """A fresh reading of the plan limits from Claude Code's own /usage, when the last one is older than
-    limits.every. No tokens are spent and Quotient never reads the login (see limits_usage.py)."""
-    cfg = cfg or config()
+def limits_live(cfg):
     lim = cfg.get("limits") or {}
-    if not lim.get("live", True) or os.environ.get("QUOTIENT_LIMITS_LIVE") == "0":
-        return None
+    return bool(lim.get("live", True)) and os.environ.get("QUOTIENT_LIMITS_LIVE") != "0"
+
+
+def limits_every(cfg, busy=False):
+    """1.1.6: how often the limits are read. While a job or an installment is open, every limits.job_every seconds (60):
+    more points, so the size of the limit is learned in fewer uses; otherwise every limits.every seconds."""
+    lim = cfg.get("limits") or {}
+    return float(lim.get("job_every", 60) if busy else lim.get("every", 600))
+
+
+def limits_due(every):
+    """True when neither a reading nor a try is younger than `every` seconds."""
     last = read_jsonl(limits_path(), tail_bytes=4096)
-    every = lim.get("every", 600)
-    state_path = os.path.join(home(), "limits-state.json")
-    tried = load_json(state_path, {}).get("tried") or 0
-    if not force and ((last and time.time() - (last[-1].get("epoch") or 0) < every) or time.time() - tried < every):
+    tried = load_json(os.path.join(home(), "limits-state.json"), {}).get("tried") or 0
+    now = time.time()
+    return not ((last and now - (last[-1].get("epoch") or 0) < every) or now - tried < every)
+
+
+def limits_soon(cfg):
+    """1.1.6: during an open job, a reading of the limits in a separate process, so the message never waits for it; at
+    most every limits.job_every seconds. True if one was started."""
+    try:
+        if limits_live(cfg) and limits_due(limits_every(cfg, busy=True)):
+            return start_detached(["limits-read"], os.path.join(home(), "limits-read.log"))
+    except Exception:  # a reading that cannot start must never stop a message
+        pass
+    return False
+
+
+def limits_reader(cfg):
+    """1.1.6: while an installment works (nobody writes, so no hook asks), a thread reads the limits every
+    limits.job_every seconds. Returns the event that stops it, or None when live readings are off."""
+    if not limits_live(cfg):
+        return None
+    every = limits_every(cfg, busy=True)
+    stop = threading.Event()
+
+    def loop():
+        while not stop.wait(every):
+            try:
+                refresh_limits(cfg, every=every)
+            except Exception:  # a reading that fails waits for the next one
+                pass
+
+    threading.Thread(target=loop, daemon=True).start()
+    return stop
+
+
+def refresh_limits(cfg=None, force=False, every=None):
+    """A fresh reading of the plan limits from Claude Code's own /usage, when the last one is older than
+    limits.every (or `every` seconds). No tokens are spent and Quotient never reads the login (see limits_usage.py)."""
+    cfg = cfg or config()
+    if not limits_live(cfg):
+        return None
+    every = (cfg.get("limits") or {}).get("every", 600) if every is None else every
+    if not force and not limits_due(every):
         return None      # read recently, or tried recently without an answer: Claude Code is not asked again yet
+    state_path = os.path.join(home(), "limits-state.json")
     save_json(state_path, {"tried": round(time.time())})
     try:
         import limits_usage
@@ -3929,22 +4247,36 @@ def week_capacity(cfg=None, turns=None):
         return dict(direct, source="direct")
     five = capacity("five_hour", turns=turns)
     if not five:
-        return None
+        return plan_capacity(cfg)
     least = float(merge(DEFAULTS["ratio"], cfg.get("ratio") or {})["min_points"])
     since = plan_since()
     ratio, source = window_ratio(since), "ratio"
     if since and (not ratio or ratio["week_points"] < least):
         ratio, source = window_ratio(0), "ratio-before"
     if not ratio or ratio["week_points"] < least:
-        return None
+        return plan_capacity(cfg)
     return {"per_point": ratio["ratio"] * five["per_point"], "points": ratio["week_points"], "windows": ratio["windows"],
             "low": ratio["low"] * five["low"], "high": ratio["high"] * five["high"], "source": source, "ratio": ratio}
+
+
+def plan_capacity(cfg):
+    """1.1.6: until the user's own readings are enough, the shared size of 1% of the week of the plan they chose, as an
+    estimate: its margin is the middle half of the users of that plan (source "plan")."""
+    p = plan_average(cfg)
+    if not p:
+        return None
+    return {"per_point": p["per_point"], "points": 0, "windows": 0, "low": p.get("p25") or p["per_point"] * 0.7,
+            "high": p.get("p75") or p["per_point"] * 1.4, "source": "plan", "plan": cfg.get("subscription"),
+            "jobs": p["jobs"]}
 
 
 def week_source(c):
     """A few words for the agent on where the estimate of the week comes from, when it is not the direct one."""
     if not c or c.get("source") in (None, "direct"):
         return ""
+    if c["source"] == "plan":   # 1.1.6
+        return ("; NOT measured here yet: the shared average of the users of the %s plan (%d jobs), an estimate until "
+                "this PC has its own readings: say so" % (c.get("plan"), c.get("jobs") or 0))
     return ("; from the 5-hour/week ratio, the week's own estimate has too few points" if c["source"] == "ratio" else
             "; from the 5-hour/week ratio of before the change of plan, the week's own estimate has too few points")
 
@@ -4056,9 +4388,17 @@ def plan_alert(cfg, scheduled=False):
 
 def cmd_plan_changed(args):
     """The user says the subscription changed: from now on the size of the limit is learned from the readings after now
-    only. --undo takes the last change back (found by Quotient or told by hand)."""
+    only. --undo takes the last change back (found by Quotient or told by hand). 1.1.6: --plan also keeps the new plan
+    (pro, max5, max20, other, unknown), as the setup window does."""
     it = config().get("lang") == "it"
     now = round(time.time())
+    plan = getattr(args, "plan", None)
+    if isinstance(plan, str) and plan.strip():
+        word = plan_word(plan)
+        if not word:
+            sys.exit("quotient: --plan takes pro, max5, max20, other or unknown")
+        store(("subscription",), word)
+        out(("Piano salvato: %s.\n" if it else "Plan saved: %s.\n") % word)
     if getattr(args, "undo", False):
         since, _, _ = plan_state()
         if not since:
@@ -4152,8 +4492,8 @@ def measure_checks(cfg, now=None):
                 new.append(dict(row, result="no reading"))
             continue
         cap = cap or week_capacity(cfg)
-        if not cap:
-            continue  # how much 1% holds is not known yet: wait for it
+        if not cap or cap.get("source") == "plan":
+            continue  # how much 1% holds is not known yet here (the plan's shared average judges no measure): wait
         r0, r1 = before[-1], after[0]
         per, points = cap["per_point"], r1["seven_day"] - r0["seven_day"]
         row.update({"from": r0["epoch"], "to": r1["epoch"], "points": points, "per_point": round(per),
@@ -4188,6 +4528,10 @@ def check_line(row):
     repair = (" If the user knows the measure is wrong (for example a piece of the job counted apart), propose `%s fix "
               "exclude %s`: it takes the job out of the factor (a copy first; `fix undo` takes it back). Run it only after "
               "they say yes." % (run_cmd(), job_key(job))) if job else ""
+    if not more and hermes_busy(row.get("begin"), row.get("end")):
+        # 1.1.6 (7b): a possible part of the explanation, never a change of the weights
+        repair = (" Hermes was in use meanwhile: the calls it makes outside a turn (command approvals, compressions, "
+                  "titles, images; about %g%% of its use on the author's data) are not counted." % HERMES_UNSEEN) + repair
     return ("MEASURE CHECK: the job %s (finished %s) was measured at %s wt, but in the same time the weekly limit rose %s "
             "point(s), about %s wt at the current estimate of 1%% (%s wt): the measure is x%.1f %s than the week shows. "
             "%sUse that Quotient cannot see (claude.ai, the phone, another PC) moves the week too, so this is a hint to "
@@ -4488,6 +4832,9 @@ def statusline():
             snap[window + "_resets"] = to_epoch(w.get("resets_at"))
     if snap:
         record_limits(snap, "statusline")
+    usd = (data.get("cost") or {}).get("total_cost_usd")
+    if data.get("session_id") and isinstance(usd, (int, float)) and not isinstance(usd, bool) and usd >= 0:
+        record_statusline_cost(str(data["session_id"])[:64], round(float(usd), 6))   # 1.1.6: the third measure
     line = limits_line(config().get("lang"))
     text = "Quotient · " + (line or ("limiti non ancora letti" if config().get("lang") == "it" else "limits not read yet"))
     st = timer_state()
@@ -4766,8 +5113,10 @@ COMMANDS = [
     ("backfill-time", "work out the time of the jobs measured before 1.1.0, from the logs (done by itself once)",
      "ricava dai registri il tempo dei lavori misurati prima della 1.1.0 (lo fa da sola una volta)"),
     ("setup-statusline [--write]", "show the plan limits in the status line", "mostra i limiti del piano nella riga di stato"),
-    ("plan-changed [--undo]", "you changed subscription: Quotient learns the size of your limit again from now (--undo: take the last change back)",
-     "hai cambiato abbonamento: Quotient reimpara da adesso quanto vale il tuo limite (--undo: annulla l'ultimo cambio)"),
+    ("plan-changed [--undo] [--plan pro|max5|max20|other|unknown]", "you changed subscription: Quotient learns the size of your limit again from now (--undo: take the last change back; --plan: the new plan)",
+     "hai cambiato abbonamento: Quotient reimpara da adesso quanto vale il tuo limite (--undo: annulla l'ultimo cambio; --plan: il piano nuovo)"),
+    ("telemetry [status|on|off] [--write]", "Claude Code's own telemetry as a second measure, kept on this PC (numbers only): on prints the settings, --write puts them in settings.json (a copy first)",
+     "la telemetria di Claude Code come seconda misura, tenuta su questo PC (solo numeri): on stampa le impostazioni, --write le scrive in settings.json (prima una copia)"),
     ("rate new <job> --dir <folder> --task-file <file> --quote N (--days N | --daily N | --pace \"5 giorni alle 2:00\") [--at HH:MM] [--template book|research|code-review] [--type code|writing|research|other]",
      "create a job in installments (--pace: the user's own words, with days, amount a day and time; a template gives it a tested way of working)",
      "crea un lavoro a rate (--pace: le parole dell'utente, con giorni, quantita' al giorno e ora; un modello gli da' un modo di lavorare gia' provato)"),
@@ -5002,6 +5351,196 @@ def hermes_lines(cfg, t, lang):
         lines.append(t["hermes_background"] % (
             fmt(s.get("background") or 0), share_of(s.get("background") or 0, s["week"], lang),
             ("1 ora" if it else "1-hour") if hs.cache_ttl() == "1h" else ("5 minuti" if it else "5-minute")))
+        # 1.1.6 (7b): the calls Hermes makes outside a turn are kept nowhere: an estimate, not counted
+        lines.append(("Hermes: circa %g%% non visto dai suoi contatori (approvazioni dei comandi, compressioni delle chat "
+                      "lunghe, titoli, immagini), stima sui dati dell'autore; non contato." if it else
+                      "Hermes: about %g%% not seen by its counters (command approvals, compressions of long chats, "
+                      "titles, images), an estimate on the author's data; not counted.") % HERMES_UNSEEN)
+    return lines
+
+
+# ---------------------------------------------------------------- 1.1.6: the costs others already work out
+# Hermes keeps its own estimate of each chat's cost, Claude Code gives the cost of each installment (total_cost_usd) and
+# of the session to the status line. They are set against Quotient's weighted tokens: a check of the weights, never a
+# change of them.
+
+HERMES_UNSEEN = 2.0   # percent of Hermes' use its counters do not keep (approvals, compressions, titles, images): the
+#                       author's data, 10-16/10/2026, an estimate (see CHANGELOG 1.1.6)
+
+
+def hermes_busy(begin, end):
+    """True when Hermes' counters grew between two moments (7b: its unseen calls may explain part of a gap)."""
+    if not begin or not end:
+        return False
+    try:
+        import hermes_source as hs
+        return any(begin <= (r.get("epoch") or 0) <= end for r in hs.read_log(home()))
+    except Exception:
+        return False
+
+
+def run_rows():
+    """Every installment run of every job, oldest first."""
+    base = os.path.join(home(), "rate")
+    rows = []
+    if os.path.isdir(base):
+        for name in sorted(os.listdir(base)):
+            rows += [dict(r, job=name) for r in read_jsonl(os.path.join(base, name, "runs.jsonl"))]
+    rows.sort(key=lambda r: r.get("started") or "")
+    return rows
+
+
+def usd_per_wt(cfg=None):
+    """Dollars per weighted token from Claude Code's own cost of the last 20 installments (the median), or None under 3."""
+    values = [r["usd"] / r["wt"] for r in run_rows() if r.get("usd") and r.get("wt")][-20:]
+    return median(values) if len(values) >= 3 else None
+
+
+def solve3(m, v):
+    """x with m x = v for a 3 x 3 system (Gauss with pivoting), or None when it has no single answer."""
+    a = [list(map(float, m[i])) + [float(v[i])] for i in range(3)]
+    for c in range(3):
+        p = max(range(c, 3), key=lambda r: abs(a[r][c]))
+        if abs(a[p][c]) < 1e-12:
+            return None
+        a[c], a[p] = a[p], a[c]
+        for r in range(3):
+            if r != c:
+                f = a[r][c] / a[c][c]
+                a[r] = [x - f * y for x, y in zip(a[r], a[c])]
+    return [a[i][3] / a[i][i] for i in range(3)]
+
+
+def implied_prices(rows):
+    """The prices Hermes' costs imply, as multiples of the input price: output and cache read, by least squares on
+    usd = a (input + 1.25 cache write) + b output + c cache read over the rows of one model (its cache write at 1.25 x
+    input, as Hermes prices it). None with fewer than 10 rows or no single answer."""
+    rows = [r for r in rows if r.get("usd") and r.get("usd") > 0]
+    if len(rows) < 10:
+        return None
+    xs = [((r.get("input_tokens") or 0) + 1.25 * (r.get("cache_write_tokens") or 0), r.get("output_tokens") or 0,
+           r.get("cache_read_tokens") or 0) for r in rows]
+    m = [[sum(x[i] * x[j] for x in xs) for j in range(3)] for i in range(3)]
+    v = [sum(x[i] * r["usd"] for x, r in zip(xs, rows)) for i in range(3)]
+    found = solve3(m, v)
+    if not found or found[0] <= 0:
+        return None
+    a, b, c = found
+    return {"output": b / a, "cache_read": c / a, "rows": len(rows), "input_per_million": a * 1e6}
+
+
+def hermes_cost(cfg, days=30):
+    """Hermes' own cost estimate against Quotient's weighted tokens of the same chats (their own counters, the calls in
+    the background left out, since Hermes does not price them in the chat), over the last `days` days."""
+    try:
+        import hermes_source as hs
+    except ImportError:
+        return None
+    since = time.time() - days * 86400
+    rows = [r for r in hs.read_log(home()) if r.get("usd") is not None and (r.get("epoch") or 0) >= since]
+    usd = sum(r["usd"] for r in rows)
+    wt = sum(max(0, r.get("wt", 0) - (r.get("background") or 0)) for r in rows)
+    if not rows or usd <= 0 or wt <= 0:
+        return None
+    models = {}
+    for r in rows:
+        models.setdefault(r.get("model") or "?", []).append(r)
+    model, its = max(models.items(), key=lambda kv: len(kv[1]))
+    return {"usd": usd, "wt": wt, "per_wt": usd / wt, "rows": len(rows), "model": model,
+            "prices": implied_prices(its)}
+
+
+def statusline_cost_path():
+    return os.path.join(home(), "statusline-cost.jsonl")
+
+
+def record_statusline_cost(sid, usd):
+    """The session's cost the status line gets from Claude Code (cost.total_cost_usd), kept when it changes: numbers
+    only (1.1.6, the third measure)."""
+    path = os.path.join(home(), "statusline-cost.json")
+    seen = load_json(path, {})
+    if seen.get(sid) == usd:
+        return False
+    seen[sid] = usd
+    if len(seen) > 50:
+        seen = dict(list(seen.items())[-50:])
+    save_json(path, seen)
+    append_jsonl(statusline_cost_path(), {"epoch": round(time.time(), 1), "session": sid, "usd": usd})
+    return True
+
+
+def session_usd(rows, sid, begin, end):
+    """What a session cost between two moments from the status line's readings: the last reading up to 10 seconds after
+    the end (it must come from the last minute of the job) less the last one before the start. None when the readings
+    do not cover it."""
+    its = sorted((r for r in rows if r.get("session") == sid and r.get("usd") is not None),
+                 key=lambda r: r.get("epoch") or 0)
+    before = [r for r in its if r["epoch"] <= begin]
+    after = [r for r in its if r["epoch"] <= end + 10]
+    if not before or not after or after[-1]["epoch"] < end - 60:
+        return None
+    return max(0.0, after[-1]["usd"] - before[-1]["usd"])
+
+
+def statusline_jobs(cfg, per_wt):
+    """The finished Claude Code jobs the status line's readings cover: (count, their dollars, Quotient's wt of them)."""
+    rows = read_jsonl(statusline_cost_path())
+    if not rows:
+        return None
+    n, usd, wt = 0, 0.0, 0.0
+    for job in finished_jobs()[-50:]:
+        sid = str(job.get("session") or "")
+        if not sid or ":" in sid:
+            continue
+        cost = session_usd(rows, sid, ts_epoch(job.get("started")), ts_epoch(job.get("finished")))
+        if cost is None or not job.get("actual"):
+            continue
+        n, usd, wt = n + 1, usd + cost, wt + float(job["actual"])
+    return {"jobs": n, "usd": usd, "wt": wt} if n else None
+
+
+def cost_lines(cfg, lang):
+    """1.1.6 in the report: the dollars Hermes, the installments and the status line give, against the weighted tokens."""
+    it = lang == "it"
+    lines = []
+    per = usd_per_wt(cfg)
+    if per:
+        lines.append(("Costo vero di Claude Code (ultime rate): $%.2f per milione di token pesati." if it else
+                      "Claude Code's own cost (last installments): $%.2f per million weighted tokens.") % (per * 1e6))
+    h = hermes_cost(cfg)
+    if h:
+        line = ("Hermes, la sua stima dei costi (30 giorni): $%.2f per %s wt delle sue chat, $%.2f per milione" if it else
+                "Hermes' own cost estimate (30 days): $%.2f for %s wt of its chats, $%.2f per million") % (
+                    h["usd"], fmt(h["wt"]), h["per_wt"] * 1e6)
+        if per:
+            apart = h["per_wt"] / per
+            line += ((", x%.2f rispetto a Claude Code%s" if it else ", x%.2f against Claude Code%s") % (
+                apart, (" (lontani: uno dei pesi o una delle due stime non torna)" if it else
+                        " (far apart: a weight or one of the two estimates is off)") if not 0.8 <= apart <= 1.25 else ""))
+        lines.append(line + ".")
+        p = h["prices"]
+        if p:
+            w = cfg["weights"]
+            far = [k for k, mine in (("output", w["output"]), ("cache_read", w["cache_read"]))
+                   if not 0.8 <= p[k] / mine <= 1.25]
+            lines.append(("  Prezzi che ne risultano (%s, %d letture): uscita x%.2f l'ingresso, lettura della cache x%.3f; "
+                          "Quotient pesa x%g e x%g%s." if it else
+                          "  Prices they imply (%s, %d readings): output x%.2f input, cache read x%.3f; Quotient weighs "
+                          "x%g and x%g%s.") % (
+                h["model"], p["rows"], p["output"], p["cache_read"], w["output"], w["cache_read"],
+                ((": diversi oltre x1.25 per %s; i pesi non cambiano da soli (config weights.<nome> <valore>)" if it else
+                  ": apart beyond x1.25 for %s; the weights never change by themselves (config weights.<name> <value>)")
+                 % ", ".join(far)) if far else ""))
+    s = statusline_jobs(cfg, per)
+    if s:
+        line = ("Riga di stato: %d lavori, $%.2f secondo Claude Code" if it else
+                "Status line: %d job(s), $%.2f by Claude Code's count") % (s["jobs"], s["usd"])
+        if per:
+            mine = s["wt"] * per
+            line += ((", contro $%.2f dai token pesati di Quotient (%+.0f%%)" if it else
+                      ", against $%.2f from Quotient's weighted tokens (%+.0f%%)") % (mine, 100.0 * (mine - s["usd"]) /
+                                                                                     s["usd"] if s["usd"] else 0))
+        lines.append(line + ".")
     return lines
 
 
@@ -5065,6 +5604,25 @@ def report_v114(cfg, t, lang, learned):
     out_rows = read_jsonl(excluded_path())
     if out_rows:
         lines.append(t["excluded"] % len(out_rows))
+    return ([""] + lines) if lines else []
+
+
+def report_v115(cfg, lang):
+    """1.1.6 in the report: Claude Code's telemetry, the costs others work out, the packages of work."""
+    lines = []
+    q = sys.modules[__name__]
+    try:
+        import telemetry
+        if telemetry.settings(cfg)["enabled"] or os.path.exists(telemetry.checks_path(home())):
+            telemetry.compare(q, cfg)
+            lines += telemetry.report_lines(q, cfg, lang)
+    except Exception:  # a section that cannot be worked out must never stop the report
+        pass
+    for part in (cost_lines, package_lines):
+        try:
+            lines += part(cfg, lang)
+        except Exception:
+            pass
     return ([""] + lines) if lines else []
 
 
@@ -5146,6 +5704,7 @@ def report(args=None):
         for r in k["warn"][-5:]:
             lines.append(t["check_row"] % (when(r["end"], lang), r["label"], fmt(r["wt"]), "%g" % r["points"],
                                            fmt(r["points"] * r["per_point"]), r["ratio"]))
+    lines += report_v115(cfg, lang)
     current = limits_line(lang)
     lines += ["", t["limits"] % (current or t["no_limits"])]
     since, _, change = plan_state()
@@ -5484,8 +6043,10 @@ def open_file(path):
 
 def export():
     """The exact line sharing sends for each finished job: numbers only, no date, no text, no ids."""
+    cfg = config()
+    per_point = learned_per_point(cfg)
     for j in finished_jobs():
-        row = share_row(j)
+        row = share_row(j, cfg, per_point)
         if row:
             out(json.dumps(row, separators=(",", ":")) + "\n")
 
@@ -5858,6 +6419,10 @@ def installment_toast(name, job, runs, cfg, page=None):
         if left and left[0] < 100:
             body += ((" · fatto circa il %.0f%%, ne mancano circa %d" if it else " · about %.0f%% done, about %d to go")
                      % (left[0], left[2]))
+            est = package_estimate(run_packages(runs), cfg, "rate")
+            if est:   # 1.1.6: the whole job from the packages done, with its margin
+                body += ((" · tutto circa %s (fra %s e %s)" if it else " · in all about %s (between %s and %s)") %
+                         (fmt(est["total"]), fmt(est["low"]), fmt(est["high"])))
         rq = run.get("requote")
         if rq:   # 1.1.4: the rest will cost much more than the plan
             body += ((" · il resto costerà di più: circa %s (il piano diceva %s)" if it else
@@ -6238,6 +6803,7 @@ def run_installment(args):
     os.environ.pop("HERMES_SESSION_ID", None)   # hermes branch: an installment measures itself, not in the chat that started it
     os.environ["QUOTIENT_JOB"] = args.name  # for the installment's hooks: its job and its cap, only while it runs
     os.environ["QUOTIENT_CAP"] = str(cap)
+    reader = limits_reader(cfg)   # 1.1.6: the limits read every minute while the installment works
     try:
         proc = subprocess.run(cmd, cwd=job["dir"], capture_output=True, timeout=rc["timeout_minutes"] * 60)
         stdout = proc.stdout.decode("utf-8", "replace")
@@ -6245,6 +6811,8 @@ def run_installment(args):
     except subprocess.TimeoutExpired:
         stdout, stderr = "", "timeout"
     finally:
+        if reader:
+            reader.set()
         os.environ.pop("QUOTIENT_JOB", None)
         os.environ.pop("QUOTIENT_CAP", None)
     result = {}
@@ -6270,6 +6838,10 @@ def run_installment(args):
         if job.get("model"):
             families = {family_of(job["model"]): wt}
     usd = result.get("total_cost_usd")
+    # 1.1.6: the tokens by type Claude Code gives for the whole run, numbers only (the prices they imply)
+    tokens = {k: int(v) for k, v in (result.get("usage") or {}).items()
+              if k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+              and isinstance(v, (int, float))}
     handoff = load_text(os.path.join(folder, "HANDOFF.md")) or ""
     done = bool(DONE_RE.search(handoff))
     error = None
@@ -6285,7 +6857,7 @@ def run_installment(args):
     expected_run = installment_seconds(cfg, job, cap)
     run = {"started": started, "finished": finished_at, "session": sid, "wt": wt, "calls": calls,
            "found_asleep": getattr(args, "woke", None) if isinstance(getattr(args, "woke", None), bool) else None,
-           "chat": chat, "fresh": fresh, "usd": usd, "error": error, "done": done, "cap": cap,
+           "chat": chat, "fresh": fresh, "usd": usd, "tokens": tokens or None, "error": error, "done": done, "cap": cap,
            "progress": 100.0 if done else parse_progress(handoff),
            # 1.1.0: an installment works alone, so its time is its whole run
            "seconds": round(max(0.0, ts_epoch(finished_at) - ts_epoch(started))),
@@ -6336,6 +6908,9 @@ def run_installment(args):
                 first = job["requotes"][0]
                 finished["requote"] = {"at": first.get("work_at"), "total": first.get("work_total"),
                                        "progress": first.get("progress"), "ts": first.get("ts")}
+            check = progress_check(run_packages(runs + [run]), total)   # 1.1.6: each installment is a package
+            if check:
+                finished["progress_check"] = check
             append_jsonl(os.path.join(home(), "jobs.jsonl"), finished)
             now_cfg = config()  # read again: sharing may have been turned off during the installment
             queue_share(finished, now_cfg)
@@ -6732,6 +7307,7 @@ def main(argv=None):
     p.add_argument("--wake", choices=("yes", "no"), help="may scheduled installments wake the PC")
     p.add_argument("--share", choices=("yes", "no"), help="share anonymous numbers of finished jobs")
     p.add_argument("--compact", help="long chats: keep, auto (the size Quotient recommends), or a size in tokens")
+    p.add_argument("--plan", help="your subscription: pro, max5, max20, other, or unknown (I don't know)")
     p = sub.add_parser("setup-statusline", help="show the plan limits in the status line and record them")
     p.add_argument("--write", action="store_true", help="write the setting in ~/.claude/settings.json")
     p.add_argument("--force", action="store_true", help="replace a status line that is already set")
@@ -6758,6 +7334,12 @@ def main(argv=None):
     sub.add_parser("backfill-time", help="work out the time of jobs measured before 1.1.0 from the logs")
     p = sub.add_parser("plan-changed", help="you changed subscription: learn the size of the limit again from now")
     p.add_argument("--undo", action="store_true", help="take the last change of plan back")
+    p.add_argument("--plan", help="the new subscription: pro, max5, max20, other, or unknown")
+    p = sub.add_parser("telemetry", help="Claude Code's own telemetry as a second measure: status, on, off")
+    p.add_argument("what", nargs="?", choices=("status", "on", "off", "serve"), default="status")
+    p.add_argument("--write", action="store_true", help="with on/off: change ~/.claude/settings.json (a copy first)")
+    p.add_argument("--port", type=int, help="the local port of the receiver (default: the setting, 4318)")
+    sub.add_parser("limits-read", help="(internal) one reading of the plan limits, run in the background")
     p = sub.add_parser("config")
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
@@ -6871,6 +7453,14 @@ def main(argv=None):
         out("Jobs given a time from the logs: %d\n" % backfill_time())
     elif args.cmd == "plan-changed":
         cmd_plan_changed(args)
+    elif args.cmd == "telemetry":
+        import telemetry
+        telemetry.cmd(sys.modules[__name__], args)
+    elif args.cmd == "limits-read":
+        try:
+            refresh_limits(config(), every=limits_every(config(), busy=True))
+        except Exception as exc:  # a reading in the background must never show an error
+            sys.stderr.write("quotient: %s\n" % exc)
     elif args.cmd == "hermes":
         cfg = config()
         t = TEXT.get(cfg.get("lang"), TEXT["en"])

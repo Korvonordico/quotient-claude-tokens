@@ -8,13 +8,15 @@ Everything it receives, keeps and publishes is described in [PRIVACY.md](../PRIV
 
 | Route | What |
 |---|---|
-| `POST /v1/jobs` | one finished job: `{"v":1,"q":"0.9.0","family":"opus","estimate":225000,"actual":259000}`. Exactly these five fields, numbers in a plausible range; anything else gets `400`. Global caps (20 a minute, 300 a day, for everybody together) answer `429`; a full cap writes nothing. |
+| `POST /v1/jobs` | one finished job: `{"v":1,"q":"0.9.0","family":"opus","estimate":225000,"actual":259000}`. These five fields, numbers in a plausible range; from 1.1.6 also, only when known, `plan` (`pro`, `max5`, `max20`, `other`: only if the user chose it) and `per_point` (weighted tokens in 1% of the week on that PC, 10,000 to 1,000,000,000). Anything else gets `400`. Global caps (20 a minute, 300 a day, for everybody together) answer `429`; a full cap writes nothing. |
 | `GET /v1/average` | the last published average, the same file as `average.json` in quotient-data |
 | `GET /` | a short page: what is kept, how the average is made, the current numbers |
 
 Once a day (03:17 UTC), and when a job arrives (at most once an hour), it keeps only the most recent 5,000 lines and, **only after at least 20 new jobs and 7 days since the last one, with at least 30 jobs in all**, computes a new average and commits it to `average.json` in quotient-data through the GitHub API. A new average that jumps more than 25% needs at least 100 new jobs. Someone who only watches the file cannot tell a single job apart; someone who sends false lines could learn roughly on which side of the average one job falls.
 
-The average: for each model family and for all jobs together, the median of real cost / raw estimate on a log scale, after dropping jobs more than 3 robust standard deviations (MAD) away, never closer than x1.5, rounded to 2 decimals. A family is listed on its own from 30 jobs. See `src/stats.js`.
+The average: for each model family and for all jobs together, the median of real cost / raw estimate on a log scale, after dropping jobs more than 3 robust standard deviations (MAD) away, never closer than x1.5, rounded to 2 decimals. A family is listed on its own from 30 jobs. From 1.1.6, `plans` gives for each plan with 30 jobs or more the median weighted tokens in 1% of the week (rounded to 3 significant digits, with the middle half), so a new user starts from the size of their plan's limit. See `src/stats.js`.
+
+**Updating a service made before 1.1.6:** run `npx wrangler d1 execute quotient-share --remote --file migrate-1.1.6.sql` once (two new columns, old rows keep working), then `npx wrangler deploy`.
 
 ## What it never keeps
 

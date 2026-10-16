@@ -1,13 +1,29 @@
 // Run: node --test server/test/stats.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validate, summarize, buildAverage, mayReplace, MAX_BODY, MIN_PUBLISH } from "../src/stats.js";
+import { validate, summarize, summarizePlan, buildAverage, mayReplace, MAX_BODY, MIN_PUBLISH } from "../src/stats.js";
 
 const good = { v: 1, q: "0.9.0", family: "opus", estimate: 225000, actual: 259000 };
 const body = (o) => JSON.stringify(o);
+const kept = { family: "opus", version: "0.9.0", estimate: 225000, actual: 259000, plan: null, per_point: null };
 
 test("a normal job is accepted and only its numbers are kept", () => {
-  assert.deepEqual(validate(body(good)), { family: "opus", version: "0.9.0", estimate: 225000, actual: 259000 });
+  assert.deepEqual(validate(body(good)), kept);
+});
+
+test("1.1.6: the plan and the size of 1% of the week are accepted, each on its own, old lines still are", () => {
+  assert.deepEqual(validate(body({ ...good, plan: "max5", per_point: 3220000 })),
+    { ...kept, plan: "max5", per_point: 3220000 });
+  assert.deepEqual(validate(body({ ...good, per_point: 3220000 })), { ...kept, per_point: 3220000 });
+  assert.deepEqual(validate(body({ ...good, plan: "pro" })), { ...kept, plan: "pro" });
+  assert.deepEqual(validate(body(good)), kept);
+});
+
+test("1.1.6: a wrong plan or size is refused", () => {
+  for (const change of [{ plan: "Max" }, { plan: "team" }, { plan: null }, { plan: 5 }, { per_point: 9999 },
+    { per_point: 1000000001 }, { per_point: 3.5e6 + 0.5 }, { per_point: "3220000" }, { per_point: null }]) {
+    assert.equal(validate(body({ ...good, ...change })), null, JSON.stringify(change));
+  }
 });
 
 test("any extra field is refused, even a harmless one", () => {
@@ -95,5 +111,17 @@ test("no jobs: no average, no crash", () => {
 });
 
 test("two-digit versions such as 0.10.0 are accepted (the line format does not change)", () => {
-  assert.deepEqual(validate(body({ ...good, q: "0.10.0" })), { family: "opus", version: "0.10.0", estimate: 225000, actual: 259000 });
+  assert.deepEqual(validate(body({ ...good, q: "0.10.0" })), { ...kept, version: "0.10.0" });
+});
+
+test("1.1.6: the size of 1% by plan, only from 30 jobs, rounded to 3 significant digits", () => {
+  const sized = (n, times) => Array.from({ length: times }, (_, i) => ({ per_point: n + i * 1000 }));
+  assert.equal(summarizePlan(sized(3200000, 29)), null);
+  const s = summarizePlan(sized(3200000, 31));
+  assert.equal(s.jobs, 31);
+  assert.equal(s.per_point, 3220000);
+  const avg = buildAverage({ opus: many([1.2], 30) }, many([1.2], 30), "2026-10-15",
+    { max5: sized(3200000, 31), pro: sized(300000, 5) });
+  assert.deepEqual(Object.keys(avg.plans), ["max5"]);
+  assert.equal(buildAverage({ opus: many([1.2], 30) }, many([1.2], 30), "2026-10-15").plans, undefined);
 });

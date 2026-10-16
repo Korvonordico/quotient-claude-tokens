@@ -3,6 +3,12 @@
 
 export const FAMILIES = ["opus", "sonnet", "haiku", "fable", "other"];
 export const FIELDS = ["v", "q", "family", "estimate", "actual"];
+// 1.1.6: two optional fields. `plan` only when the user chose it in Quotient's settings; `per_point` is how many
+// weighted tokens 1% of the week held on that user's PC, rounded to 3 significant digits.
+export const OPTIONAL = ["plan", "per_point"];
+export const PLANS = ["pro", "max5", "max20", "other"];
+export const MIN_PER_POINT = 10000;
+export const MAX_PER_POINT = 1000000000;
 export const MIN_TOKENS = 1000;
 export const MAX_TOKENS = 100000000;
 // A real job is rarely 10 times off either way; wider values are refused (they could only poison).
@@ -21,8 +27,8 @@ export const JUMP_JOBS = 100;
 
 const VERSION_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
-// A submitted job: exactly these five fields, numbers in a plausible range, nothing else.
-// Returns the row to store, or null.
+// A submitted job: these five fields, and from 1.1.6 at most the two optional ones (plan, per_point); numbers in a
+// plausible range, nothing else. Returns the row to store (plan and per_point null when not sent), or null.
 export function validate(text) {
   if (typeof text !== "string" || text.length === 0 || text.length > MAX_BODY) return null;
   let body;
@@ -32,8 +38,9 @@ export function validate(text) {
     return null;
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
-  const keys = Object.keys(body).sort();
-  if (keys.length !== FIELDS.length || keys.join() !== [...FIELDS].sort().join()) return null;
+  const keys = Object.keys(body);
+  if (!FIELDS.every((k) => keys.includes(k))) return null;
+  if (!keys.every((k) => FIELDS.includes(k) || OPTIONAL.includes(k))) return null;
   if (body.v !== 1) return null;
   if (typeof body.q !== "string" || !VERSION_RE.test(body.q)) return null;
   if (!FAMILIES.includes(body.family)) return null;
@@ -43,7 +50,15 @@ export function validate(text) {
   }
   const ratio = body.actual / body.estimate;
   if (!(ratio >= MIN_RATIO && ratio <= MAX_RATIO)) return null;
-  return { family: body.family, version: body.q, estimate: body.estimate, actual: body.actual };
+  if ("plan" in body && !PLANS.includes(body.plan)) return null;
+  if ("per_point" in body) {
+    const n = body.per_point;
+    if (!Number.isInteger(n) || n < MIN_PER_POINT || n > MAX_PER_POINT) return null;
+  }
+  return {
+    family: body.family, version: body.q, estimate: body.estimate, actual: body.actual,
+    plan: "plan" in body ? body.plan : null, per_point: "per_point" in body ? body.per_point : null,
+  };
 }
 
 function medianOf(sorted) {
@@ -94,8 +109,43 @@ export const METHOD =
   "cannot tell a single job apart. It is a best-effort average: anyone can send numbers, so it is bounded and " +
   "every copy of Quotient accepts it only between x0.25 and x4.";
 
-// The file Quotient reads. byFamily: {family: rows}, all: rows. Null when there is not enough to publish.
-export function buildAverage(byFamily, all, day) {
+// 3 significant digits, as Quotient rounds the numbers it sends.
+const round3 = (x) => {
+  const n = Math.round(x);
+  const step = 10 ** Math.max(0, String(Math.abs(n)).length - 3);
+  return Math.round(n / step) * step;
+};
+
+// 1.1.6: how many weighted tokens 1% of the week holds for one plan: the median of the jobs that sent it (each job
+// carries its user's learned value), with the middle half; null below MIN_PUBLISH jobs. Values far from the rest are
+// dropped as in summarize.
+export function summarizePlan(rows) {
+  const logs = rows
+    .map((r) => r.per_point)
+    .filter((n) => Number.isInteger(n) && n >= MIN_PER_POINT && n <= MAX_PER_POINT)
+    .map(Math.log)
+    .sort((a, b) => a - b);
+  if (logs.length < MIN_PUBLISH) return null;
+  const med = medianOf(logs);
+  const mad = medianOf(logs.map((x) => Math.abs(x - med)).sort((a, b) => a - b));
+  const limit = Math.max(3 * 1.4826 * mad, Math.log(1.5));
+  const kept = logs.filter((x) => Math.abs(x - med) <= limit);
+  if (kept.length < MIN_PUBLISH) return null;
+  return {
+    jobs: logs.length,
+    per_point: round3(Math.exp(medianOf(kept))),
+    p25: round3(Math.exp(quantile(kept, 0.25))),
+    p75: round3(Math.exp(quantile(kept, 0.75))),
+  };
+}
+
+export const PLAN_METHOD =
+  "per plan (only from jobs whose users chose their plan): the median of the weighted tokens 1% of the week held on " +
+  "their PCs, on a log scale, after the same trimming; rounded to 3 significant digits, from 30 jobs.";
+
+// The file Quotient reads. byFamily: {family: rows}, all: rows, byPlan (1.1.6): {plan: rows with per_point}. Null when
+// there is not enough to publish. `plans` is there only when a plan has enough jobs, so older copies read it as before.
+export function buildAverage(byFamily, all, day, byPlan = {}) {
   const overall = summarize(all);
   if (!overall) return null;
   const families = {};
@@ -103,7 +153,17 @@ export function buildAverage(byFamily, all, day) {
     const s = summarize(byFamily[f] || []);
     if (s) families[f] = s;
   }
-  return { schema: 1, updated: day, method: METHOD, all: overall, families };
+  const plans = {};
+  for (const p of PLANS) {
+    const s = summarizePlan(byPlan[p] || []);
+    if (s) plans[p] = s;
+  }
+  const avg = { schema: 1, updated: day, method: METHOD, all: overall, families };
+  if (Object.keys(plans).length) {
+    avg.plans = plans;
+    avg.method = METHOD + " " + PLAN_METHOD;
+  }
+  return avg;
 }
 
 // Whether a new average may replace the last published one: a big jump needs many new jobs,

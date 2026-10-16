@@ -160,6 +160,8 @@ def sync(quotient_home, weights, home=None, now=None):
     known = set(seen)
     aux_seen = state.get("aux")          # None: a snapshot from before 1.1.4
     aux_now = {}
+    usd_seen = state.get("usd")          # None: a snapshot from before 1.1.6
+    usd_now = {}
     zero = {k: 0 for k in COUNTERS}
     added = []
     for row in read_sessions(home):
@@ -179,7 +181,16 @@ def sync(quotient_home, weights, home=None, now=None):
         if any(aux[k] < int(aux_before.get(k) or 0) for k in COUNTERS):
             aux_grow = dict(zero)
         aux_now[sid] = aux
+        # 1.1.6: Hermes' own estimate of the chat's cost in dollars (its counters only, not the calls in the
+        # background), set against the weighted tokens in the report; at the first sync after the update only noted
+        usd = row.get("estimated_cost_usd")
+        usd_grow = None
+        if isinstance(usd, (int, float)) and usd >= 0:
+            usd_now[sid] = float(usd)
+            usd_before = float(usd) if usd_seen is None and sid in known else float((usd_seen or {}).get(sid) or 0)
+            usd_grow = float(usd) - usd_before if float(usd) >= usd_before else None
         background = weigh_hermes(aux_grow, weights, home)
+        own_wt = weigh_hermes(grow, weights, home)
         grow = {k: grow[k] + aux_grow[k] for k in COUNTERS}
         wt = weigh_hermes(grow, weights, home)
         if wt <= 0:
@@ -195,12 +206,16 @@ def sync(quotient_home, weights, home=None, now=None):
                       "wt": round(wt), **grow})
         if background > 0:
             added[-1]["background"] = round(background)   # 1.1.4: of which in Hermes' calls in the background
+        if usd_grow is not None and own_wt > 0:
+            added[-1]["usd"] = round(usd_grow, 6)          # 1.1.6: for the chat's own counters (wt - background)
     if added:
         os.makedirs(quotient_home, exist_ok=True)
         with open(log_path, "a", encoding="utf-8") as f:
             for r in added:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    state = {"sessions": seen, "aux": aux_now, "synced": now}
+    for sid, value in (usd_seen or {}).items():
+        usd_now.setdefault(sid, value)   # a chat not read this time keeps its last cost
+    state = {"sessions": seen, "aux": aux_now, "usd": usd_now, "synced": now}
     tmp = state_path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f)

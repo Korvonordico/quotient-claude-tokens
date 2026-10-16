@@ -3,12 +3,16 @@
 -- One row per finished job: only the numbers a copy of Quotient sends. The id only keeps the
 -- order of arrival, so the average can look at the most recent jobs; the version is kept so that
 -- the numbers of a faulty Quotient version could be dropped. Only the most recent 5,000 are kept.
+-- From 1.1.6 two optional numbers per job: the plan (only if the user chose it) and how many weighted tokens 1% of the
+-- week held on that PC. An existing database gets them with migrate-1.1.6.sql.
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   family TEXT NOT NULL,
   version TEXT NOT NULL,
   estimate INTEGER NOT NULL,
-  actual INTEGER NOT NULL
+  actual INTEGER NOT NULL,
+  plan TEXT,
+  per_point INTEGER
 );
 CREATE INDEX IF NOT EXISTS jobs_family ON jobs (family, id);
 

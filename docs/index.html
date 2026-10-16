@@ -185,7 +185,7 @@ footer a:hover{color:var(--text)}
         <a class="btn primary" href="#install">Install</a>
         <a class="btn" href="https://github.com/Korvonordico/quotient-claude-tokens">GitHub</a>
       </div>
-      <p class="meta">MIT licensed · version 1.1.4 · needs Python 3.8 or newer</p>
+      <p class="meta">MIT licensed · version 1.1.6 · needs Python 3.8 or newer</p>
     </div>
   </div>
 
@@ -302,12 +302,12 @@ footer a:hover{color:var(--text)}
       <div class="privacy">
         <div>
           <p>Everything Quotient records stays on your computer, in <code>~/.quotient</code>. After each finished job it sends one line of numbers for the shared average, so new users start from real jobs instead of from zero. Exactly this line, and nothing else:</p>
-          <pre class="term" tabindex="0" role="region" aria-label="The exact line that is shared"><code>{"v":1,"q":"1.1.4","family":"opus","estimate":225000,"actual":259000}</code></pre>
-          <p>No dates, no names, no text, no paths, no session or user ids. Turn it off with <code>/token-quotient:share off</code>; you still get the shared average.</p>
+          <pre class="term" tabindex="0" role="region" aria-label="The exact line that is shared"><code>{"v":1,"q":"1.1.6","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000}</code></pre>
+          <p>The plan only if you chose it; <code>per_point</code> (how many weighted tokens 1% of your week holds) only once Quotient has learned it from your own readings. No dates, no names, no text, no paths, no session or user ids. Turn it off with <code>/token-quotient:share off</code>; you still get the shared average.</p>
           <p><a href="https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md">Read the full privacy note (PRIVACY.md)</a></p>
         </div>
         <ul class="facts" aria-label="What Quotient writes, sends, fetches and schedules">
-          <li><strong>Writes</strong> in <code>~/.quotient</code> and, for installments, a report page in the job's folder. Claude Code's settings only when you choose the status line or auto-compaction.</li>
+          <li><strong>Writes</strong> in <code>~/.quotient</code> and, for installments, a report page in the job's folder. Claude Code's settings only when you choose the status line, auto-compaction or Claude Code's telemetry (whose receiver listens on this computer only).</li>
           <li><strong>Sends</strong> one line of numbers per finished job, unless sharing is off.</li>
           <li><strong>Fetches</strong> the shared average once a day, from GitHub (or from the author's service when GitHub does not answer).</li>
           <li><strong>Schedules</strong> Windows tasks for installments only after you choose them in the window.</li>

@@ -14,12 +14,19 @@ If you use Hermes Agent, Quotient also reads Hermes' local session store, read-o
 
 Since 1.1.4, to tell when something around your jobs changes (a plugin installed, for example), Quotient also reads the **names** of the plugins turned on, of the MCP servers and of the hooks, from Claude Code's settings files and from Hermes' `config.yaml`. For a hook it keeps the event and the name of the script it runs. It never keeps their command lines, arguments, settings, keys or other secrets. The names stay in `~/.quotient/` (`env.jsonl` and your jobs) and are not part of the shared line.
 
+Since 1.1.6, Quotient sets its measures against others. These stay on your computer too, as numbers only:
+
+- **Claude Code's own telemetry, only if you turn it on** (`telemetry on`). Claude Code then sends its token and cost counters (OpenTelemetry) to a small receiver of Quotient's on `127.0.0.1:4318`, which only this computer can reach. The receiver keeps tokens by type, cost, model, kind of call, session and time in `~/.quotient/otel.jsonl`, and drops everything else Claude Code attaches (e-mail, account and organization ids). The settings Quotient prints ask Claude Code for metrics only: no events, no prompts, no account id. `telemetry on --write` and `telemetry off --write` change the `env` block of `~/.claude/settings.json`, after a copy of it; without `--write` nothing is written. The receiver stops by itself after 2 hours without data.
+- **Hermes' own estimate of each chat's cost**, from the same read-only session store.
+- **The cost the status line gets**, if you set the status line up: Claude Code's cost of the session, in `statusline-cost.jsonl`.
+- **Your plan** (Pro, Max 5x, Max 20x, other), only if you choose it in the setup window.
+
 ## What is shared, and why
 
 To help everyone start from real numbers instead of from zero, Quotient shares **one line of numbers for each finished job**. Exactly this, and nothing else:
 
 ```json
-{"v":1,"q":"0.9.7","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"1.1.6","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000}
 ```
 
 | Field | What it is |
@@ -29,6 +36,10 @@ To help everyone start from real numbers instead of from zero, Quotient shares *
 | `family` | the model family that did most of the job: opus, sonnet, haiku, fable or other |
 | `estimate` | the raw estimate, in weighted tokens, rounded to 3 significant digits |
 | `actual` | the real cost of the work, in weighted tokens, rounded to 3 significant digits (from 0.9.5 without re-reading what the chat held when the job started, which the estimate is not about; the version in `q` tells the two apart) |
+| `plan` | from 1.1.6, and only if you chose your plan in Quotient's settings: pro, max5, max20 or other |
+| `per_point` | from 1.1.6, and only once Quotient has learned it from your own readings of the limits: how many weighted tokens 1% of your week holds, rounded to 3 significant digits |
+
+The last two are there so that a new user of the same plan starts from the real size of 1% of the week of that plan, instead of from nothing. Without them the line is the five fields, as before.
 
 No date or time, no names, no text, no file paths, no session or user ids, no account. `quotient export` prints the lines your jobs produce; `/token-quotient:share` shows the state, the exact form of the line and how many lines are waiting.
 
@@ -40,7 +51,7 @@ No date or time, no names, no text, no file paths, no session or user ids, no ac
 
 ## What the service keeps
 
-- The five fields above, in a database, in order of arrival: no date, no address. Only the most recent 5,000 lines are kept.
+- The fields above (the five, and `plan` and `per_point` when sent), in a database, in order of arrival: no date, no address. Only the most recent 5,000 lines are kept.
 - Two global counters for everybody together, one for the current minute and one for the current day, used only to refuse floods. They are overwritten when the minute or the day changes, so no history of arrival times is kept.
 - The last average.
 
@@ -48,7 +59,7 @@ It **does not keep your IP address**: its code never reads it, and request loggi
 
 ## What is published
 
-At most once a week, and only after at least 20 new jobs, the service computes the average (the median of real cost / estimate, for each model family and for all jobs, rounded to 2 decimals) and publishes it as `average.json` in a separate repository, [Korvonordico/quotient-data](https://github.com/Korvonordico/quotient-data), which holds only that file: the service's key can write there and nowhere else, never in Quotient's code. Nothing is published below 30 jobs, in all or for a family. So someone who only watches the file cannot tell a single job apart. The limit, said plainly: the service does not know who sends what, so someone who deliberately sends false lines could learn roughly on which side of the average one real job falls; never whose it is.
+At most once a week, and only after at least 20 new jobs, the service computes the average (the median of real cost / estimate, for each model family and for all jobs, rounded to 2 decimals) and publishes it as `average.json` in a separate repository, [Korvonordico/quotient-data](https://github.com/Korvonordico/quotient-data), which holds only that file: the service's key can write there and nowhere else, never in Quotient's code. Nothing is published below 30 jobs, in all or for a family. From 1.1.6 the same file also holds, for each plan with at least 30 jobs that sent both `plan` and `per_point`, the median size of 1% of the week with its middle half, rounded to 3 significant digits. So someone who only watches the file cannot tell a single job apart. The limit, said plainly: the service does not know who sends what, so someone who deliberately sends false lines could learn roughly on which side of the average one real job falls; never whose it is.
 
 It is a best-effort average: anyone can send numbers. The service refuses ratios beyond x10 either way and sudden jumps backed by few jobs, and every copy of Quotient uses the average only between x0.25 and x4, and only until you have 5 jobs of your own.
 
@@ -58,7 +69,7 @@ Once a day, at the start of a session, Quotient downloads `average.json` from th
 
 ## What is read from Anthropic
 
-To show your plan limits, Quotient runs Claude Code's own `/usage` command (`claude -p /usage`, without hooks and without saving a session). Claude Code answers it with its own login, as it does when you type `/usage`; Quotient never reads your login or any other credential, and sends nothing itself. It keeps only the used percentages and the reset times. It asks at most every 10 minutes and spends no tokens. To turn it off: `quotient config limits.live false`.
+To show your plan limits, Quotient runs Claude Code's own `/usage` command (`claude -p /usage`, without hooks and without saving a session). Claude Code answers it with its own login, as it does when you type `/usage`; Quotient never reads your login or any other credential, and sends nothing itself. It keeps only the used percentages and the reset times. It asks at most every 10 minutes (from 1.1.6 every minute while a job or an installment is open, in the background) and spends no tokens. To turn it off: `quotient config limits.live false`.
 
 ## How long
 
@@ -82,22 +93,29 @@ Se usi Hermes Agent, Quotient legge anche il suo archivio locale delle sessioni,
 
 Dalla 1.1.4, per accorgersi quando cambia qualcosa intorno ai tuoi lavori (per esempio un plugin installato), Quotient legge anche i **nomi** dei plugin accesi, dei server MCP e degli hook, dai file delle impostazioni di Claude Code e dal `config.yaml` di Hermes. Di un hook tiene l'evento e il nome dello script che lancia. Non tiene mai le righe di comando, gli argomenti, le impostazioni, le chiavi o altri segreti. I nomi restano in `~/.quotient/` (`env.jsonl` e i tuoi lavori) e non fanno parte della riga condivisa.
 
+Dalla 1.1.6 Quotient mette le sue misure accanto ad altre. Anche queste restano sul tuo computer, solo numeri:
+
+- **La telemetria di Claude Code, solo se la accendi** (`telemetry on`). Claude Code manda allora i suoi contatori di token e costi (OpenTelemetry) a un piccolo ricevitore di Quotient su `127.0.0.1:4318`, raggiungibile solo da questo computer. Il ricevitore tiene token per tipo, costo, modello, tipo di chiamata, sessione e ora in `~/.quotient/otel.jsonl`, e scarta tutto il resto che Claude Code ci aggiunge (e-mail, codici di account e di organizzazione). Le impostazioni che Quotient stampa chiedono a Claude Code solo le metriche: niente eventi, niente prompt, niente codice di account. `telemetry on --write` e `telemetry off --write` cambiano il blocco `env` di `~/.claude/settings.json`, dopo averne fatto una copia; senza `--write` non si scrive niente. Il ricevitore si ferma da solo dopo 2 ore senza dati.
+- **La stima del costo di ogni chat che fa Hermes**, dallo stesso archivio letto in sola lettura.
+- **Il costo che riceve la riga di stato**, se l'hai accesa: il costo della sessione secondo Claude Code, in `statusline-cost.jsonl`.
+- **Il tuo piano** (Pro, Max 5x, Max 20x, altro), solo se lo scegli nella finestra delle impostazioni.
+
 **Cosa viene condiviso**: una riga di numeri per ogni lavoro finito, esattamente questa e nient'altro:
 
 ```json
-{"v":1,"q":"0.9.7","family":"opus","estimate":225000,"actual":259000}
+{"v":1,"q":"1.1.6","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000}
 ```
 
-Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e il costo vero del lavoro in token pesati (dalla 0.9.5 senza la rilettura di quello che la chat conteneva quando il lavoro è cominciato, che la stima non riguarda), arrotondati a 3 cifre. Niente date né orari, niente nomi, testi, percorsi, codici di sessione o di persona, niente account. La riga parte all'inizio della sessione successiva, mai a metà di una risposta, e niente parte prima che tu sia avvisato: la prima volta Claude Code ti mostra un messaggio che dice cosa viene condiviso e come spegnerlo. Va a un piccolo servizio su Cloudflare Workers, il cui codice è pubblico in [`server/`](server/), che accetta solo righe di quella forma.
+Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e il costo vero del lavoro in token pesati (dalla 0.9.5 senza la rilettura di quello che la chat conteneva quando il lavoro è cominciato, che la stima non riguarda), arrotondati a 3 cifre. Dalla 1.1.6, solo quando si sanno: il piano (`plan`), solo se l'hai scelto nelle impostazioni di Quotient, e quanti token pesati tiene l'1% della tua settimana (`per_point`, arrotondato a 3 cifre), solo quando Quotient l'ha imparato dalle tue letture dei limiti. Servono perché un utente nuovo dello stesso piano parta dalla misura vera dell'1% della settimana di quel piano invece che da zero; senza, la riga resta di cinque campi come prima. Niente date né orari, niente nomi, testi, percorsi, codici di sessione o di persona, niente account. La riga parte all'inizio della sessione successiva, mai a metà di una risposta, e niente parte prima che tu sia avvisato: la prima volta Claude Code ti mostra un messaggio che dice cosa viene condiviso e come spegnerlo. Va a un piccolo servizio su Cloudflare Workers, il cui codice è pubblico in [`server/`](server/), che accetta solo righe di quella forma.
 
 **Scegli tu, e puoi cambiare idea quando vuoi**: la finestra del primo uso ti chiede se partecipi (di serie sì). Per cambiarlo: `/token-quotient:share off`, l'impostazione del plugin *Condividi numeri anonimi*, oppure `QUOTIENT_SHARE=0`. Da spento non parte niente, e le righe in attesa vengono cancellate. **La media condivisa la scarichi e la usi lo stesso.**
 
 **Il servizio non tiene il tuo indirizzo IP**: il suo codice non lo legge, e il registro delle richieste è spento (Cloudflare lo accende di serie nei servizi nuovi; qui è spento). Cloudflare, che fa girare il servizio, trasporta la connessione come ogni rete: vedi la [sua informativa](https://www.cloudflare.com/privacypolicy/). Due contatori, uno per il minuto e uno per il giorno in corso, servono solo a fermare le inondazioni e vengono sovrascritti: nessuna storia degli orari d'arrivo. Cloudflare tiene anche dei punti di ripristino automatici del database per un tempo limitato, dai quali chi gestisce il servizio potrebbe in teoria capire più o meno quando è arrivata una riga.
 
-**Cosa viene pubblicato**: al massimo una volta a settimana, e solo dopo almeno 20 lavori nuovi, la media (mediana di costo vero / stima, per famiglia di modello e in tutto, arrotondata a 2 decimali) va in `average.json`, in un progetto separato, [Korvonordico/quotient-data](https://github.com/Korvonordico/quotient-data), che contiene solo quel file: la chiave del servizio può scrivere lì e da nessun'altra parte, mai nel programma. Sotto i 30 lavori non si pubblica niente: così chi guarda solo il file non può riconoscere un singolo lavoro. Il limite, detto chiaro: il servizio non sa chi manda cosa, quindi chi manda apposta righe false potrebbe capire più o meno da che parte della media cade un lavoro vero, mai di chi è. È una media «al meglio»: chiunque può mandare numeri; per questo il servizio rifiuta i rapporti oltre x10 e i salti improvvisi con pochi lavori, e Quotient usa la media solo fra x0,25 e x4.
+**Cosa viene pubblicato**: al massimo una volta a settimana, e solo dopo almeno 20 lavori nuovi, la media (mediana di costo vero / stima, per famiglia di modello e in tutto, arrotondata a 2 decimali) va in `average.json`, in un progetto separato, [Korvonordico/quotient-data](https://github.com/Korvonordico/quotient-data), che contiene solo quel file: la chiave del servizio può scrivere lì e da nessun'altra parte, mai nel programma. Sotto i 30 lavori non si pubblica niente. Dalla 1.1.6 lo stesso file contiene anche, per ogni piano con almeno 30 lavori che hanno mandato `plan` e `per_point`, la misura mediana dell'1% della settimana con la sua metà centrale, arrotondata a 3 cifre. Così chi guarda solo il file non può riconoscere un singolo lavoro. Il limite, detto chiaro: il servizio non sa chi manda cosa, quindi chi manda apposta righe false potrebbe capire più o meno da che parte della media cade un lavoro vero, mai di chi è. È una media «al meglio»: chiunque può mandare numeri; per questo il servizio rifiuta i rapporti oltre x10 e i salti improvvisi con pochi lavori, e Quotient usa la media solo fra x0,25 e x4.
 
 **Cosa viene scaricato**: una volta al giorno, `average.json` da quotient-data su GitHub, o dal servizio se GitHub non risponde. Si tengono solo i numeri. Per fermare anche lo scaricamento: `quotient config share.average_url ""` e `quotient config share.endpoint ""`.
 
-**Cosa viene letto da Anthropic**: per mostrarti i limiti del piano, Quotient fa girare il comando `/usage` di Claude Code stesso (`claude -p /usage`, senza hook e senza salvare una sessione). Risponde Claude Code con il suo login, come quando scrivi `/usage`; Quotient non legge mai il tuo login né altre credenziali, e non manda niente da sé. Tiene solo le percentuali usate e gli orari di azzeramento. Chiede al massimo ogni 10 minuti e non spende token. Per spegnerla: `quotient config limits.live false`.
+**Cosa viene letto da Anthropic**: per mostrarti i limiti del piano, Quotient fa girare il comando `/usage` di Claude Code stesso (`claude -p /usage`, senza hook e senza salvare una sessione). Risponde Claude Code con il suo login, come quando scrivi `/usage`; Quotient non legge mai il tuo login né altre credenziali, e non manda niente da sé. Tiene solo le percentuali usate e gli orari di azzeramento. Chiede al massimo ogni 10 minuti (dalla 1.1.6 ogni minuto mentre è aperto un lavoro o una rata, in sottofondo) e non spende token. Per spegnerla: `quotient config limits.live false`.
 
 **Per quanto tempo**: si tengono solo le ultime 5.000 righe; la media usa gli ultimi 500 lavori per famiglia e 2.000 in tutto. Le righe non contengono niente che porti a una persona, quindi non si possono ritrovare e cancellare una per una: se vuoi che la condivisione si fermi, spegnila.
