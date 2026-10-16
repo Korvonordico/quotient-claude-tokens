@@ -48,8 +48,16 @@ class MidBand(unittest.TestCase):
     def test_factor_for(self):
         src = {"factor": 1.05, "factor_mid": 1.8}
         self.assertEqual(q.factor_for(self.cfg, 700000, src), 1.8)
-        self.assertAlmostEqual(q.factor_for(self.cfg, 2000000, src), (1800000 + 1050000) / 2000000.0)   # 1.1.7
+        # 1.1.7: from 1M up to learn_blend_raw (3.4M by default) a straight line from 1M x1.8 to 3.4M x1.05
+        self.assertAlmostEqual(q.factor_for(self.cfg, 2000000, src),
+                               (1800000 + 1000000 * (3400000 * 1.05 - 1800000) / 2400000) / 2000000.0)
+        self.assertEqual(q.factor_for(self.cfg, 3400000, src), 1.05)
         self.assertEqual(q.factor_for(self.cfg, 700000, {"factor": 1.05}), 1.05)
+
+
+def line(raw):
+    """1.1.7: corrected from 1M x1.84 to 3.4M x1.02 along a straight line."""
+    return 1840000 + (raw - 1000000) * (3400000 * 1.02 - 1840000) / 2400000.0
 
 
 class MidBandSteady(unittest.TestCase):
@@ -61,9 +69,10 @@ class MidBandSteady(unittest.TestCase):
 
     def test_from_one_million_never_below_the_band(self):
         self.assertAlmostEqual(1000000 * q.factor_for(self.cfg, 1000000, self.src), 1840000, delta=1)
-        # 1.1.7: in brackets, the first million at x1.84 and the rest at x1.02 (before: 1.84M flat up to 1.8M)
-        self.assertAlmostEqual(1500000 * q.factor_for(self.cfg, 1500000, self.src), 1840000 + 510000, delta=1)
-        self.assertAlmostEqual(3000000 * q.factor_for(self.cfg, 3000000, self.src), 1840000 + 2040000, delta=1)
+        # 1.1.7: a straight line from 1M x1.84 to 3.4M x1.02 (before: 1.84M flat up to 1.8M)
+        self.assertAlmostEqual(1500000 * q.factor_for(self.cfg, 1500000, self.src), line(1500000), delta=1)
+        self.assertAlmostEqual(3000000 * q.factor_for(self.cfg, 3000000, self.src), line(3000000), delta=1)
+        self.assertEqual(q.factor_for(self.cfg, 5000000, self.src), 1.02)
 
     def test_a_bigger_quote_is_never_corrected_smaller(self):
         raws = sorted(list(range(100000, 4000001, 50000)) + [499999, 999999])
@@ -76,7 +85,7 @@ class MidBandSteady(unittest.TestCase):
         q.mid_factor = lambda cfg: 1.84
         try:
             self.assertEqual(h.job_factor(q, self.cfg, 700000), 1.84)
-            self.assertAlmostEqual(h.job_factor(q, self.cfg, 3000000), (1840000 + 2040000) / 3000000.0)
+            self.assertAlmostEqual(h.job_factor(q, self.cfg, 3000000), line(3000000) / 3000000.0)
         finally:
             q.learning, q.mid_factor = orig
 
@@ -89,4 +98,4 @@ class MidBandSteady(unittest.TestCase):
         finally:
             q.learning, q.mid_factor = orig
         self.assertAlmostEqual(rows[0]["work"], 900000 * 1.84)
-        self.assertAlmostEqual(rows[1]["work"], 1840000 + 1020000)   # 1.1.7: in brackets
+        self.assertAlmostEqual(rows[1]["work"], line(2000000))   # 1.1.7: along the line

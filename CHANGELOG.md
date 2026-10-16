@@ -7,18 +7,20 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 ### Fixed
 
 - **A message waited for the limits.** In Hermes, with no job open, the hook before each message read the limits itself (`claude -p /usage`, about 4 seconds) once every 10 minutes, and the message waited. In Hermes' logs of 12-15 October 2026 the hook reached its 20-second limit 14 times and the message went without its line. Now no hook waits for `/usage`: with no job open too, the reading runs in a separate process at the usual pace (`limits.every`, 10 minutes), and at most one is started per interval, even before it writes anything. The line shows the last reading saved; the new one reaches the next message. The check of the measures against the week waits for its reading the same way. Commands run by hand (`report`, `limits`, `tick`, `quote-table`) still read in the foreground when they need fresh numbers.
-- **Good and max came out the same.** With the medium band on (`learn_mid_min`), a quote from `learn_min_raw` up was corrected to at least `learn_min_raw` x the medium factor: on the author's numbers every quote from 1 million to about 1.7 million came out 1.75 million (on 16/10/2026 a good level of 1.1 million and a max of 1.6 million both did). Now the estimate is corrected in brackets, as a tax: the first `learn_min_raw` at the medium factor, the rest at the main one. The corrected estimate has no jump at `learn_min_raw` and always rises with the raw one, whichever factor is larger, so two levels never come out the same. On the author's data (factor x1.0165, medium band x1.7476), raw → corrected, before and after:
+- **Good and max came out the same.** With the medium band on (`learn_mid_min`), a quote from `learn_min_raw` up was corrected to at least `learn_min_raw` x the medium factor: on the author's numbers every quote from 1 million to about 1.7 million came out 1.75 million (on 16/10/2026 a good level of 1.1 million and a max of 1.6 million both did). Now, from `learn_min_raw` up to a new setting, `learn_blend_raw` (3,400,000 by default), the corrected estimate follows a straight line from `learn_min_raw` x the medium factor to `learn_blend_raw` x the main one, and from there up the main factor alone, as before: no jump at either end, always rising with the raw estimate (so two levels never come out the same), and big jobs go back to their own factor. On the author's numbers 3.4 million is twice the quote the main factor alone takes to give what the band gives at 1 million (1.72 million): the line rises 0.71 wt for each raw wt, and what it adds to the main factor shrinks evenly from 731,000 wt at 1 million to nothing at 3.4 million. If the factors change so much that the line would rise less than half as fast as the main factor, it is made longer by itself; with the main factor larger than the medium one the line rises faster than the factor and there is no jump back. On the author's data (factor x1.0165, medium band x1.7476), raw → corrected, before and after:
 
   | raw | before | after |
   |---|---|---|
   | 0.9M | 1,572,803 | 1,572,803 |
   | 1M | 1,747,558 | 1,747,558 |
-  | 1.1M | 1,747,558 | 1,849,206 |
-  | 1.6M | 1,747,558 | 2,357,444 |
-  | 2M | 2,032,951 | 2,764,034 |
-  | 3M | 3,049,426 | 3,780,509 |
+  | 1.1M | 1,747,558 | 1,818,744 |
+  | 1.6M | 1,747,558 | 2,174,673 |
+  | 2M | 2,032,951 | 2,459,416 |
+  | 3M | 3,049,426 | 3,171,274 |
+  | 5M | 5,082,377 | 5,082,377 |
+  | 10M | 10,164,755 | 10,164,755 |
 
-  Above `learn_min_raw` every job now carries the same extra (`learn_min_raw` x (medium band - factor), about 731,000 wt on these numbers), so a big job is corrected a little more than by its factor alone: +24% at 3 million, +14% at 5 million, +7% at 10 million. The line in `quote-table`, the protocol and the README say the new rule.
+  The line in `quote-table`, the protocol and the README say the new rule.
 - The README showed `@@TESTCOUNT@@` instead of the number of tests (since the 1.1.6 merge). Now 334 tests, 19 of them new in `tests/test_v117.py`, one of which checks the README, the privacy page and the site for the version and for placeholders.
 
 ### Changed

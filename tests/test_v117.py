@@ -19,42 +19,82 @@ def zero_counters(sid):
     return total, 0
 
 
-class TestBrackets(unittest.TestCase):
-    """16/10/2026: good 1.1M and max 1.6M were both corrected to 1.75M."""
-    cfg = {"learn_min_raw": 1000000, "learn_mid_min": 500000}
+class TestBlend(unittest.TestCase):
+    """16/10/2026: good 1.1M and max 1.6M were both corrected to 1.75M; then, in brackets, every job above 1M carried
+    731k more than its factor. Francesco chose a straight line from the band back to the factor."""
+    cfg = {"learn_min_raw": 1000000, "learn_mid_min": 500000, "learn_blend_raw": 3400000}
     src = {"factor": 1.0165, "factor_mid": 1.7476}    # the author's, 16/10/2026
+    slope = (3400000 * 1.0165 - 1747600) / 2400000.0
 
-    def corrected(self, raw, src=None):
-        return raw * pv.factor_for(self.cfg, raw, src or self.src)
+    def corrected(self, raw, src=None, cfg=None):
+        return raw * pv.factor_for(cfg or self.cfg, raw, src or self.src)
+
+    def rising(self, src, cfg=None, raws=None):
+        raws = raws or sorted(set(list(range(500000, 20000001, 10000)) + [999999, 1000001, 3399999, 3400001]))
+        values = [self.corrected(r, src, cfg) for r in raws]
+        for r, a, b in zip(raws, values, values[1:]):
+            self.assertLess(a, b, (src, r))
+
+    def test_the_default_is_the_one_explained(self):
+        self.assertEqual(pv.DEFAULTS["learn_blend_raw"], 3400000)
+        self.assertGreater(3400000 * 1.0165, 1000000 * 1.7476)      # rising on the author's numbers
 
     def test_good_and_max_come_out_different_and_rising(self):
         good, top = self.corrected(1100000), self.corrected(1600000)
         self.assertLess(good, top)
-        self.assertAlmostEqual(good, 1747600 + 101650, delta=1)       # the first million at x1.7476, the rest x1.0165
-        self.assertAlmostEqual(top, 1747600 + 609900, delta=1)
+        self.assertAlmostEqual(good, 1747600 + 100000 * self.slope, delta=1)
+        self.assertAlmostEqual(top, 1747600 + 600000 * self.slope, delta=1)
+        self.assertGreater(top - good, 0.5 * 1.0165 * 500000)        # at least half as fast as the factor
 
     def test_continuous_at_one_million(self):
         self.assertAlmostEqual(self.corrected(1000000), self.corrected(999999), delta=3)
         self.assertGreater(self.corrected(1000001), self.corrected(1000000))
         self.assertGreater(self.corrected(1000000), self.corrected(999999))
+        self.assertAlmostEqual(self.corrected(1000000), 1747600, delta=1)
 
-    def test_always_rising_whichever_factor_is_larger(self):
-        raws = sorted(list(range(400000, 5000001, 10000)) + [999999, 1000001])
-        for src in (self.src, {"factor": 2.0, "factor_mid": 1.2}, {"factor": 1.0, "factor_mid": 1.0}):
-            values = [self.corrected(r, src) for r in raws]
-            for a, b in zip(values, values[1:]):
-                self.assertLess(a, b, src)
+    def test_continuous_at_the_end_of_the_line(self):
+        self.assertAlmostEqual(self.corrected(3399999), self.corrected(3400000), delta=2)
+        self.assertAlmostEqual(self.corrected(3400000), 3400000 * 1.0165, delta=1)
+        self.assertLess(self.corrected(3399999), self.corrected(3400000))
+
+    def test_from_the_end_up_the_factor_alone(self):
+        for raw in (3400000, 3400001, 5000000, 10000000, 20000000, 100000000):
+            self.assertEqual(pv.factor_for(self.cfg, raw, self.src), 1.0165)
+
+    def test_rising_from_half_a_million_to_twenty(self):
+        self.rising(self.src)
+
+    def test_the_factor_larger_than_the_band(self):
+        for src in ({"factor": 2.0, "factor_mid": 1.2}, {"factor": 1.0, "factor_mid": 1.0},
+                    {"factor": 3.0, "factor_mid": 1.2}):
+            self.rising(src)
             self.assertAlmostEqual(self.corrected(1000000, src), 1000000 * src["factor_mid"], delta=1)
+            self.assertGreaterEqual(self.corrected(1000000, src), self.corrected(999999, src))   # never a jump back
+            self.assertEqual(pv.factor_for(self.cfg, 5000000, src), src["factor"])
 
-    def test_far_above_the_factor_takes_over(self):
-        self.assertAlmostEqual(pv.factor_for(self.cfg, 100000000, self.src), 1.0165 + 0.7311 / 100, places=6)
+    def test_a_line_too_flat_is_made_longer(self):
+        # the factor fell to x0.5: 3.4M x 0.5 = 1.7M is under the band's 1.75M; the line ends where it rises at half
+        src = {"factor": 0.5, "factor_mid": 1.7476}
+        end = pv.blend_end(self.cfg, 1.7476, 0.5)
+        self.assertAlmostEqual(end, 1000000 * (2 * 1.7476 / 0.5 - 1))
+        self.rising(src)
+        self.assertAlmostEqual(self.corrected(end, src), end * 0.5, delta=1)
+        self.assertAlmostEqual(self.corrected(end - 1, src), end * 0.5, delta=1)
+        self.assertAlmostEqual(self.corrected(1600000, src) - self.corrected(1100000, src), 0.5 * 0.5 * 500000, delta=1)
+
+    def test_a_short_or_missing_end(self):
+        for end in (0, 500000, 1000000):
+            cfg = dict(self.cfg, learn_blend_raw=end)
+            self.rising(self.src, cfg)                               # the factor smaller: the line made longer
+            self.rising({"factor": 2.0, "factor_mid": 1.2}, cfg)     # the factor larger: no line, a jump up
+        self.assertEqual(pv.blend_end({"learn_min_raw": 1000000}, 1.7476, 1.0165), 3400000)   # the default
 
     def test_off_without_the_band(self):
         self.assertEqual(pv.factor_for({}, 1100000, self.src), 1.0165)
         self.assertEqual(pv.factor_for(self.cfg, 1100000, {"factor": 1.0165}), 1.0165)
 
 
-class TestBracketsShown(Base):
+class TestBlendShown(Base):
     def setUp(self):
         super().setUp()
         pv.store(("learn_min_raw",), 1000000)
@@ -63,18 +103,26 @@ class TestBracketsShown(Base):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_the_protocol_and_quote_table_say_brackets(self):
+    def test_the_protocol_and_quote_table_say_the_line(self):
         cfg = pv.config()
         text = pv.protocol(cfg, 1.0)
-        self.assertIn("in brackets: up to 1.00M at x1.75 and the rest at the factor", text)
-        self.assertNotIn("never under", text)
+        self.assertIn("from it up to 3.40M along a straight line to the factor, then the factor", text)
+        self.assertNotIn("brackets", text)
         table = pv.quote_table(cfg, {"good": 1100000, "max": 1600000}, lang="it")
-        self.assertIn("1,85 milioni", table)                      # 1.75M + 0.1M
-        self.assertIn("2,35 milioni", table)                      # 1.75M + 0.6M
-        self.assertIn("sopra, fino a 1,00 milioni x1.75 e il resto x1.00", table)
-        self.assertNotIn("mai meno", table)
+        slope = (3400000 - 1750000) / 2400000.0
+        self.assertIn(pv.amount(1750000 + 100000 * slope, "it"), table)
+        self.assertIn(pv.amount(1750000 + 600000 * slope, "it"), table)
+        self.assertIn("da lì a 3,40 milioni in linea dritta fino a x1.00, poi x1.00", table)
+        self.assertNotIn("il resto", table)
         table = pv.quote_table(cfg, {"good": 1100000, "max": 1600000}, lang="en")
-        self.assertIn("above it, up to 1.00 million x1.75 and the rest x1.00", table)
+        self.assertIn("from it up to 3.40 million along a straight line to x1.00, then x1.00", table)
+
+    def test_no_line_when_the_factor_is_larger_and_the_end_too_short(self):
+        pv.store(("learn_blend_raw",), 0)
+        cfg = pv.config()
+        text = pv.protocol(cfg, 2.0)
+        self.assertIn("for quotes under 1.00M wt x1.75", text)
+        self.assertNotIn("straight line", text)
 
 
 class TestLimitsInTheBackground(Base):

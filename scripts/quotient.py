@@ -95,6 +95,13 @@ DEFAULTS = {
     "learn_max_speed": 0,
     # learn_mid_min: chat jobs quoted from this many wt up to learn_min_raw learn a factor of their own (0 = off).
     "learn_mid_min": 0,
+    # learn_blend_raw (1.1.7): with the medium band on, a quote from learn_min_raw up to this many wt is corrected along a
+    # straight line, from learn_min_raw x the medium factor to this x the factor; from here up, by the factor alone. On
+    # the author's numbers (x1.0165, medium x1.7476) 3.4M is twice the quote the factor alone takes to give what the
+    # band gives at 1M (1.72M): the line rises 0.71 wt for each raw wt, the extra over the factor shrinks evenly from
+    # 731k at 1M to 0 here. If the factors change so that the line would rise less than half as fast as the factor,
+    # it is made longer by itself; at or under learn_min_raw, with the factor the larger, there is no line.
+    "learn_blend_raw": 3400000,
     # Claude Code runs (claude -p) a Hermes chat starts, counted in its quoted jobs (hermes branch; 1 = on). A SessionStart
     # hook records which Hermes chat started each Claude Code session (Hermes gives HERMES_SESSION_ID to all it
     # starts); when a job closes, what those sessions spent while it was open is added to its cost.
@@ -1205,30 +1212,48 @@ def claude_runs_text(cfg):
             "when it closes: put them in the estimate." if cfg.get("claude_runs") else "")
 
 
-def mid_text(cfg):
+def mid_text(cfg, factor):
     m = mid_factor(cfg)
     if not m:
         return ""
     top = cfg["learn_min_raw"]
-    return ("; for quotes under %s wt x%.2f; above it, in brackets: up to %s at x%.2f and the rest at the factor "
-            "(so a bigger level always comes out bigger)" % (fmt(top), m, fmt(top), m))
+    end = blend_end(cfg, m, factor)
+    if end <= top:
+        return "; for quotes under %s wt x%.2f" % (fmt(top), m)
+    return ("; for quotes under %s wt x%.2f; from it up to %s along a straight line to the factor, then the factor "
+            "(so a bigger level always comes out bigger)" % (fmt(top), m, fmt(end)))
+
+
+def blend_end(cfg, mid, big):
+    """Where the line from the medium band reaches the factor (learn_blend_raw, 1.1.7). Made longer when it would rise
+    less than half as fast as the factor: R x big - top x mid = (R - top) x big / 2 gives R = top x (2 x mid / big - 1)."""
+    top = cfg.get("learn_min_raw") or 0
+    end = cfg.get("learn_blend_raw", DEFAULTS["learn_blend_raw"]) or 0
+    if big < mid:
+        end = max(end, top * (2.0 * mid / big - 1))
+    return end
 
 
 def factor_for(cfg, raw, source):
     """The factor a chosen level is corrected with. With the medium band on and its factor known: under learn_min_raw
-    the medium factor, smaller quotes too (they teach no factor: the nearest learned one); from learn_min_raw up in
-    brackets, as a tax: the first learn_min_raw at the medium factor, the rest at the factor (1.1.7).
+    the medium factor, smaller quotes too (they teach no factor: the nearest learned one); from learn_min_raw up to
+    learn_blend_raw a straight line from learn_min_raw x the medium factor to learn_blend_raw x the factor; from there
+    up the factor alone (1.1.7).
     Francesco, 16/10/2026: with plain bands a quote of 999k was corrected to 1.84M and one of 1M to 1.05M; then with
     max(factor, learn_min_raw x mid / raw) every quote from 1M to about 1.7M came out the same (good 1.1M and max 1.6M
-    both 1.75M). The brackets keep the corrected estimate continuous at learn_min_raw and always rising with the raw
-    one, whichever of the two factors is the larger."""
+    both 1.75M); then in brackets (the first learn_min_raw at the medium factor, the rest at the factor) every job
+    above 1M carried 731k more than its factor, and he chose the line: big jobs go back to their factor. The line is
+    continuous at both ends and always rises (at least half as fast as the factor), whichever factor is the larger."""
     mid, big = source.get("factor_mid"), source.get("factor", 1.0)
     top = cfg.get("learn_min_raw") or 0
     if not mid or not cfg.get("learn_mid_min") or not top:
         return big
     if (raw or 0) < top:
         return mid
-    return (top * mid + (raw - top) * big) / raw
+    end = blend_end(cfg, mid, big)
+    if raw >= end:
+        return big
+    return (top * mid + (raw - top) * (end * big - top * mid) / (end - top)) / raw
 
 
 def chat_factor(cfg, raw, wtype=None):
@@ -2669,10 +2694,14 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
     mid = mid_factor(cfg) if kind == "chat" else None
     if mid:
         top = cfg["learn_min_raw"]
-        lines[-1] = lines[-1][:-2] + (("; per i preventivi sotto %s x%.2f; sopra, fino a %s x%.2f e il resto x%.2f)."
-                                       if it else
-                                       "; for quotes under %s x%.2f; above it, up to %s x%.2f and the rest x%.2f).") % (
-            amount(top, lang), mid, amount(top, lang), mid, learned["factor"]))
+        end = blend_end(cfg, mid, learned["factor"])
+        lines[-1] = lines[-1][:-2] + ((("; per i preventivi sotto %s x%.2f; da lì a %s in linea dritta fino a x%.2f, "
+                                        "poi x%.2f)." if it else
+                                        "; for quotes under %s x%.2f; from it up to %s along a straight line to x%.2f, "
+                                        "then x%.2f).") % (amount(top, lang), mid, amount(end, lang), learned["factor"],
+                                                           learned["factor"])) if end > top else
+                                      (("; per i preventivi sotto %s x%.2f)." if it else
+                                        "; for quotes under %s x%.2f).") % (amount(top, lang), mid)))
 
     names = list(options)
     notes = ["", "[for the agent, not to copy] Copy everything above into your message as it is, in the user's "
@@ -2779,7 +2808,7 @@ def protocol(cfg, factor):
         "[Quotient %s] Quote protocol for this session. Unit: weighted tokens (wt) = input + 1.25 x cache write (2 x for 1-hour cache) + 0.1 x cache read + 5 x output, the ratios of the API prices." % VERSION,
         "WHEN: before work that will likely cost more than the threshold (%s wt), and whenever the user calls a job big or asks for a quote. Do not start the work: quote first. Under the threshold, if nobody asks, just work." % fmt(cfg["threshold"]),
         "HOW:",
-        "1) Estimate the WORK: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate.%s First the biggest level (the whole job done well), then the smaller ones. HOW MANY LEVELS goes with the size of the biggest, as a corrected estimate (raw x the factor, now x%.2f%s; for installments x%.2f): up to %s wt one level, up to %s two, up to %s three, above that four. Their names, from the smallest: one level `good`; two `good max`; three `essential good max`; four `essential good full max` (or short names of your own, in English). Example for a job of 2 million: essential 400k, good 1M, max 2M." % (claude_runs_text(cfg), factor, mid_text(cfg), learning(cfg, "rate")["factor"], fmt(sizes["one"]), fmt(sizes["two"]), fmt(sizes["three"])),
+        "1) Estimate the WORK: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate.%s First the biggest level (the whole job done well), then the smaller ones. HOW MANY LEVELS goes with the size of the biggest, as a corrected estimate (raw x the factor, now x%.2f%s; for installments x%.2f): up to %s wt one level, up to %s two, up to %s three, above that four. Their names, from the smallest: one level `good`; two `good max`; three `essential good max`; four `essential good full max` (or short names of your own, in English). Example for a job of 2 million: essential 400k, good 1M, max 2M." % (claude_runs_text(cfg), factor, mid_text(cfg, factor), learning(cfg, "rate")["factor"], fmt(sizes["one"]), fmt(sizes["two"]), fmt(sizes["three"])),
         "2) Let Quotient work the numbers out: run `%s quote-table --raw essential=<n> good=<n> max=<n>` with your raw estimates (add `--kind rate` when the job is surely in installments, `--lang it|en` for the user's language). It gives, for each level, the corrected work, the chat part, the total, the expected TIME and the share of the 5 hours and of the week with what is left, then the pace options that fit the job's size, what the free field is for, and the week. Copy its table into your message AS IT IS: do not work these numbers out yourself and leave none out. The end of the reply checks it: a quote that lacks the time or the shares of a level is sent back at the next message." % cmd,
         "3) Write one machine line with your RAW estimates, always in English, 1 to 4 levels from the smallest, and the TYPE of the work: QUOTE: essential=<n> good=<n> max=<n> kind=<type>. The type is one of code (programs, scripts), writing (texts, a book), research (web searches, checking sources) or other (a mix, or anything else): pass the same with `--type <type>` to quote-table (and to rate new / rate apart). Each type learns its own correction factor, because each goes wrong in its own way.",
         "4) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': one option per level, its name and total in the label, what it includes and the table's time and shares in the description; with one level, ask only the pace (a question needs two options). 'Ritmo'/'Pace': the pace options of the table, as they are: all today; 'in a new chat' when this chat is long; 'a parte, adesso'/'apart, now' (the job starts at once as one installment in a separate session: its measure is clean and this chat does not re-read it; it costs the user this: they cannot talk to it while it works, the task must be written well, it asks no questions halfway, a command that needs a permission may stop it); installment plans in days, 2 or 3 for a small job and up to 7 for a big one. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window shows 4 options at most per question and adds by itself a free field ('Other'/'Altro'): say what it is for. For the level, a choice of the user's own, e.g. a mix (part of good and part of max); for the pace, how many days, how much a day and AT WHAT TIME (e.g. '5 giorni alle 2:00', '50.000 al giorno'). Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
