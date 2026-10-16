@@ -84,13 +84,34 @@ def _context_per_call(state_chat, totals, calls):
     return totals["cache_read_tokens"] / calls if calls else 0    # first look: the chat's average so far
 
 
-def _work_now(cfg, job, totals, calls):
+PROMPT = ("cache_read_tokens", "cache_write_tokens", "input_tokens")   # what a call sends: its whole prompt
+
+
+def _chat_part(cfg, job, chat, totals, calls):
+    """The chat part of an open job so far, and the size it counts a step at now: re-reading, at each step, what the
+    chat held when the job started (its `ctx`), counted reply by reply (pre_llm_call keeps the sum, `chat_done`).
+    16/10/2026: when the chat is compressed while the job runs, a step re-reads less from then on; a reply whose steps
+    sent less than that on average counts that, the smallest so far (`ctx_floor`). The size is the whole prompt (read,
+    written and plain), so a cache gone cold is not taken for a compression. Before, every step counted the size from
+    before the compression: a job measured 0.42 of its estimate instead of about 0.7."""
+    last = chat.get("last") or {}
+    floor = job.get("ctx_floor") or job.get("ctx") or 0
+    d_calls = calls - int(last.get("calls") or 0)
+    d_prompt = sum(max(0, int(totals.get(k) or 0) - int(last.get(k) or 0)) for k in PROMPT)
+    if d_calls > 0 and d_prompt > 0:
+        floor = min(floor, d_prompt / d_calls)
+    since = int(job.get("acc_calls", job.get("start_calls", calls)) or 0)
+    aside = (job.get("aside_calls") or 0) - (job.get("acc_aside_calls") or 0)
+    steps = max(0, calls - since - aside)
+    return (job.get("chat_done") or 0.0) + steps * floor * cfg["weights"]["cache_read"], floor
+
+
+def _work_now(cfg, job, totals, calls, chat):
     """The work of an open job so far: its growth, without the replies about something else and the chat part."""
     grow = _grow(totals, job["start"])
     actual = hs.weigh_hermes(grow, cfg["weights"])
     aside = min(actual, job.get("aside") or 0)
-    d_calls = max(0, calls - job.get("start_calls", calls) - (job.get("aside_calls") or 0))
-    return max(0.0, actual - aside - min(actual - aside, d_calls * (job.get("ctx") or 0) * cfg["weights"]["cache_read"]))
+    return max(0.0, actual - aside - min(actual - aside, _chat_part(cfg, job, chat, totals, calls)[0]))
 
 
 def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None, timing=""):
@@ -141,6 +162,10 @@ def pre_llm_call(q, payload):
     totals, calls = _counters(sid)
     ctx = _context_per_call(chat, totals, calls)
     chat["ctx"] = ctx
+    if chat.get("job"):    # 16/10/2026: the chat part of the open job, reply by reply (see _chat_part)
+        part, floor = _chat_part(cfg, chat["job"], chat, totals, calls)
+        chat["job"].update(chat_done=part, ctx_floor=floor, acc_calls=calls,
+                           acc_aside_calls=chat["job"].get("aside_calls") or 0)
     chat["last"] = dict(totals, calls=calls)
     # where this reply starts: see post_llm_call (the epoch for the working time, 1.1.0)
     chat["turn_start"] = dict(totals, calls=calls, at=q.now_iso(), epoch=time.time())
@@ -226,7 +251,8 @@ def _close(q, cfg, chat, totals, calls, how):
     # 1.1.1: the replies about something else (ASIDE) are in the real cost, not in the work nor its steps
     aside = min(actual, job.get("aside") or 0)
     d_calls = max(0, calls - job.get("start_calls", calls) - (job.get("aside_calls") or 0))
-    chat_part = min(actual - aside, d_calls * (job.get("ctx") or 0) * cfg["weights"]["cache_read"])
+    part, floor = _chat_part(cfg, job, chat, totals, calls)
+    chat_part = min(actual - aside, part)
     row = {"started": job["started"], "session": "hermes:" + job["session"], "source": "hermes",
            "options": job["options"], "choice": job["choice"], "raw_estimate": job["raw_estimate"],
            "factor_used": job["factor"], "quote_cost": 0, "actual": round(actual), "chat": chat_part,
@@ -235,6 +261,8 @@ def _close(q, cfg, chat, totals, calls, how):
            "begin": job.get("begin"), "week_start": job.get("week_start")}
     if aside:
         row.update(aside=round(aside), aside_turns=job.get("aside_turns") or 1)
+    if floor < (job.get("ctx") or 0):
+        row["ctx_floor"] = round(floor)   # 16/10/2026: the chat was compressed while the job ran
     if job.get("custom"):
         row["custom"] = True
     for key in ("type", "requote", "progress"):   # 1.1.4
@@ -324,7 +352,7 @@ def post_llm_call(q, payload):
             closed = _close(q, cfg, chat, totals, calls, "new-quote")
         elif not aside:
             # 1.1.4: past its first million, the job's own pace may make a new quote, shown once at the next message
-            rq = q.requote_due(cfg, job, _work_now(cfg, job, totals, calls), job.get("progress"))
+            rq = q.requote_due(cfg, job, _work_now(cfg, job, totals, calls, chat), job.get("progress"))
             if rq:
                 job["requote"] = rq
                 chat["requote_note"] = q.requote_text(cfg, rq, "chat", chat.get("ctx"), cfg.get("lang") or "en")

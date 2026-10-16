@@ -66,7 +66,7 @@ class TestChatPart(ChatBase):
         self.assertEqual(job["chat"], 30000 + 30000)
         self.assertEqual(job["older"], 29000 + 29000)  # the part a new chat would not have carried
 
-    def test_after_a_compaction_the_older_chat_adds_nothing(self):
+    def test_after_a_compaction_the_older_chat_is_the_compacted_one(self):
         self.t.user("big job")
         self.t.call("q", usage(read=200000, output=100), texts=["QUOTE: essential=100k good=200k max=400k"], tools=1)
         self.t.tool_result()
@@ -76,7 +76,8 @@ class TestChatPart(ChatBase):
         self.t.call("c", usage(read=50000, output=100), texts=["finished"])  # the chat was compacted
         self.stop()
         job = pv.finished_jobs()[0]
-        self.assertEqual(job["chat"], 20000 + 20000)
+        # 16/10/2026: the call after the compaction re-reads the compacted chat (50k, at 0.1), no longer nothing
+        self.assertEqual(job["chat"], 20000 + 20000 + 5000)
         self.assertEqual(job["turns"], 2)
 
     def test_the_line_at_each_message_gives_the_chat_part_and_offers_a_new_chat(self):

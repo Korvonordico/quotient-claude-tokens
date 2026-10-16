@@ -259,6 +259,34 @@ def active_seconds(sid, since, until, home=None):
     return total + max(0.0, until - prev)
 
 
+def compressions(sid, since, until, home=None):
+    """When Hermes compressed a chat between two moments (epoch seconds): for each summary it put in the chat's place,
+    (its time, the time of the first answer after it). [] when Hermes or its messages are not there."""
+    path = db_path(home)
+    if not os.path.isfile(path):
+        return []
+    try:
+        con = sqlite3.connect("file:" + path.replace("\\", "/") + "?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return []
+    try:
+        cols = {r[1] for r in con.execute("pragma table_info(messages)")}
+        if not {"session_id", "timestamp", "content", "role"} <= cols:
+            return []
+        found = []
+        for (when,) in con.execute("select timestamp from messages where session_id = ? and timestamp > ? and "
+                                   "timestamp <= ? and role != 'tool' and content like '[CONTEXT COMPACTION%' "
+                                   "order by timestamp", (sid, since, until)).fetchall():
+            nxt = con.execute("select min(timestamp) from messages where session_id = ? and role = 'assistant' and "
+                              "timestamp > ?", (sid, when)).fetchone()[0]
+            found.append((float(when), float(nxt or when)))
+        return found
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+
+
 def read_log(quotient_home):
     rows = []
     try:

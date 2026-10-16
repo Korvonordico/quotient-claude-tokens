@@ -2,6 +2,14 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [Unreleased]
+
+### Fixed
+
+- **A chat compressed in the middle of a job.** A job's chat part is what re-reading, at each step, what the chat held when the job started cost. When the chat was compressed (Hermes) or compacted (Claude Code) while the job ran, a step re-read less from then on, but Hermes kept counting the size from before: on 16/10/2026 a job measured 0.42 of its estimate instead of about 0.8, and the factor learned it. Hermes now counts reply by reply: a reply whose steps sent less, on average, than the job's starting size counts that, the smallest so far (`ctx_floor`; the whole prompt, so a cache gone cold is not taken for a compression). Claude Code counted nothing after a compaction, and all of it again once the chat had grown back: each call now counts up to the shortest prompt so far.
+- **`fix chat <job>`.** `fix list` finds the jobs measured before, whose chat was compressed while they ran, and `fix chat` works their chat part out again: Claude Code exactly, from the transcript; Hermes, which keeps no numbers call by call, as an estimate from Quotient's log of its counters (each row weighed by its time inside the job). A copy first, and `fix undo`.
+- The line of the factor in `quote-table` lacked a semicolon before the medium band.
+
 ## [1.1.4] - 2026-10-16
 
 The user asked what was left to make the estimates as good as they can be. Four things. Three more came from using Quotient through Hermes (the last three under Added).
