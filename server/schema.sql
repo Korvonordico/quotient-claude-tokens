@@ -4,7 +4,8 @@
 -- order of arrival, so the average can look at the most recent jobs; the version is kept so that
 -- the numbers of a faulty Quotient version could be dropped. Only the most recent 5,000 are kept.
 -- From 1.1.6 two optional numbers per job: the plan (only if the user chose it) and how many weighted tokens 1% of the
--- week held on that PC. An existing database gets them with migrate-1.1.6.sql.
+-- week held on that PC. An existing database gets them with migrate-1.1.6.sql. From 1.1.7 the same size for the
+-- 5-hour window (per_point_5h), with migrate-1.1.7.sql.
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   family TEXT NOT NULL,
@@ -12,9 +13,11 @@ CREATE TABLE IF NOT EXISTS jobs (
   estimate INTEGER NOT NULL,
   actual INTEGER NOT NULL,
   plan TEXT,
-  per_point INTEGER
+  per_point INTEGER,
+  per_point_5h INTEGER
 );
 CREATE INDEX IF NOT EXISTS jobs_family ON jobs (family, id);
+CREATE INDEX IF NOT EXISTS jobs_plan ON jobs (plan, id);
 
 -- Two global arrival counters, for everybody together, used only to refuse floods: one row for
 -- the current minute and one for the current day, overwritten when the minute or the day changes.

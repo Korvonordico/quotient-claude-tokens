@@ -4,11 +4,18 @@
 export const FAMILIES = ["opus", "sonnet", "haiku", "fable", "other"];
 export const FIELDS = ["v", "q", "family", "estimate", "actual"];
 // 1.1.6: two optional fields. `plan` only when the user chose it in Quotient's settings; `per_point` is how many
-// weighted tokens 1% of the week held on that user's PC, rounded to 3 significant digits.
-export const OPTIONAL = ["plan", "per_point"];
+// weighted tokens 1% of the week held on that user's PC, rounded to 3 significant digits. 1.1.7: `per_point_5h`, the same
+// for the 5-hour window.
+export const OPTIONAL = ["plan", "per_point", "per_point_5h"];
 export const PLANS = ["pro", "max5", "max20", "other"];
 export const MIN_PER_POINT = 10000;
 export const MAX_PER_POINT = 1000000000;
+// 1.1.7: the 5 hours hold about a tenth of the week (the author's PC: 409k weighted tokens in 1% against 3.58M), so a
+// tenth of the week's range: wide enough for any plan, narrow enough to refuse what cannot be a real size.
+export const MIN_PER_POINT_5H = 1000;
+export const MAX_PER_POINT_5H = 100000000;
+// The plausible range of each size, by field.
+const RANGES = { per_point: [MIN_PER_POINT, MAX_PER_POINT], per_point_5h: [MIN_PER_POINT_5H, MAX_PER_POINT_5H] };
 export const MIN_TOKENS = 1000;
 export const MAX_TOKENS = 100000000;
 // A real job is rarely 10 times off either way; wider values are refused (they could only poison).
@@ -27,8 +34,8 @@ export const JUMP_JOBS = 100;
 
 const VERSION_RE = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
-// A submitted job: these five fields, and from 1.1.6 at most the two optional ones (plan, per_point); numbers in a
-// plausible range, nothing else. Returns the row to store (plan and per_point null when not sent), or null.
+// A submitted job: these five fields, and from 1.1.6 at most the optional ones (plan, per_point; 1.1.7 per_point_5h);
+// numbers in a plausible range, nothing else. Returns the row to store (the optional ones null when not sent), or null.
 export function validate(text) {
   if (typeof text !== "string" || text.length === 0 || text.length > MAX_BODY) return null;
   let body;
@@ -51,13 +58,15 @@ export function validate(text) {
   const ratio = body.actual / body.estimate;
   if (!(ratio >= MIN_RATIO && ratio <= MAX_RATIO)) return null;
   if ("plan" in body && !PLANS.includes(body.plan)) return null;
-  if ("per_point" in body) {
-    const n = body.per_point;
-    if (!Number.isInteger(n) || n < MIN_PER_POINT || n > MAX_PER_POINT) return null;
+  for (const [k, [min, max]] of Object.entries(RANGES)) {
+    if (!(k in body)) continue;
+    const n = body[k];
+    if (!Number.isInteger(n) || n < min || n > max) return null;
   }
   return {
     family: body.family, version: body.q, estimate: body.estimate, actual: body.actual,
     plan: "plan" in body ? body.plan : null, per_point: "per_point" in body ? body.per_point : null,
+    per_point_5h: "per_point_5h" in body ? body.per_point_5h : null,
   };
 }
 
@@ -118,11 +127,12 @@ const round3 = (x) => {
 
 // 1.1.6: how many weighted tokens 1% of the week holds for one plan: the median of the jobs that sent it (each job
 // carries its user's learned value), with the middle half; null below MIN_PUBLISH jobs. Values far from the rest are
-// dropped as in summarize.
-export function summarizePlan(rows) {
+// dropped as in summarize. 1.1.7: field "per_point_5h" does the same for the 5 hours, with the same rules.
+export function summarizePlan(rows, field = "per_point") {
+  const [min, max] = RANGES[field];
   const logs = rows
-    .map((r) => r.per_point)
-    .filter((n) => Number.isInteger(n) && n >= MIN_PER_POINT && n <= MAX_PER_POINT)
+    .map((r) => r[field])
+    .filter((n) => Number.isInteger(n) && n >= min && n <= max)
     .map(Math.log)
     .sort((a, b) => a - b);
   if (logs.length < MIN_PUBLISH) return null;
@@ -142,10 +152,16 @@ export function summarizePlan(rows) {
 export const PLAN_METHOD =
   "per plan (only from jobs whose users chose their plan): the median of the weighted tokens 1% of the week held on " +
   "their PCs, on a log scale, after the same trimming; rounded to 3 significant digits, from 30 jobs.";
+export const PLAN_METHOD_5H =
+  "From 1.1.7 the same for the 5-hour window, on its own (jobs_5h, per_point_5h, p25_5h, p75_5h): the median of the " +
+  "weighted tokens 1% of the 5 hours held, from the jobs that sent it, from 30 jobs.";
 
-// The file Quotient reads. byFamily: {family: rows}, all: rows, byPlan (1.1.6): {plan: rows with per_point}. Null when
-// there is not enough to publish. `plans` is there only when a plan has enough jobs, so older copies read it as before.
-export function buildAverage(byFamily, all, day, byPlan = {}) {
+// The file Quotient reads. byFamily: {family: rows}, all: rows, byPlan (1.1.6): {plan: rows with per_point}, byPlan5h
+// (1.1.7): {plan: rows with per_point_5h}. Null when there is not enough to publish. `plans` is there only when a plan
+// has enough jobs, so older copies read it as before; the 5 hours go in keys of their own (jobs_5h, per_point_5h, p25_5h,
+// p75_5h), which a 1.1.6 copy does not read, and each window is published only when it has its 30 jobs: with no 5-hour
+// numbers the file is the same as 1.1.6's.
+export function buildAverage(byFamily, all, day, byPlan = {}, byPlan5h = {}) {
   const overall = summarize(all);
   if (!overall) return null;
   const families = {};
@@ -154,14 +170,24 @@ export function buildAverage(byFamily, all, day, byPlan = {}) {
     if (s) families[f] = s;
   }
   const plans = {};
+  let week = false;
+  let five = false;
   for (const p of PLANS) {
     const s = summarizePlan(byPlan[p] || []);
-    if (s) plans[p] = s;
+    const s5 = summarizePlan(byPlan5h[p] || [], "per_point_5h");
+    if (s) {
+      plans[p] = s;
+      week = true;
+    }
+    if (s5) {
+      plans[p] = { ...(plans[p] || {}), jobs_5h: s5.jobs, per_point_5h: s5.per_point, p25_5h: s5.p25, p75_5h: s5.p75 };
+      five = true;
+    }
   }
   const avg = { schema: 1, updated: day, method: METHOD, all: overall, families };
   if (Object.keys(plans).length) {
     avg.plans = plans;
-    avg.method = METHOD + " " + PLAN_METHOD;
+    avg.method = [METHOD, week ? PLAN_METHOD : "", five ? PLAN_METHOD_5H : ""].filter(Boolean).join(" ");
   }
   return avg;
 }

@@ -12,7 +12,7 @@
 // This code never reads the client's address or any header other than the body size,
 // and request logging is off (observability.enabled = false in wrangler.toml).
 
-import { validate, buildAverage, mayReplace, FAMILIES, PLANS, WINDOW_FAMILY, WINDOW_ALL, MAX_BODY, METHOD, PLAN_METHOD } from "./stats.js";
+import { validate, buildAverage, mayReplace, FAMILIES, PLANS, WINDOW_FAMILY, WINDOW_ALL, MAX_BODY, METHOD, PLAN_METHOD, PLAN_METHOD_5H } from "./stats.js";
 
 // Written here, not in variables, so that no setting can make the service write anywhere else.
 const GITHUB_REPO = "Korvonordico/quotient-data";
@@ -101,7 +101,7 @@ async function receive(request, env) {
   const body = await readBody(request);
   if (body === null) return text("too big\n", 413);
   const row = validate(body);
-  if (!row) return text("only the five numbers fields (and plan, per_point) are accepted\n", 400);
+  if (!row) return text("only the five numbers fields (and plan, per_point, per_point_5h) are accepted\n", 400);
 
   // Global caps, the same for everybody: they count arrivals, not who sends them.
   const perMinute = Number(env.PER_MINUTE) || 20;
@@ -110,8 +110,9 @@ async function receive(request, env) {
   if (!(await bump(env, "minute", minute, perMinute))) return text("busy, try later\n", 429);
   if (!(await bump(env, "day", Math.floor(minute / 1440), perDay))) return text("busy, try tomorrow\n", 429);
 
-  await env.DB.prepare("INSERT INTO jobs (family, version, estimate, actual, plan, per_point) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
-    .bind(row.family, row.version, row.estimate, row.actual, row.plan, row.per_point)
+  await env.DB.prepare(
+    "INSERT INTO jobs (family, version, estimate, actual, plan, per_point, per_point_5h) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+    .bind(row.family, row.version, row.estimate, row.actual, row.plan, row.per_point, row.per_point_5h)
     .run();
   return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
 }
@@ -158,15 +159,20 @@ export async function daily(env, source) {
     const { results: all } = await env.DB.prepare(
       "SELECT estimate, actual FROM jobs WHERE id <= ?1 ORDER BY id DESC LIMIT ?2")
       .bind(maxId, WINDOW_ALL).all();
-    // 1.1.6: the size of 1% of the week, per plan, from the jobs that sent both
+    // 1.1.6: the size of 1% of the week, per plan, from the jobs that sent both; 1.1.7: of the 5 hours, the same way
     const byPlan = {};
+    const byPlan5h = {};
     for (const p of PLANS) {
       const { results } = await env.DB.prepare(
         "SELECT per_point FROM jobs WHERE plan = ?1 AND per_point IS NOT NULL AND id <= ?2 ORDER BY id DESC LIMIT ?3")
         .bind(p, maxId, WINDOW_FAMILY).all();
       byPlan[p] = results;
+      const { results: five } = await env.DB.prepare(
+        "SELECT per_point_5h FROM jobs WHERE plan = ?1 AND per_point_5h IS NOT NULL AND id <= ?2 ORDER BY id DESC LIMIT ?3")
+        .bind(p, maxId, WINDOW_FAMILY).all();
+      byPlan5h[p] = five;
     }
-    const next = buildAverage(byFamily, all, new Date().toISOString().slice(0, 10), byPlan);
+    const next = buildAverage(byFamily, all, new Date().toISOString().slice(0, 10), byPlan, byPlan5h);
     const prevRaw = await getMeta(env, "average");
     const previous = prevRaw ? JSON.parse(prevRaw) : null;
     if (!next) return "not enough jobs yet";
@@ -254,14 +260,18 @@ async function page(env) {
         .map(([f, s]) => `<tr><td>${escapeHtml(f)}</td><td>${Number(s.jobs)}</td><td>x${Number(s.factor)}</td><td>x${Number(s.p25)} – x${Number(s.p75)}</td></tr>`)
         .join("")
     : "";
+  // 1.1.6 the week, 1.1.7 the 5 hours: each window has its own jobs; a dash where a window has not its 30 jobs yet
+  const cells = (s, end) => s["per_point" + end]
+    ? `<td>${Number(s["jobs" + end])}</td><td>${Number(s["per_point" + end])}</td><td>${Number(s["p25" + end])} – ${Number(s["p75" + end])}</td>`
+    : "<td>–</td><td>–</td><td>–</td>";
   const planRows = avg && avg.plans
     ? Object.entries(avg.plans)
-        .map(([p, s]) => `<tr><td>${escapeHtml(p)}</td><td>${Number(s.jobs)}</td><td>${Number(s.per_point)}</td><td>${Number(s.p25)} – ${Number(s.p75)}</td></tr>`)
+        .map(([p, s]) => `<tr><td>${escapeHtml(p)}</td>${cells(s, "")}${cells(s, "_5h")}</tr>`)
         .join("")
     : "";
   const table = avg
     ? `<p>Last average: ${escapeHtml(avg.updated)}.</p><table><tr><th>Model family</th><th>Jobs</th><th>Factor</th><th>Middle half</th></tr>${rows}</table>` +
-      (planRows ? `<p>Weighted tokens in 1% of the week, by plan:</p><table><tr><th>Plan</th><th>Jobs</th><th>Per 1%</th><th>Middle half</th></tr>${planRows}</table>` : "")
+      (planRows ? `<p>Weighted tokens in 1% of each window, by plan: an estimate to start from, taken from other users. Anthropic does not publish the limits and changes them, so each copy of Quotient uses it only until its own readings are enough.</p><table><tr><th rowspan="2">Plan</th><th colspan="3">The week</th><th colspan="3">The 5 hours</th></tr><tr><th>Jobs</th><th>Per 1%</th><th>Middle half</th><th>Jobs</th><th>Per 1%</th><th>Middle half</th></tr>${planRows}</table>` : "")
     : "<p>No average yet: the first one is published after 30 jobs.</p>";
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quotient shared average</title>
@@ -274,12 +284,12 @@ table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:.3rem .6rem;t
 <h2>What it receives</h2>
 <p>One line per finished job, exactly like this:</p>
 <pre>{"v":1,"q":"0.9.0","family":"opus","estimate":225000,"actual":259000}</pre>
-<p>Format version, Quotient version, model family (opus, sonnet, haiku, fable, other), the raw estimate and the real cost in weighted tokens, rounded to 3 significant digits. From Quotient 1.1.6 two more, only when known: the plan, only if the user chose it in Quotient's settings (pro, max5, max20, other), and how many weighted tokens 1% of the week held on that PC (<code>per_point</code>, rounded to 3 significant digits). Anything else is refused.</p>
-<pre>{"v":1,"q":"1.1.6","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000}</pre>
+<p>Format version, Quotient version, model family (opus, sonnet, haiku, fable, other), the raw estimate and the real cost in weighted tokens, rounded to 3 significant digits. From Quotient 1.1.6 two more, only when known: the plan, only if the user chose it in Quotient's settings (pro, max5, max20, other), and how many weighted tokens 1% of the week held on that PC (<code>per_point</code>, rounded to 3 significant digits); from 1.1.7 the same for the 5 hours (<code>per_point_5h</code>). Anything else is refused.</p>
+<pre>{"v":1,"q":"1.1.7","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}</pre>
 <h2>What it never keeps</h2>
 <p>No IP address, no date or time of a job, no names, text, paths, session or user ids. The code does not read the sender's address, and request logs are turned off. Two arrival counters (this minute, this day) refuse floods and are overwritten, so no history of arrival times is kept. Cloudflare, which runs this service, carries the connection like any network and keeps automatic backups of the database: see <a href="https://www.cloudflare.com/privacypolicy/">its privacy policy</a>.</p>
 <h2>How the average is made</h2>
-<p>${escapeHtml(METHOD)} ${escapeHtml(PLAN_METHOD)}</p>
+<p>${escapeHtml(METHOD)} ${escapeHtml(PLAN_METHOD)} ${escapeHtml(PLAN_METHOD_5H)}</p>
 ${table}
 <p>The same file is published in its own repository, <a href="${DATA_URL}">quotient-data</a> (<a href="${DATA_URL}/blob/main/average.json">average.json</a>, with its history): the service's key can write only there, never in Quotient's code. The code of this service is in <a href="${REPO_URL}/tree/main/server">server/</a>. Sharing can be turned off in Quotient (<code>/token-quotient:share off</code>); people who turn it off still get the average. Details: <a href="${REPO_URL}/blob/main/PRIVACY.md">PRIVACY.md</a>.</p>
 </body></html>`;

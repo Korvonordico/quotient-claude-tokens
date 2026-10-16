@@ -1,11 +1,13 @@
 // Run: node --test server/test/stats.test.mjs
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validate, summarize, summarizePlan, buildAverage, mayReplace, MAX_BODY, MIN_PUBLISH } from "../src/stats.js";
+import { validate, summarize, summarizePlan, buildAverage, mayReplace, MAX_BODY, MIN_PUBLISH, METHOD, PLAN_METHOD,
+  PLAN_METHOD_5H } from "../src/stats.js";
 
 const good = { v: 1, q: "0.9.0", family: "opus", estimate: 225000, actual: 259000 };
 const body = (o) => JSON.stringify(o);
-const kept = { family: "opus", version: "0.9.0", estimate: 225000, actual: 259000, plan: null, per_point: null };
+const kept = { family: "opus", version: "0.9.0", estimate: 225000, actual: 259000, plan: null, per_point: null,
+  per_point_5h: null };
 
 test("a normal job is accepted and only its numbers are kept", () => {
   assert.deepEqual(validate(body(good)), kept);
@@ -124,4 +126,50 @@ test("1.1.6: the size of 1% by plan, only from 30 jobs, rounded to 3 significant
     { max5: sized(3200000, 31), pro: sized(300000, 5) });
   assert.deepEqual(Object.keys(avg.plans), ["max5"]);
   assert.equal(buildAverage({ opus: many([1.2], 30) }, many([1.2], 30), "2026-10-15").plans, undefined);
+});
+
+test("1.1.7: the size of 1% of the 5 hours is accepted alone or with the others; 1.1.6 and older lines still are", () => {
+  const full = { ...good, q: "1.1.7", plan: "max5", per_point: 3220000, per_point_5h: 322000 };
+  assert.deepEqual(validate(body(full)),
+    { ...kept, version: "1.1.7", plan: "max5", per_point: 3220000, per_point_5h: 322000 });
+  assert.deepEqual(validate(body({ ...good, per_point_5h: 322000 })), { ...kept, per_point_5h: 322000 });
+  assert.deepEqual(validate(body({ ...good, plan: "max5", per_point: 3220000 })),
+    { ...kept, plan: "max5", per_point: 3220000 });                       // a 1.1.6 line
+  assert.deepEqual(validate(body(good)), kept);                            // a line of five fields
+  assert.ok(body(full).length < MAX_BODY / 3);
+  for (const change of [{ per_point_5h: 999 }, { per_point_5h: 100000001 }, { per_point_5h: 322000.5 },
+    { per_point_5h: "322000" }, { per_point_5h: null }, { per_point_5h_x: 322000 }]) {
+    assert.equal(validate(body({ ...good, ...change })), null, JSON.stringify(change));
+  }
+});
+
+test("1.1.7: the 5 hours by plan, each window with its own 30 jobs; without them the file is the same as 1.1.6's", () => {
+  const sized = (n, times) => Array.from({ length: times }, (_, i) => ({ per_point: n + i * 1000 }));
+  const sized5 = (n, times) => Array.from({ length: times }, (_, i) => ({ per_point_5h: n + i * 100 }));
+  const s5 = summarizePlan(sized5(320000, 31), "per_point_5h");
+  assert.deepEqual(s5, { jobs: 31, per_point: 322000, p25: 321000, p75: 322000 });
+  assert.equal(summarizePlan(sized5(320000, 29), "per_point_5h"), null);
+  assert.equal(summarizePlan(sized5(320000, 31)), null);                    // the week's field is not there
+  assert.equal(summarizePlan(Array(40).fill({ per_point_5h: 999 }), "per_point_5h"), null);   // below the range
+  const families = [{ opus: many([1.2], 30) }, many([1.2], 30), "2026-10-16"];
+  const weekOnly = { max5: sized(3200000, 31), pro: sized(300000, 5) };
+  const before = buildAverage(...families, weekOnly);
+  assert.deepEqual(buildAverage(...families, weekOnly, {}), before);         // old averages do not change
+  assert.deepEqual(buildAverage(...families, weekOnly, { max5: sized5(320000, 29) }), before);
+  assert.equal(before.method, METHOD + " " + PLAN_METHOD);
+  const avg = buildAverage(...families, weekOnly, { max5: sized5(320000, 31), pro: sized5(90000, 30), max20: [] });
+  assert.deepEqual(avg.plans.max5, { ...before.plans.max5, jobs_5h: 31, per_point_5h: 322000, p25_5h: 321000,
+    p75_5h: 322000 });
+  assert.deepEqual(Object.keys(avg.plans.pro), ["jobs_5h", "per_point_5h", "p25_5h", "p75_5h"]);  // the 5 hours only
+  assert.equal(avg.plans.max20, undefined);
+  assert.equal(avg.method, METHOD + " " + PLAN_METHOD + " " + PLAN_METHOD_5H);
+  const fiveOnly = buildAverage(...families, {}, { pro: sized5(90000, 30) });
+  assert.deepEqual(Object.keys(fiveOnly.plans), ["pro"]);
+  assert.equal(fiveOnly.method, METHOD + " " + PLAN_METHOD_5H);
+});
+
+test("1.1.7: rows from the database with both sizes or with NULL in one count only in their own window", () => {
+  const rows = Array.from({ length: 30 }, (_, i) => ({ per_point: i % 2 ? 3200000 : null, per_point_5h: 320000 }));
+  assert.equal(summarizePlan(rows), null);                                   // only 15 with the week
+  assert.equal(summarizePlan(rows, "per_point_5h").jobs, 30);
 });
