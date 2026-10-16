@@ -223,15 +223,18 @@ class HermesHooks(unittest.TestCase):
         # 1.1.1: an ASIDE reply is in the real cost, not in the work; the job stays open
         self.hook("pre_llm_call")
         self.hook("post_llm_call", "QUOTE: essential=1000 good=2000 max=4000\nCHOICE: good\nPACE: today\nJOB: CONTINUES")
-        self.hook("pre_llm_call")
+        self.assertIn("end the reply with the line ASIDE", self.hook("pre_llm_call")["context"])
         update(self.h, "chat1", output_tokens=300)          # 1000 wt of work
         self.hook("post_llm_call", "Part one.\nJOB: CONTINUES")
         context = self.hook("pre_llm_call")["context"]
-        self.assertIn("end the reply with the line ASIDE", context)
+        self.assertNotIn("end the reply with the line ASIDE", context)   # 1.1.7: said at the first message only
+        self.assertIn("Open job: good", context)
         update(self.h, "chat1", output_tokens=500)          # 1000 wt about something else
         self.hook("post_llm_call", "Sunny.\nASIDE")
         self.assertEqual(self.state()["job"]["aside"], 1000)
-        self.assertIn("of which 1k in messages in between", self.hook("pre_llm_call")["context"])
+        context = self.hook("pre_llm_call")["context"]
+        self.assertIn("of which 1k in messages in between", context)
+        self.assertIn("end the reply with the line ASIDE", context)      # and again after a reply counted apart
         update(self.h, "chat1", output_tokens=700)          # 1000 wt of work
         self.hook("post_llm_call", "Finished.\nJOB: CLOSE")
         job = self.jobs()[-1]
@@ -294,12 +297,17 @@ class HermesHooks(unittest.TestCase):
         self.assertEqual((job["actual"], job["chat"], job["work"]), (8000 + 2000, 8000, 2000))
         self.assertEqual((job["calls"], job["ctx"]), (8, 10000))
 
-    def test_the_line_gives_the_measured_steps(self):
+    def test_the_measured_steps_are_in_quote_table_not_in_the_line(self):
         with open(os.path.join(self.q, "jobs.jsonl"), "w", encoding="utf-8") as f:
             for calls in (30, 40, 50):
                 f.write(json.dumps({"session": "hermes:x", "raw_estimate": 1000000, "actual": 1000000, "chat": 0,
                                     "work": 1000000, "calls": calls}) + "\n")
-        self.assertIn("a job takes about 40 steps per 1M wt of work", self.hook("pre_llm_call")["context"])
+        self.hook("pre_llm_call")
+        # 1.1.7: the line no longer carries them; quote-table counts the chat part with them
+        self.assertNotIn("steps per 1M", self.hook("pre_llm_call")["context"])
+        import quotient as q
+        with mock.patch.dict(os.environ, {"QUOTIENT_HOME": self.q}):
+            self.assertEqual(q.steps_per_million(q.config()), (40.0, 3))
 
 
 if __name__ == "__main__":

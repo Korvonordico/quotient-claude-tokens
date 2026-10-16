@@ -1210,21 +1210,25 @@ def mid_text(cfg):
     if not m:
         return ""
     top = cfg["learn_min_raw"]
-    return "; for quotes under %s wt x%.2f, and from %s wt up never under %s wt" % (fmt(top), m, fmt(top), fmt(top * m))
+    return ("; for quotes under %s wt x%.2f; above it, in brackets: up to %s at x%.2f and the rest at the factor "
+            "(so a bigger level always comes out bigger)" % (fmt(top), m, fmt(top), m))
 
 
 def factor_for(cfg, raw, source):
     """The factor a chosen level is corrected with. With the medium band on and its factor known: under learn_min_raw
-    the medium factor, smaller quotes too (they teach no factor: the nearest learned one); from learn_min_raw up the
-    larger of the factor and what keeps the corrected estimate from falling under the one just below learn_min_raw.
-    Francesco, 16/10/2026: with plain bands a quote of 999k was corrected to 1.84M and one of 1M to 1.05M."""
+    the medium factor, smaller quotes too (they teach no factor: the nearest learned one); from learn_min_raw up in
+    brackets, as a tax: the first learn_min_raw at the medium factor, the rest at the factor (1.1.7).
+    Francesco, 16/10/2026: with plain bands a quote of 999k was corrected to 1.84M and one of 1M to 1.05M; then with
+    max(factor, learn_min_raw x mid / raw) every quote from 1M to about 1.7M came out the same (good 1.1M and max 1.6M
+    both 1.75M). The brackets keep the corrected estimate continuous at learn_min_raw and always rising with the raw
+    one, whichever of the two factors is the larger."""
     mid, big = source.get("factor_mid"), source.get("factor", 1.0)
     top = cfg.get("learn_min_raw") or 0
     if not mid or not cfg.get("learn_mid_min") or not top:
         return big
     if (raw or 0) < top:
         return mid
-    return max(big, top * mid / raw)
+    return (top * mid + (raw - top) * big) / raw
 
 
 def chat_factor(cfg, raw, wtype=None):
@@ -2420,26 +2424,18 @@ def run_cmd():
 
 
 def calibration(cfg, learned):
+    """The factor, for the line at each message. 1.1.7: short; the misses before and after the correction are in the
+    report, the steps and the working time per million in quote-table's numbers."""
     n = len(learned["jobs"])
     shared = learned.get("shared", 0)
     if n == 0 and shared:
-        return ("No finished jobs of your own yet: the correction factor x%.2f comes from the shared average of %d real jobs "
-                "(numbers only); your own jobs take over after %d." % (learned["factor"], shared, cfg["min_jobs"]))
+        return ("Correction factor x%.2f, from the shared average of %d real jobs (yours take over after %d)." % (
+            learned["factor"], shared, cfg["min_jobs"]))
     if n == 0:
-        return "No finished jobs yet, so the correction factor is x1 and the first estimates will be rough."
-    rows = learned["rows"]
-    rate = learning(cfg, "rate")["factor"]
-    steps = steps_per_million(cfg)
-    measured = " A job takes about %d steps per 1M wt of work (from %d jobs)." % (round(steps[0]), steps[1]) if steps else ""
-    timing = time_text(cfg)
-    if timing:
-        measured += " Working time: %s." % timing
-    return ("Correction factor from %d finished job(s)%s: x%.2f%s (for installments x%.2f); typical miss before "
-            "correction %s, recent miss with it %s.%s" % (
-                n, " plus %d shared" % shared if shared else "", learned["factor"],
-                " (still uncertain)" if n < cfg["min_jobs"] else "", rate,
-                fmt_miss(median([r["miss_raw"] for r in rows])), fmt_miss(median([r["miss_corrected"] for r in rows[-5:]])),
-                measured))
+        return "No finished jobs yet: correction factor x1, the first estimates will be rough."
+    return "Correction factor x%.2f from %d job(s)%s%s (installments x%.2f)." % (
+        learned["factor"], n, " plus %d shared" % shared if shared else "",
+        " (still uncertain)" if n < cfg["min_jobs"] else "", learning(cfg, "rate")["factor"])
 
 
 # ---------------------------------------------------------------- the quote, worked out by Quotient (1.1.3)
@@ -2673,9 +2669,10 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
     mid = mid_factor(cfg) if kind == "chat" else None
     if mid:
         top = cfg["learn_min_raw"]
-        lines[-1] = lines[-1][:-2] + (("; per i preventivi sotto %s x%.2f, e da %s in su mai meno di %s)." if it else
-                                       "; for quotes under %s x%.2f, and from %s up never under %s).") % (
-            amount(top, lang), mid, amount(top, lang), amount(top * mid, lang)))
+        lines[-1] = lines[-1][:-2] + (("; per i preventivi sotto %s x%.2f; sopra, fino a %s x%.2f e il resto x%.2f)."
+                                       if it else
+                                       "; for quotes under %s x%.2f; above it, up to %s x%.2f and the rest x%.2f).") % (
+            amount(top, lang), mid, amount(top, lang), mid, learned["factor"]))
 
     names = list(options)
     notes = ["", "[for the agent, not to copy] Copy everything above into your message as it is, in the user's "
@@ -2790,7 +2787,7 @@ def protocol(cfg, factor):
         "5) After the answer write `CHOICE: <level>`. A choice written in the free field: estimate it (raw, as the levels) and write `CHOICE: custom=<n>` (or a short name of your own with its estimate): Quotient measures the job against that estimate. Then one of `PACE: today`, `PACE: apart`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>` (add `at=HH:MM` when the user gave a time; the user's own words work too). Apart: write what the whole job is to a file, with everything a session that cannot ask needs, then run `%s rate apart <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level>`: it starts at once in the background, and its report comes back to this chat when it ends." % cmd + " If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. Right after the choice, tell the user in one line that writing to you while the job runs adds to its cost, and that messages about something else are counted apart: while the job is open, a reply that is not about it ends with the line `ASIDE` (the job stays open; Quotient counts that reply apart from the work). New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % cmd,
         "Machine lines (QUOTE, CHOICE, PACE, JOB, ASIDE, LIMITS) go in the LAST message of your reply, the one after your last tool call: a progress note written in the middle of a reply may be kept only as a summary, and then Quotient never sees them. Write QUOTE and CHOICE once: later replies of the same job carry only the JOB line.",
         "6) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n> (and --at HH:MM for the time); a pace the user wrote in the free field goes as it is with --pace \"<their words>\": Quotient reads the days, the amount a day and the time from it. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at the time of the plan, 03:00 unless they gave another), 'Ogni giorno'/'Every day' (the daily time; free field; leave it out when the pace already gave the time: `rate schedule <name>` uses it) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: whoever turned the PC on, it sleeps only when nobody is using it, after a 2-minute warning). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (without --time: the time of the plan; add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely. Each installment's report comes back to the chat that ran `rate new`, at the user's next message there (other chats get a one-line notice, twice at most); `rate here <name>` run in another chat moves the reports there." % (cmd, cmd),
-        "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them, and how many wt 1% holds when it can estimate it. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
+        "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them (in Claude Code also how many wt 1% holds); quote-table works out each level's share. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
         "Read the limits before running quote-table, so its shares are fresh. When the table says a level does not fit in what is left of the 5 hours, say so in the window and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left; at the next message Quotient gives the job's real cost and working time against the expected ones: tell them in one line.",
         "WEEK: before creating installments, run `%s rate week`: it adds up all open installment jobs until the weekly limit resets, against what is left minus a reserve for normal use (%d%%). If the new job would not fit with the others, say so in the window and offer: keep all, slow some down (`rate set <name> --daily <n>`), pause some (`rate pause <name>`), or pace the new one over more days." % (run_cmd(), cfg["week"]["reserve_percent"]),
         "Every decision Quotient needs from the user goes through the choice window, with a free field.",
@@ -3327,17 +3324,16 @@ def hook_prompt():
     chat_line = chat_hint(cfg, ctx, state.get("fresh") or first_context(path)) if ctx else None
     current = limits_line("en")
     hints.append("Plan limits: %s." % current if current else "Plan limits: not read yet (see LIMITS in the protocol).")
+    # 1.1.7: the size of 1% without its margin and points (the report has them; quote-table uses them); the threshold
+    # and the quote rules are in the protocol, the steps and the time per million in quote-table's numbers
     sizes = []
-    for window, label in (("seven_day", "the week"), ("five_hour", "the 5 hours")):
+    for window, label in (("five_hour", "the 5 hours"), ("seven_day", "the week")):
         c = week_capacity(cfg) if window == "seven_day" else capacity(window)
         if c:
-            sizes.append("1%% of %s ~ %s wt, so 100%% ~ %s wt (between %s and %s; rough, from %d points%s)" % (
-                label, fmt(c["per_point"]), fmt(c["per_point"] * 100), fmt(c["low"]), fmt(c["high"]), c["points"],
-                week_source(c)))
+            sizes.append("%s ~%s wt%s" % (label, fmt(c["per_point"]), week_source(c)))
     if sizes:
-        hints.append("Estimate: " + "; ".join(sizes) + ".")
-    lines = ["[Quotient %s] Threshold %s wt. %s %s Quote rules: see the Quotient protocol at the start of the session." % (
-        VERSION, fmt(cfg["threshold"]), calibration(cfg, learned), " ".join(hints))]
+        hints.append("1%% of %s." % ", of ".join(sizes))
+    lines = ["[Quotient %s] %s %s" % (VERSION, calibration(cfg, learned), " ".join(hints))]
     if chat_line:
         lines.append(chat_line)
     # A prompt that starts with the installment tag is a scheduled task, not the user: reports wait for the user.
@@ -3373,20 +3369,24 @@ def hook_prompt():
     closed_told = state.get("last_closed") if not scheduled else None
     if closed_told:
         lines.append(closed_told)
+    aside_told = None
     if job:
         timing = ""
         if job.get("seconds") is not None:
             timing = "; working time so far %s%s" % (fmt_duration(job.get("seconds")), " of about %s expected" % (
                 fmt_duration(job["predicted_seconds"])) if job.get("predicted_seconds") else "")
-        lines.append("A job is in progress (level '%s', raw estimate %s wt, spent so far %s wt, of which %s re-reading "
-                     "the older chat%s%s). If it is not finished at the end of this reply, end it with the line: JOB: "
-                     "CONTINUES. If this message is about something else, answer it and end the reply with the line "
-                     "ASIDE instead: the job stays open and that reply is counted apart." % (
-                         job.get("choice"), fmt(job.get("raw_estimate")), fmt(job.get("actual")), fmt(job.get("chat") or 0),
-                         " and %s messages in between" % fmt(job["aside"]) if job.get("aside") else "",
-                         timing) + pace_note(job.get("raw_estimate"), job.get("factor_used"),
-                                            job.get("actual") - (job.get("aside") or 0), job.get("seconds"), cfg,
-                                            job.get("progress"), job.get("packages")))
+        line = ("Open job (level '%s', raw estimate %s wt, spent so far %s wt, of which %s re-reading the older chat%s%s). "
+                "Unfinished at the end of this reply: end it with JOB: CONTINUES." % (
+                    job.get("choice"), fmt(job.get("raw_estimate")), fmt(job.get("actual")), fmt(job.get("chat") or 0),
+                    " and %s messages in between" % fmt(job["aside"]) if job.get("aside") else "", timing))
+        if state.get("aside_told") != (job.get("started") or "job"):
+            # 1.1.7: at the first message of the job and after a reply counted apart; the protocol explains ASIDE
+            line += (" If this message is about something else, answer it and end the reply with the line ASIDE "
+                     "instead: the job stays open and that reply is counted apart.")
+            aside_told = job.get("started") or "job"
+        lines.append(line + pace_note(job.get("raw_estimate"), job.get("factor_used"),
+                                      job.get("actual") - (job.get("aside") or 0), job.get("seconds"), cfg,
+                                      job.get("progress"), job.get("packages")))
         if not scheduled:
             timer_put(cfg, "run", job.get("seconds") or 0, job.get("predicted_seconds"), job.get("choice"))
         limits_soon(cfg)   # 1.1.6: a job open: the limits read every minute, in the background
@@ -3426,6 +3426,8 @@ def hook_prompt():
     state["q_new"] = state.get("q_new", 0) + len(text)
     if closed_told:
         state.pop("last_closed", None)
+    if aside_told:
+        state["aside_told"] = aside_told
     if incomplete:
         state.pop("quote_incomplete", None)
     if requote:
@@ -3466,14 +3468,12 @@ def chat_share(cfg, ctx, fresh):
 def chat_hint(cfg, ctx, fresh):
     """One line for Claude: how much re-reading this chat adds to a job, and how much a new chat would save."""
     c = chat_share(cfg, ctx, fresh)
-    line = ("CHAT PART: every call re-reads this chat, ~%s tokens (~%s wt), so a job done here costs about +%d%% on "
-            "top of its work (~%s wt of work per call, %s). Quote the WORK only; in the window show for each level "
-            "work + chat part = total." % (
-                fmt(c["context"]), fmt(c["per_call"]), round(c["percent"]), fmt(c["work_per_call"]),
-                "learned from %d jobs" % c["learned"] if c["learned"] else "a default"))
+    # 1.1.7: short; how to quote it is in the protocol, and quote-table works the chat part out
+    line = "CHAT PART: every call re-reads this chat, ~%s tokens (~%s wt): about +%d%% on a job's work." % (
+        fmt(c["context"]), fmt(c["per_call"]), round(c["percent"]))
     if c["older_percent"] >= cfg["chat"]["new_chat_percent"]:
-        line += (" ~%s of those tokens are older conversation a new chat would not carry (+%d%%): also offer the "
-                 "pace 'new chat'." % (fmt(c["older"]), round(c["older_percent"])))
+        line += " ~%s of them older conversation (+%d%%): offer the pace 'new chat'." % (
+            fmt(c["older"]), round(c["older_percent"]))
     return line
 
 
@@ -3768,6 +3768,7 @@ def hook_stop():
             job["aside"] = (job.get("aside") or 0) + cost
             job["aside_calls"] = (job.get("aside_calls") or 0) + (0 if repeat else calls)
             job["aside_turns"] = (job.get("aside_turns") or 0) + (0 if repeat else 1)
+            state.pop("aside_told", None)   # 1.1.7: the next message says again how to answer apart
         else:
             job["chat"] = (job.get("chat") or 0) + job_chat_now(job)
             job["calls"] = (job.get("calls") or 0) + (0 if repeat else calls)
@@ -4114,12 +4115,26 @@ def limits_due(every):
     return not ((last and now - (last[-1].get("epoch") or 0) < every) or now - tried < every)
 
 
-def limits_soon(cfg):
+def limits_soon(cfg, every=None):
     """1.1.6: during an open job, a reading of the limits in a separate process, so the message never waits for it; at
-    most every limits.job_every seconds. True if one was started."""
+    most every limits.job_every seconds. 1.1.7: with `every` (limits.every when no job is open), the same at that pace:
+    no hook waits for `claude -p /usage` any more (in Hermes the message waited about 4 s every 10 minutes, and 14
+    times in 4 days the hook reached its 20 s limit and the message went without its line). The message shows the
+    last reading saved; the new one reaches the message after. At most one start per interval, even before the process
+    writes anything. True if one was started."""
     try:
-        if limits_live(cfg) and limits_due(limits_every(cfg, busy=True)):
-            return start_detached(["limits-read"], os.path.join(home(), "limits-read.log"))
+        wait = limits_every(cfg, busy=True) if every is None else float(every)
+        if not limits_live(cfg) or not limits_due(wait):
+            return False
+        path = os.path.join(home(), "limits-state.json")
+        state = load_json(path, {})
+        state = state if isinstance(state, dict) else {}
+        if time.time() - float(state.get("started") or 0) < wait:
+            return False   # started a moment ago: it has not read yet
+        state["started"] = round(time.time(), 1)
+        save_json(path, state)
+        return start_detached(["limits-read"] + ([] if every is None else ["--every", "%g" % wait]),
+                              os.path.join(home(), "limits-read.log"))
     except Exception:  # a reading that cannot start must never stop a message
         pass
     return False
@@ -4154,7 +4169,10 @@ def refresh_limits(cfg=None, force=False, every=None):
     if not force and not limits_due(every):
         return None      # read recently, or tried recently without an answer: Claude Code is not asked again yet
     state_path = os.path.join(home(), "limits-state.json")
-    save_json(state_path, {"tried": round(time.time())})
+    state = load_json(state_path, {})
+    state = state if isinstance(state, dict) else {}
+    state["tried"] = round(time.time())   # 1.1.7: the other keys stay (limits_soon's "started")
+    save_json(state_path, state)
     try:
         import limits_usage
         snap = limits_usage.fetch(find_claude(cfg), cwd=home())
@@ -4559,7 +4577,9 @@ def check_alert(cfg):
     seen = {r.get("key") for r in read_jsonl(checks_path())}
     if any(s[5] and s[0] not in seen for s in check_spans()) and not any(
             (r.get("epoch") or 0) > time.time() - 600 for r in read_jsonl(limits_path(), tail_bytes=4096)):
-        refresh_limits(cfg)  # a job waits for a reading after its end (at most every limits.every seconds)
+        # a job waits for a reading after its end (at most every limits.every seconds); 1.1.7: in the background, so
+        # the message does not wait for it: the check is made at a later message
+        limits_soon(cfg, limits_every(cfg))
     measure_checks(cfg)
     lines = [check_line(r) for r in read_jsonl(checks_path()) if r.get("result") == "warn" and r.get("key") not in told]
     if lines:
@@ -7482,7 +7502,8 @@ def main(argv=None):
     p.add_argument("what", nargs="?", choices=("status", "on", "off", "serve"), default="status")
     p.add_argument("--write", action="store_true", help="with on/off: change ~/.claude/settings.json (a copy first)")
     p.add_argument("--port", type=int, help="the local port of the receiver (default: the setting, 4318)")
-    sub.add_parser("limits-read", help="(internal) one reading of the plan limits, run in the background")
+    p = sub.add_parser("limits-read", help="(internal) one reading of the plan limits, run in the background")
+    p.add_argument("--every", type=float, help="not if read or tried within these seconds (default: limits.job_every)")
     p = sub.add_parser("config")
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
@@ -7601,7 +7622,8 @@ def main(argv=None):
         telemetry.cmd(sys.modules[__name__], args)
     elif args.cmd == "limits-read":
         try:
-            refresh_limits(config(), every=limits_every(config(), busy=True))
+            cfg = config()
+            refresh_limits(cfg, every=limits_every(cfg, busy=True) if args.every is None else args.every)
         except Exception as exc:  # a reading in the background must never show an error
             sys.stderr.write("quotient: %s\n" % exc)
     elif args.cmd == "hermes":

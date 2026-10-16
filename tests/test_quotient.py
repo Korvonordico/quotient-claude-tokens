@@ -330,7 +330,7 @@ class TestKinds(Base):
             self.add("rate:more%d" % i, 100000, 50000)      # five installments: their own factor
         self.assertAlmostEqual(pv.learning(cfg, "rate")["factor"], 0.5)
         self.assertAlmostEqual(pv.learning(cfg)["factor"], 2.0)
-        self.assertIn("for installments x0.50", pv.calibration(cfg, pv.learning(cfg)))
+        self.assertIn("installments x0.50", pv.calibration(cfg, pv.learning(cfg)))
 
     def test_steps_per_million(self):
         cfg = pv.config()
@@ -341,7 +341,8 @@ class TestKinds(Base):
                              "work": 2000000, "calls": calls, "finished": "x"})
         self.assertEqual(pv.steps_per_million(cfg), (20.0, 3))        # 40 calls for 2M of work = 20 per million
         self.assertIsNone(pv.steps_per_million(cfg, "rate"))
-        self.assertIn("about 20 steps per 1M wt of work", pv.calibration(cfg, pv.learning(cfg)))
+        # 1.1.7: no longer in the line at each message: quote-table counts the chat part with them
+        self.assertNotIn("steps per 1M", pv.calibration(cfg, pv.learning(cfg)))
 
 
 class TestLimits(Base):

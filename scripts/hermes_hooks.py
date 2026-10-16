@@ -114,23 +114,20 @@ def _work_now(cfg, job, totals, calls, chat):
     return max(0.0, actual - aside - min(actual - aside, _chat_part(cfg, job, chat, totals, calls)[0]))
 
 
-def short_line(q, cfg, factor, ctx, rate=None, steps=None, steps_rate=None, timing=""):
+def short_line(q, cfg, factor, ctx, rate=None):
+    """The line at each message. 1.1.7: only what changes from message to message (limits, factor, chat part); the
+    threshold, the medium band, the steps and the working time per million are in the protocol and in quote-table, which
+    works them out (the line went from about 490 characters to about 230)."""
     lang = cfg.get("lang")
     limits = q.limits_line(lang) or ("limiti non letti" if lang == "it" else "limits not read")
     chat = q.fmt(ctx * cfg["weights"]["cache_read"]) if ctx else "?"
     rate_part = " (installments x%.2f)" % rate if rate is not None else ""
-    mid = q.mid_factor(cfg)
-    top = cfg.get("learn_min_raw") or 0
-    mid_part = " (quotes under %s x%.2f; from %s at least %s)" % (q.fmt(top), mid, q.fmt(top), q.fmt(top * mid)) if mid else ""
-    measured = ""
-    if steps:
-        measured = "; a job takes about %d steps per 1M wt of work%s" % (
-            round(steps[0]), " (installments %d)" % round(steps_rate[0]) if steps_rate else "")
-    if timing:
-        measured += "; working time %s" % timing
-    return ("[Quotient %s] %s · factor x%.2f%s%s · threshold %s wt · CHAT PART: each step re-reads about %s tokens "
-            "(%s wt)%s. Big job: quote first (QUOTE / CHOICE / JOB: CLOSE in the last message)." % (
-                q.VERSION, limits, factor, mid_part, rate_part, q.fmt(cfg["threshold"]), q.fmt(ctx), chat, measured))
+    return "[Quotient %s] %s · factor x%.2f%s · CHAT PART: each step re-reads about %s tokens (%s wt)." % (
+        q.VERSION, limits, factor, rate_part, q.fmt(ctx), chat)
+
+
+ASIDE_TEXT = (" If this message is about something else, answer it and end the reply with the line ASIDE: the job stays "
+              "open and that reply is counted apart.")
 
 
 def job_factor(q, cfg, raw, wtype=None):
@@ -161,7 +158,8 @@ def pre_llm_call(q, payload):
     if chat.get("job"):
         q.limits_soon(cfg)   # 1.1.6: a job open: the limits read every minute, in the background
     else:
-        q.refresh_limits(cfg)
+        # 1.1.7: without a job too, in the background at the usual pace: the message never waits for /usage
+        q.limits_soon(cfg, q.limits_every(cfg))
     totals, calls = _counters(sid)
     ctx = _context_per_call(chat, totals, calls)
     chat["ctx"] = ctx
@@ -179,13 +177,11 @@ def pre_llm_call(q, payload):
             pass
     factor = q.learning(cfg)["factor"]
     rate = q.learning(cfg, "rate")["factor"]
-    steps, steps_rate = q.steps_per_million(cfg), q.steps_per_million(cfg, "rate")
-    timing = q.time_text(cfg)
     if not chat.get("told"):
         chat["told"] = True
-        text = hermes_protocol(q, cfg, factor) + short_line(q, cfg, factor, ctx, rate, steps, steps_rate, timing)
+        text = hermes_protocol(q, cfg, factor) + short_line(q, cfg, factor, ctx, rate)
     else:
-        text = short_line(q, cfg, factor, ctx, rate, steps, steps_rate, timing)
+        text = short_line(q, cfg, factor, ctx, rate)
     incomplete = chat.pop("quote_incomplete", None)
     if incomplete:                       # 1.1.3: the quote of the reply before lacked numbers: give it again first
         text += "\n" + q.incomplete_line(incomplete)
@@ -207,10 +203,13 @@ def pre_llm_call(q, payload):
                 q.fmt_duration(open_job["predicted_seconds"])) if open_job.get("predicted_seconds") else "")
         if open_job.get("aside"):
             text += ", of which %s in messages in between" % q.fmt(open_job["aside"])
-        text += (". If this message is about something else, answer it and end the reply with the line ASIDE: the job "
-                 "stays open and that reply is counted apart." + q.pace_note(
-                     open_job["raw_estimate"], open_job.get("factor"), spent - (open_job.get("aside") or 0),
-                     open_job.get("seconds"), cfg, open_job.get("progress"), open_job.get("packages")))
+        text += "."
+        if not open_job.get("aside_told"):
+            # 1.1.7: at the first message of the job and after a reply counted apart; the protocol explains ASIDE
+            text += ASIDE_TEXT
+            open_job["aside_told"] = True
+        text += q.pace_note(open_job["raw_estimate"], open_job.get("factor"), spent - (open_job.get("aside") or 0),
+                            open_job.get("seconds"), cfg, open_job.get("progress"), open_job.get("packages"))
         q.timer_put(cfg, "run", open_job.get("seconds") or 0, open_job.get("predicted_seconds"), open_job["choice"])
     requote = chat.pop("requote_note", None)
     if requote:                          # 1.1.4: the new quote from the job's own pace, shown once
@@ -349,6 +348,7 @@ def post_llm_call(q, payload):
             job["aside"] = (job.get("aside") or 0) + hs.weigh_hermes(grow, cfg["weights"])
             job["aside_calls"] = (job.get("aside_calls") or 0) + max(0, calls - int(start.get("calls", calls) or 0))
             job["aside_turns"] = (job.get("aside_turns") or 0) + 1
+            job.pop("aside_told", None)   # 1.1.7: the next message says again how to answer apart
         else:
             job["turns"] = job.get("turns", 1) + 1
             job["seconds"] = (job.get("seconds") or 0) + worked(t0)

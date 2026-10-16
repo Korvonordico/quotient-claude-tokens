@@ -77,7 +77,8 @@ class TestLearnedTime(Base):
         # 2M raw x the factor (raw = real here, x1) x 20 min per 1M = 40 min
         self.assertAlmostEqual(pv.expected_seconds(cfg, 2000000, factor=1.0), 2400.0)
         self.assertEqual(pv.time_text(cfg), "about 20 min per 1M wt of work")
-        self.assertIn("Working time: about 20 min per 1M wt of work", pv.calibration(cfg, pv.learning(cfg)))
+        # 1.1.7: no longer in the line at each message: quote-table gives each level its expected time
+        self.assertNotIn("Working time", pv.calibration(cfg, pv.learning(cfg)))
 
     def test_the_time_misses(self):
         rows = [dict(timed_job(1200), predicted_seconds=600), dict(timed_job(300), predicted_seconds=600)]
@@ -211,7 +212,7 @@ class TestHermesTime(unittest.TestCase):
         self.assertEqual(self.timer()["state"], "pause")
         context = self.hook("pre_llm_call")["context"]
         self.assertIn("working time so far", context)
-        self.assertIn("working time about 10 min per 1M wt of work", context)
+        self.assertNotIn("per 1M wt of work", context)   # 1.1.7: in quote-table's expected time, not in the line
         self.assertEqual(self.timer()["state"], "run")
         t = self.started(60)
         add_messages(self.h, [(t, "user", None), (t + 58, "assistant", None)])
