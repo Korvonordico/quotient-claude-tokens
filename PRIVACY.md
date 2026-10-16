@@ -26,7 +26,7 @@ Since 1.1.6, Quotient sets its measures against others. These stay on your compu
 To help everyone start from real numbers instead of from zero, Quotient shares **one line of numbers for each finished job**. Exactly this, and nothing else:
 
 ```json
-{"v":1,"q":"1.1.6","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000}
+{"v":1,"q":"1.1.7","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000}
 ```
 
 | Field | What it is |
@@ -69,7 +69,7 @@ Once a day, at the start of a session, Quotient downloads `average.json` from th
 
 ## What is read from Anthropic
 
-To show your plan limits, Quotient runs Claude Code's own `/usage` command (`claude -p /usage`, without hooks and without saving a session). Claude Code answers it with its own login, as it does when you type `/usage`; Quotient never reads your login or any other credential, and sends nothing itself. It keeps only the used percentages and the reset times. It asks at most every 10 minutes (from 1.1.6 every minute while a job or an installment is open, in the background) and spends no tokens. To turn it off: `quotient config limits.live false`.
+To show your plan limits, Quotient runs Claude Code's own `/usage` command (`claude -p /usage`, without hooks and without saving a session). Claude Code answers it with its own login, as it does when you type `/usage`; Quotient never reads your login or any other credential, and sends nothing itself. It keeps only the used percentages and the reset times. It asks at most every 10 minutes (from 1.1.6 every minute while a job or an installment is open), in the background (always since 1.1.7, so no message waits for it), and spends no tokens. To turn it off: `quotient config limits.live false`.
 
 ## How long
 
@@ -103,7 +103,7 @@ Dalla 1.1.6 Quotient mette le sue misure accanto ad altre. Anche queste restano 
 **Cosa viene condiviso**: una riga di numeri per ogni lavoro finito, esattamente questa e nient'altro:
 
 ```json
-{"v":1,"q":"1.1.6","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000}
+{"v":1,"q":"1.1.7","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000}
 ```
 
 Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e il costo vero del lavoro in token pesati (dalla 0.9.5 senza la rilettura di quello che la chat conteneva quando il lavoro è cominciato, che la stima non riguarda), arrotondati a 3 cifre. Dalla 1.1.6, solo quando si sanno: il piano (`plan`), solo se l'hai scelto nelle impostazioni di Quotient, e quanti token pesati tiene l'1% della tua settimana (`per_point`, arrotondato a 3 cifre), solo quando Quotient l'ha imparato dalle tue letture dei limiti. Servono perché un utente nuovo dello stesso piano parta dalla misura vera dell'1% della settimana di quel piano invece che da zero; senza, la riga resta di cinque campi come prima. Niente date né orari, niente nomi, testi, percorsi, codici di sessione o di persona, niente account. La riga parte all'inizio della sessione successiva, mai a metà di una risposta, e niente parte prima che tu sia avvisato: la prima volta Claude Code ti mostra un messaggio che dice cosa viene condiviso e come spegnerlo. Va a un piccolo servizio su Cloudflare Workers, il cui codice è pubblico in [`server/`](server/), che accetta solo righe di quella forma.
@@ -116,6 +116,6 @@ Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e 
 
 **Cosa viene scaricato**: una volta al giorno, `average.json` da quotient-data su GitHub, o dal servizio se GitHub non risponde. Si tengono solo i numeri. Per fermare anche lo scaricamento: `quotient config share.average_url ""` e `quotient config share.endpoint ""`.
 
-**Cosa viene letto da Anthropic**: per mostrarti i limiti del piano, Quotient fa girare il comando `/usage` di Claude Code stesso (`claude -p /usage`, senza hook e senza salvare una sessione). Risponde Claude Code con il suo login, come quando scrivi `/usage`; Quotient non legge mai il tuo login né altre credenziali, e non manda niente da sé. Tiene solo le percentuali usate e gli orari di azzeramento. Chiede al massimo ogni 10 minuti (dalla 1.1.6 ogni minuto mentre è aperto un lavoro o una rata, in sottofondo) e non spende token. Per spegnerla: `quotient config limits.live false`.
+**Cosa viene letto da Anthropic**: per mostrarti i limiti del piano, Quotient fa girare il comando `/usage` di Claude Code stesso (`claude -p /usage`, senza hook e senza salvare una sessione). Risponde Claude Code con il suo login, come quando scrivi `/usage`; Quotient non legge mai il tuo login né altre credenziali, e non manda niente da sé. Tiene solo le percentuali usate e gli orari di azzeramento. Chiede al massimo ogni 10 minuti (dalla 1.1.6 ogni minuto mentre è aperto un lavoro o una rata), in sottofondo (sempre dalla 1.1.7, così nessun messaggio la aspetta), e non spende token. Per spegnerla: `quotient config limits.live false`.
 
 **Per quanto tempo**: si tengono solo le ultime 5.000 righe; la media usa gli ultimi 500 lavori per famiglia e 2.000 in tutto. Le righe non contengono niente che porti a una persona, quindi non si possono ritrovare e cancellare una per una: se vuoi che la condivisione si fermi, spegnila.

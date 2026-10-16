@@ -2,6 +2,42 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.1.7] - 2026-10-16
+
+### Fixed
+
+- **A message waited for the limits.** In Hermes, with no job open, the hook before each message read the limits itself (`claude -p /usage`, about 4 seconds) once every 10 minutes, and the message waited. In Hermes' logs of 12-15 October 2026 the hook reached its 20-second limit 14 times and the message went without its line. Now no hook waits for `/usage`: with no job open too, the reading runs in a separate process at the usual pace (`limits.every`, 10 minutes), and at most one is started per interval, even before it writes anything. The line shows the last reading saved; the new one reaches the next message. The check of the measures against the week waits for its reading the same way. Commands run by hand (`report`, `limits`, `tick`, `quote-table`) still read in the foreground when they need fresh numbers.
+- **Good and max came out the same.** With the medium band on (`learn_mid_min`), a quote from `learn_min_raw` up was corrected to at least `learn_min_raw` x the medium factor: on the author's numbers every quote from 1 million to about 1.7 million came out 1.75 million (on 16/10/2026 a good level of 1.1 million and a max of 1.6 million both did). Now the estimate is corrected in brackets, as a tax: the first `learn_min_raw` at the medium factor, the rest at the main one. The corrected estimate has no jump at `learn_min_raw` and always rises with the raw one, whichever factor is larger, so two levels never come out the same. On the author's data (factor x1.0165, medium band x1.7476), raw → corrected, before and after:
+
+  | raw | before | after |
+  |---|---|---|
+  | 0.9M | 1,572,803 | 1,572,803 |
+  | 1M | 1,747,558 | 1,747,558 |
+  | 1.1M | 1,747,558 | 1,849,206 |
+  | 1.6M | 1,747,558 | 2,357,444 |
+  | 2M | 2,032,951 | 2,764,034 |
+  | 3M | 3,049,426 | 3,780,509 |
+
+  Above `learn_min_raw` every job now carries the same extra (`learn_min_raw` x (medium band - factor), about 731,000 wt on these numbers), so a big job is corrected a little more than by its factor alone: +24% at 3 million, +14% at 5 million, +7% at 10 million. The line in `quote-table`, the protocol and the README say the new rule.
+- The README showed `@@TESTCOUNT@@` instead of the number of tests (since the 1.1.6 merge). Now 334 tests, 19 of them new in `tests/test_v117.py`, one of which checks the README, the privacy page and the site for the version and for placeholders.
+
+### Changed
+
+- **A shorter line at each message, with the same measures.** The line keeps the version, the limits, the factor, the CHAT PART and the open job; it drops what does not change from message to message or is worked out elsewhere: the threshold, the explanation of the medium band, the steps and the working time per million (quote-table works them out), the typical miss (in the report), the margin and the points of the size of 1% (in the report), and the "Big job: quote first" sentence (in the protocol). The sentence on how to answer about something else (`ASIDE`) comes at the first message of a job and after a reply counted apart, not at every message. Measured on a copy of the author's data, in a long chat (characters, notices shown once left out):
+
+  | | before | after |
+  |---|---|---|
+  | Claude Code, no job | 1,052 | 394 |
+  | Claude Code, job open (first message / after) | 1,467 | 776 / 626 |
+  | Hermes, no job | 490 | 215 |
+  | Hermes, job open (first message / after) | 741 | 466 / 324 |
+
+  The protocol (Claude Code and Hermes) says where the CHAT PART and the shares of the limits come from now.
+
+### Checked
+
+- **Anthropic's limits, against its own pages** (the user's request). Eight official pages read on 16/10/2026 (support.claude.com, claude.com/pricing, code.claude.com, anthropic.com): usage depends on the model, the length and complexity of the chat, the tools and the effort; claude.ai, Claude Desktop, the phone and Claude Code draw from the same limits; Pro, Max 5x and Max 20x are given only as multiples of the 5-hour session ("no fixed message count"), with no numbers of tokens or messages and no multiple for the week. Nothing in the README is contradicted. One sentence is not confirmed by the pages: Claude Code's documentation lists `/usage` among the commands that "may generate requests" in the background, while the README says it spends no tokens; it is left as it is until it is measured.
+
 ## [1.1.6] - 2026-10-16
 
 The user's idea: with more ways to see what a job costs and how big the limit is, Quotient learns much faster, in very few uses. Seven of them.
@@ -322,6 +358,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.1.7]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.7
 [1.1.6]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.6
 [1.1.5]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.5
 [1.1.4]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.4

@@ -3,6 +3,7 @@ shorter line at each message, and the medium band in brackets (a bigger level al
 Run: python -m unittest discover tests"""
 
 import os
+import re
 from unittest import mock
 
 import unittest
@@ -216,6 +217,48 @@ class TestShorterLine(Base):
         self.t.call("w3", usage(output=400), texts=["Done.\nJOB: CONTINUES"])
         self.stop()
         self.assertNotIn("end the reply with the line ASIDE", prompt())
+
+    def test_hermes_aside_at_the_first_message_and_after_an_aside(self):
+        pv.save_json(os.path.join(pv.home(), "hermes-jobs.json"), {"c1": {"told": True, "job": {
+            "session": "c1", "choice": "good", "raw_estimate": 100000, "factor": 1.0,
+            "start": {k: 0 for k in hs.COUNTERS}, "start_calls": 0, "ctx": 0}}})
+
+        def prompt():
+            with mock.patch.object(h, "_counters", zero_counters):
+                return h.pre_llm_call(pv, {"session_id": "c1"})["context"]
+        first = prompt()
+        self.assertIn("end the reply with the line ASIDE", first)
+        self.assertIn("Open job: good", first)
+        second = prompt()
+        self.assertNotIn("end the reply with the line ASIDE", second)
+        self.assertIn("Open job: good", second)
+        self.assertLess(len(second), len(first))
+        with mock.patch.object(h, "_counters", zero_counters):
+            h.post_llm_call(pv, {"session_id": "c1", "extra": {"assistant_response": "Sunny.\n\nASIDE"}})
+        self.assertIn("end the reply with the line ASIDE", prompt())   # again after a reply counted apart
+
+
+class TestDocs(unittest.TestCase):
+    """The 1.1.6 merge left `@@TESTCOUNT@@` in the README instead of the number of tests."""
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+
+    def read(self, rel):
+        with open(os.path.join(self.root, rel), encoding="utf-8") as f:
+            return f.read()
+
+    def test_no_placeholder_and_the_version_everywhere(self):
+        for rel in ("README.md", "README.it.md", "PRIVACY.md", "docs/index.html"):
+            self.assertNotIn("@@", self.read(rel), rel)
+        self.assertIn("version %s ·" % pv.VERSION, self.read("docs/index.html"))
+        self.assertIn("## [%s] - " % pv.VERSION, self.read("CHANGELOG.md"))
+        for rel in ("README.md", "README.it.md", "PRIVACY.md", "docs/index.html"):
+            self.assertIn('{"v":1,"q":"%s",' % pv.VERSION, self.read(rel), rel)
+
+    def test_the_readmes_say_the_same_number_of_tests(self):
+        en = re.search(r"\*\*Automatic tests\.\*\* (\d+) tests", self.read("README.md"))
+        it = re.search(r"\*\*Prove automatiche\.\*\* (\d+) prove", self.read("README.it.md"))
+        self.assertTrue(en and it)
+        self.assertEqual(en.group(1), it.group(1))
 
 
 if __name__ == "__main__":
