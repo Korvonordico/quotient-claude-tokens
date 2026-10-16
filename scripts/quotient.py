@@ -102,6 +102,13 @@ DEFAULTS = {
     # 731k at 1M to 0 here. If the factors change so that the line would rise less than half as fast as the factor,
     # it is made longer by itself; at or under learn_min_raw, with the factor the larger, there is no line.
     "learn_blend_raw": 3400000,
+    # learn_rate_all (v118; 0 = off, 1 = on): the installments' factor is learned from ALL your finished jobs, chat jobs
+    # and installments, the last history_window of them, without learn_min_raw / learn_max_speed and without types; the
+    # chat jobs' factor does not change. On the author's 51 jobs (16/10/2026, a walk-forward test: each job estimated
+    # only with the jobs finished before it) the installments' typical miss went from 48% to 34% and their lean from
+    # x1.41 under to x1.06: learned from installments alone, the factor came from a few big book jobs that cost less
+    # than quoted, and was applied to smaller jobs that cost more. Only 13 installments: a hint, not a proof.
+    "learn_rate_all": 0,
     # Claude Code runs (claude -p) a Hermes chat starts, counted in its quoted jobs (hermes branch; 1 = on). A SessionStart
     # hook records which Hermes chat started each Claude Code session (Hermes gives HERMES_SESSION_ID to all it
     # starts); when a job closes, what those sessions spent while it was open is added to its cost.
@@ -1327,19 +1334,23 @@ def learning(cfg, kind="chat", wtype=None):
     """The correction factor of one kind of job (chat jobs or installments): from your own jobs of that kind; with
     fewer than min_jobs of them, from all your jobs; until you have min_jobs jobs in all, with the shared ones too.
     1.1.4: with a type of work (code, writing, research, other), from the jobs of that type and kind once there are
-    type_min_jobs of them; and the jobs after the last change of the environment weigh more (see factor_from)."""
+    type_min_jobs of them; and the jobs after the last change of the environment weigh more (see factor_from).
+    v118: with learn_rate_all on, the installments learn from all the jobs, of both kinds and every type."""
     jobs = finished_jobs()
     window = cfg["history_window"]
     shared, shared_n = shared_prior(cfg, jobs)
     least = int(cfg.get("type_min_jobs") or 3)
     env = merge(DEFAULTS["env"], cfg.get("env") or {})
     changes = env_change_epochs()
+    rate_all = bool(cfg.get("learn_rate_all"))
 
     def since(at):
         before = [c for c in changes if c <= at]
         return before[-1] if before else None
 
     def own(k, done, t=None):
+        if k == "rate" and rate_all:
+            return list(done)   # v118: every finished job teaches the installments (learn_rate_all)
         done = [j for j in done if teaches(j, cfg)]   # hermes branch: only the jobs that teach
         same = [j for j in done if kind_of(j) == k]
         if t:
@@ -1368,10 +1379,11 @@ def learning(cfg, kind="chat", wtype=None):
         })
     use_shared = len(jobs) < cfg["min_jobs"]
     basis = (shared if use_shared else []) + own(kind, jobs, wtype)
-    type_jobs = sum(1 for j in jobs if kind_of(j) == kind and job_type(j) == wtype and teaches(j, cfg)) if wtype else 0
+    every = kind == "rate" and rate_all
+    type_jobs = sum(1 for j in jobs if kind_of(j) == kind and job_type(j) == wtype and teaches(j, cfg)) if wtype and not every else 0
     return {"jobs": jobs, "rows": rows, "factor": factor(basis, time.time()), "kind": kind,
-            "kind_jobs": sum(1 for j in jobs if kind_of(j) == kind and teaches(j, cfg)),
-            "type": wtype, "type_jobs": type_jobs, "typed": bool(wtype) and type_jobs >= least,
+            "kind_jobs": len(jobs) if every else sum(1 for j in jobs if kind_of(j) == kind and teaches(j, cfg)),
+            "type": wtype, "type_jobs": type_jobs, "typed": bool(wtype) and type_jobs >= least, "all": every,
             "shared": shared_n if use_shared and shared else 0}
 
 
@@ -2730,7 +2742,8 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
     lines.append(("Le stime non sono garantite e migliorano con l'uso (fattore di correzione x%.2f, da %d lavori%s%s)." if it
                   else "The estimates are not guaranteed and get more precise with use (correction factor x%.2f, from "
                   "%d jobs%s%s).") % (learned["factor"], learned["type_jobs"] if learned["typed"] else learned["kind_jobs"],
-                                      (" a rate" if it else " in installments") if kind == "rate" else "", typed))
+                                      ((", chat e rate" if it else ", chat jobs and installments") if learned.get("all") else
+                                       (" a rate" if it else " in installments")) if kind == "rate" else "", typed))
     mid = mid_factor(cfg) if kind == "chat" else None
     if mid:
         top = cfg["learn_min_raw"]
@@ -5426,6 +5439,7 @@ TEXT = {
         "factor": "Correction factor now: x%.2f (from the last %d jobs)%s",
         "factor_rate": "Installments have their own: x%.2f (from their last %d jobs)",
         "factor_rate_few": "Installments: %d job(s) measured, fewer than %d, so they use the factor of all jobs",
+        "factor_rate_all": "Installments learn from all your jobs (learn_rate_all): x%.2f (from the last %d)",
         "uncertain": ", still uncertain: under %d jobs",
         "miss_raw": "Typical miss without correction: %s",
         "trend": "Typical miss with the learned correction: first half %s, second half %s",
@@ -5488,6 +5502,7 @@ TEXT = {
         "factor": "Fattore di correzione adesso: x%.2f (dagli ultimi %d lavori)%s",
         "factor_rate": "Le rate hanno il loro: x%.2f (dalle ultime %d)",
         "factor_rate_few": "Rate: %d misurate, meno di %d, quindi usano il fattore di tutti i lavori",
+        "factor_rate_all": "Le rate imparano da tutti i lavori (learn_rate_all): x%.2f (dagli ultimi %d)",
         "uncertain": ", ancora incerto: meno di %d lavori",
         "miss_raw": "Errore tipico senza correzione: %s",
         "trend": "Errore tipico con la correzione imparata: prima metà %s, seconda metà %s",
@@ -5904,8 +5919,12 @@ def report(args=None):
         lines.append(t["factor"] % (learned["factor"], min(own_n, cfg["history_window"]),
                                     t["uncertain"] % cfg["min_jobs"] if n < cfg["min_jobs"] else ""))
         rate = learning(cfg, "rate")
-        lines.append(t["factor_rate"] % (rate["factor"], min(rate["kind_jobs"], cfg["history_window"]))
-                     if rate["kind_jobs"] >= cfg["min_jobs"] else t["factor_rate_few"] % (rate["kind_jobs"], cfg["min_jobs"]))
+        if rate.get("all"):
+            lines.append(t["factor_rate_all"] % (rate["factor"], min(rate["kind_jobs"], cfg["history_window"])))
+        else:
+            lines.append(t["factor_rate"] % (rate["factor"], min(rate["kind_jobs"], cfg["history_window"]))
+                         if rate["kind_jobs"] >= cfg["min_jobs"] else
+                         t["factor_rate_few"] % (rate["kind_jobs"], cfg["min_jobs"]))
         lines.append(t["miss_raw"] % fmt_miss(median([r["miss_raw"] for r in rows])))
         if n >= 2:
             half = n // 2
