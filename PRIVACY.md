@@ -6,7 +6,7 @@ Token Quotient (Quotient for short) is a Claude Code plugin by Francesco Candela
 
 ## What stays on your computer
 
-Everything Quotient records: your quotes, the real costs, your limits, your settings, your installment jobs, the jobs left open in a chat, and the page with charts (`report.html`). They are in `~/.quotient/` (or `QUOTIENT_HOME`). To measure costs, Quotient reads from Claude Code's transcripts only numbers (the token counts of each call), the machine lines Claude writes and the names of the tools Claude called; it never sends their text anywhere, and never reads your files, memory or chat history for sharing.
+Everything Quotient records: your quotes, the real costs, your limits, your settings, your installment jobs, the jobs left open in a chat, and the page with charts (`report.html`). They are in `~/.quotient/` (or `QUOTIENT_HOME`). To measure costs, Quotient reads from Claude Code's transcripts numbers (the token counts of each call), the machine lines Claude writes and the names of the tools Claude called; it never sends their text anywhere, and never reads your files, memory or chat history for sharing. In a reply that gives a quote it also reads what Claude wrote and the options of the choice window, only to check that each level shows its time and shares (since 1.1.3); it keeps none of it.
 
 An installment job also remembers which chat created it (the chat's id), so each installment's report comes back there; to tell you where the report waits, Quotient reads that chat's title from Claude Code's files on your computer. The notification at the end of an installment is shown by your own system (on Windows it stays in the notification center). None of this leaves your computer.
 
@@ -74,7 +74,7 @@ Open an issue at https://github.com/Korvonordico/quotient-claude-tokens/issues.
 
 Token Quotient (in breve Quotient) è un plugin per Claude Code di Francesco Candela (Korvonordico). Gira sul tuo computer. Questa pagina dice esattamente cosa ne esce.
 
-**Resta sul tuo computer** tutto quello che Quotient registra: preventivi, costi veri, limiti, impostazioni, lavori a rate, lavori lasciati aperti in una chat e la pagina con i grafici (`report.html`), in `~/.quotient/`. Per misurare i costi Quotient legge dalle trascrizioni di Claude Code solo numeri (i token di ogni chiamata), le righe per la macchina che scrive Claude e i nomi degli strumenti usati; non manda mai il testo delle conversazioni, i tuoi file, la memoria o la cronologia.
+**Resta sul tuo computer** tutto quello che Quotient registra: preventivi, costi veri, limiti, impostazioni, lavori a rate, lavori lasciati aperti in una chat e la pagina con i grafici (`report.html`), in `~/.quotient/`. Per misurare i costi Quotient legge dalle trascrizioni di Claude Code dei numeri (i token di ogni chiamata), le righe per la macchina che scrive Claude e i nomi degli strumenti usati; non manda mai il testo delle conversazioni, i tuoi file, la memoria o la cronologia. In una risposta con un preventivo legge anche quello che ha scritto Claude e le scelte della finestra, solo per controllare che ogni livello abbia il tempo e le quote (dalla 1.1.3); non ne tiene niente.
 
 Un lavoro a rate ricorda anche quale chat l'ha creato (il codice della chat), così il resoconto di ogni rata torna lì; per dirti dove ti aspetta, Quotient legge il titolo di quella chat dai file di Claude Code sul tuo computer. La notifica alla fine di una rata la mostra il tuo sistema (su Windows resta nel centro notifiche). Niente di tutto questo esce dal tuo computer.
 

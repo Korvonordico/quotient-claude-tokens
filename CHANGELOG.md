@@ -2,13 +2,25 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
-## [Unreleased]
+## [1.1.5] - 2026-10-16
 
 ### Fixed
 
+- **A complete quote in Hermes was called incomplete.** The check of a quote (1.1.3) looked only at the last message of Hermes' reply. In Hermes the table of the quote and the clarify window come in the messages before, and the QUOTE line in the last one, after the work: so a complete quote was reported as incomplete at the next message. The check now also reads the reply's earlier messages and the choices of its clarify windows, from Hermes' session store, read-only, between the start of the reply and its end (`reply_texts`); if the store cannot be read, it checks the last message as before. PRIVACY.md says so.
 - **A chat compressed in the middle of a job.** A job's chat part is what re-reading, at each step, what the chat held when the job started cost. When the chat was compressed (Hermes) or compacted (Claude Code) while the job ran, a step re-read less from then on, but Hermes kept counting the size from before: on 16/10/2026 a job measured 0.42 of its estimate instead of about 0.8, and the factor learned it. Hermes now counts reply by reply: a reply whose steps sent less, on average, than the job's starting size counts that, the smallest so far (`ctx_floor`; the whole prompt, so a cache gone cold is not taken for a compression). Claude Code counted nothing after a compaction, and all of it again once the chat had grown back: each call now counts up to the shortest prompt so far.
 - **`fix chat <job>`.** `fix list` finds the jobs measured before, whose chat was compressed while they ran, and `fix chat` works their chat part out again: Claude Code exactly, from the transcript; Hermes, which keeps no numbers call by call, as an estimate from Quotient's log of its counters (each row weighed by its time inside the job). A copy first, and `fix undo`.
 - The line of the factor in `quote-table` lacked a semicolon before the medium band.
+
+### Docs
+
+- The README (English and Italian), read word by word as a new user would, against the code:
+  - the second window of the setup also asks about long chats (keep them, or let them compact themselves), not only about the shared average;
+  - the pace options as the code makes them: with one or two levels 2 or 3 days, with three 3 or 5 days, with four 3, 5 or 7 days and no "apart"; "in a new chat" takes the place of the last option when the chat is long;
+  - `fix chat <job>` in the table of commands and in the repairs, and `fix list` finding the jobs whose chat was compressed while they ran;
+  - privacy: in a reply that gives a quote, Quotient reads Claude's text and the choice window (since 1.1.3), and in Hermes also the reply's earlier messages (1.1.5), only to check the quote; it never reads the user's messages ("never the text" said too little). Also in PRIVACY.md and on the site;
+  - Quotient's rules at the start of a session are about 9,900 characters, roughly 2,800 tokens (the README still said 5,900 and 1,700);
+  - the number of automatic tests.
+- The site's link to the Hermes setup pointed to a section that does not exist (`#hermes-agent-too`); it now opens "Quick start: Hermes Agent". In this changelog, 1.1.3 links to its commit (it has no GitHub release, so the old link led nowhere), and 1.1.4 has its link.
 
 ## [1.1.4] - 2026-10-16
 
@@ -291,7 +303,9 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
-[1.1.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.3
+[1.1.5]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.5
+[1.1.4]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.4
+[1.1.3]: https://github.com/Korvonordico/quotient-claude-tokens/commit/6a1dd3d
 [1.1.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.2
 [1.1.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.0
