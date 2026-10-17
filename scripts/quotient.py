@@ -281,6 +281,9 @@ CHOICE_RE = re.compile(r"^[\s>*_`#-]*" + CHOICE_KEYS + r"[*_`]*\s*:[\s*_`]*([^\s
 CHOICE_AMOUNT_RE = re.compile(r"^[\s>*_`#-]*" + CHOICE_KEYS + r"[*_`]*\s*:[\s*_`]*([^\W\d][\w-]*)\s*=\s*~?\s*"
                               r"(\d[\d.,_]*)\s*([kKmM])?(?![\w])", re.M)
 CONTINUES_RE = re.compile(r"(?:JOB|LAVORO)[*_`]*\s*:\s*[*_`]*(?:CONTINUES|CONTINUA)", re.I)
+# 1.1.8: the end of a job written as a line of its own (`JOB: CLOSE` with no chat id after it)
+JOB_DONE_RE = re.compile(r"^[\s>*_`#-]*(?:JOB|LAVORO)[*_`]*\s*:[\s*_`]*(?:CLOSE|CHIUDI|DONE|FINITO)[*_`.]*[ \t]*$",
+                         re.M | re.I)
 # 1.1.1 (the user's idea): a reply about something else while a job is open ends with this line. It is a real cost
 # (it is in the limits) but not work: it is counted apart, and the job stays open.
 ASIDE_RE = re.compile(r"^[\s>*_`#-]*ASIDE[*_`]*[ \t]*(?::[^\n]*)?$", re.M)
@@ -3988,6 +3991,12 @@ def hook_stop():
     if had_job and not os.environ.get("QUOTIENT_JOB"):
         limits_soon(cfg)                 # 1.1.6: a job open: the limits read every minute, in the background
     pending = state.get("pending")
+    if (cfg.get("small_quote_line") and pending and not (job or quote or choice) and len(pending.get("options") or {}) == 1
+            and (continues or JOB_DONE_RE.search(text)) and not os.environ.get("QUOTIENT_JOB")):
+        # 1.1.8: a one-line quote gets a plain yes, and on 18/10/2026 one job of 22 came back with only `JOB: CLOSE`, no
+        # CHOICE: it went unmeasured. The work done (a JOB line) chooses the quote's one level, done today
+        choice = next(iter(pending["options"]))
+        pace = pace or "today"
     if same_quote(quote, choice, job or state.get("closed")):
         quote = choice = custom = None   # the same QUOTE/CHOICE lines again: the same job
     if quote and not os.environ.get("QUOTIENT_JOB"):

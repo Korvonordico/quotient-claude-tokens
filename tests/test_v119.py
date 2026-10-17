@@ -123,6 +123,32 @@ class TestSmallQuoteLine(Base):
     def test_said_in_the_protocol(self):
         self.assertIn("for a job under the threshold it gives ONE line", pv.protocol(pv.config(), 1.0))
 
+    def one_line_then_close(self):
+        self.t.user("fix the module; quote first")
+        self.t.call("q", usage(read=10000, output=200), texts=["Quote: one line.\nQUOTE: good=60000 kind=code"])
+        self.stop()
+        self.t.user("I choose the biggest level, all today")
+        self.t.call("w", usage(read=40000, output=3000), texts=["Fixed the six bugs.\n\nJOB: CLOSE"])
+        self.stop("Fixed the six bugs.\n\nJOB: CLOSE")
+
+    def test_the_work_done_chooses_the_one_level(self):
+        # 18/10/2026: after the one line the agent wrote only JOB: CLOSE, no CHOICE, and the job went unmeasured
+        self.one_line_then_close()
+        jobs = pv.finished_jobs()
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual((jobs[0]["choice"], jobs[0]["raw_estimate"], jobs[0]["type"]), ("good", 60000, "code"))
+        self.assertIsNone(pv.load_json(pv.session_path("s1"), {})["pending"])
+
+    def test_not_without_the_key_nor_without_a_job_line(self):
+        pv.store(("small_quote_line",), 0)
+        self.one_line_then_close()
+        self.assertEqual(pv.finished_jobs(), [])
+        pv.store(("small_quote_line",), 1)
+        self.t.user("what does it include?")
+        self.t.call("a", usage(read=10000, output=100), texts=["It includes the tests."])
+        self.stop("It includes the tests.")
+        self.assertEqual(pv.finished_jobs(), [])
+
 
 class TestMargin(Base):
     """The same job done again cost from -9% to +10%."""
