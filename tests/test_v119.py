@@ -132,7 +132,7 @@ class TestSmallQuoteLine(Base):
         self.stop("Fixed the six bugs.\n\nJOB: CLOSE")
 
     def test_the_work_done_chooses_the_one_level(self):
-        # 18/10/2026: after the one line the agent wrote only JOB: CLOSE, no CHOICE, and the job went unmeasured
+        # 17/10/2026: after the one line the agent wrote only JOB: CLOSE, no CHOICE, and the job went unmeasured
         self.one_line_then_close()
         jobs = pv.finished_jobs()
         self.assertEqual(len(jobs), 1)
