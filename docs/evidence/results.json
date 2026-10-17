@@ -1,0 +1,3217 @@
+{
+ "unit": "weighted tokens: input 1, cache write 1.25 (5 min) or 2 (1 hour), cache read 0.1, output 5",
+ "measured_work": "real cost minus the chat part (re-reading, at each call, what the chat held before the job); this is what Quotient sets against the raw estimate",
+ "steps_it": {
+  "passo1_coda": "\n\nPrima di cominciare fammi il preventivo.",
+  "passo2": "Scelgo il livello più grande, tutto oggi. Fai il lavoro esattamente come l'ho descritto, senza aggiunte, e alla fine scrivi JOB: CLOSE.",
+  "passo3_testa": "Aggiungi anche: ",
+  "passo4_preventivo": "Rifammi il preventivo per l'aggiunta.",
+  "passo_scelta_aggiunta": "Scelgo il livello più grande, tutto oggi. Fai l'aggiunta esattamente come l'ho descritta, senza altro, e alla fine scrivi JOB: CLOSE."
+ },
+ "night_settings": {
+  "writing_wt_per_word": 50,
+  "note_web_haiku": 1,
+  "small_quote_line": 1,
+  "margin_percent": 15,
+  "requote_on_addition": 1
+ },
+ "summary_night": {
+  "summary": {
+   "ratio_raw": {
+    "n": 40,
+    "gmean": 0.5836136378519212,
+    "gsd": 1.4539074997360784,
+    "min": 0.3135125,
+    "max": 1.16135
+   },
+   "ratio_new": {
+    "n": 40,
+    "gmean": 0.5063892736242267,
+    "gsd": 1.4539074997360784,
+    "min": 0.27202819956616053,
+    "max": 1.0076789587852495
+   }
+  },
+  "by_type": {
+   "code": {
+    "ratio_raw": {
+     "n": 16,
+     "gmean": 0.7483813767339733,
+     "gsd": 1.3390625229277162,
+     "min": 0.46723333333333333,
+     "max": 1.16135
+    },
+    "ratio_new": {
+     "n": 16,
+     "gmean": 0.6493547737388055,
+     "gsd": 1.3390625229277162,
+     "min": 0.4054085321764281,
+     "max": 1.0076789587852495
+    }
+   },
+   "writing": {
+    "ratio_raw": {
+     "n": 13,
+     "gmean": 0.5998376889922211,
+     "gsd": 1.3025843912866457,
+     "min": 0.43396060606060605,
+     "max": 1.0540933333333333
+    },
+    "ratio_new": {
+     "n": 13,
+     "gmean": 0.5204665414249205,
+     "gsd": 1.3025843912866457,
+     "min": 0.37653848682048247,
+     "max": 0.9146146059291396
+    },
+    "ratio_rule": {
+     "n": 13,
+     "gmean": 0.5695933652946521,
+     "gsd": 1.293862743897734,
+     "min": 0.4504843592330979,
+     "max": 0.9862948207171315
+    },
+    "wt_per_word": {
+     "n": 13,
+     "gmean": 28.47966826473261,
+     "gsd": 1.2938627438977337,
+     "min": 22.524217961654895,
+     "max": 49.31474103585657
+    },
+    "raw_per_word": {
+     "n": 13,
+     "gmean": 47.47895770367632,
+     "gsd": 1.087860499256853,
+     "min": 40.19292604501608,
+     "max": 53.90395295655015
+    }
+   },
+   "research": {
+    "ratio_raw": {
+     "n": 11,
+     "gmean": 0.3935180293307665,
+     "gsd": 1.2872415115553009,
+     "min": 0.3135125,
+     "max": 0.6217466666666667
+    },
+    "ratio_new": {
+     "n": 11,
+     "gmean": 0.34144731395294275,
+     "gsd": 1.2872415115553009,
+     "min": 0.27202819956616053,
+     "max": 0.5394765003615329
+    }
+   },
+   "code_new": {
+    "ratio_raw": {
+     "n": 11,
+     "gmean": 0.8625295239494659,
+     "gsd": 1.2395550412779492,
+     "min": 0.5792416666666667,
+     "max": 1.16135
+    },
+    "ratio_new": {
+     "n": 11,
+     "gmean": 0.7483987192620095,
+     "gsd": 1.2395550412779492,
+     "min": 0.5025958062183659,
+     "max": 1.0076789587852495
+    }
+   },
+   "code_fix": {
+    "ratio_raw": {
+     "n": 5,
+     "gmean": 0.5476344696366595,
+     "gsd": 1.1787391965973102,
+     "min": 0.46723333333333333,
+     "max": 0.659825
+    },
+    "ratio_new": {
+     "n": 5,
+     "gmean": 0.475170906409249,
+     "gsd": 1.1787391965973102,
+     "min": 0.4054085321764281,
+     "max": 0.5725162689804772
+    }
+   }
+  },
+  "by_wave": {
+   "1": {
+    "ratio_raw": {
+     "n": 21,
+     "gmean": 0.6060239374321935,
+     "gsd": 1.51720292575465,
+     "min": 0.3135125,
+     "max": 1.1432333333333333
+    },
+    "ratio_new": {
+     "n": 21,
+     "gmean": 0.5258342190301029,
+     "gsd": 1.5172029257546498,
+     "min": 0.27202819956616053,
+     "max": 0.9919595083152567
+    }
+   },
+   "2": {
+    "ratio_raw": {
+     "n": 19,
+     "gmean": 0.5598072545867618,
+     "gsd": 1.3867449039951896,
+     "min": 0.328784,
+     "max": 1.16135
+    },
+    "ratio_new": {
+     "n": 19,
+     "gmean": 0.4857329757802706,
+     "gsd": 1.3867449039951896,
+     "min": 0.28527895878524945,
+     "max": 1.0076789587852495
+    }
+   }
+  },
+  "repeat": {
+   "C1": {
+    "runs": [
+     "C1",
+     "C1r"
+    ],
+    "raw": [
+     150000,
+     250000
+    ],
+    "work": [
+     168718,
+     196807
+    ],
+    "actual": [
+     203480,
+     248569
+    ],
+    "quote_cost": [
+     65247,
+     70397
+    ],
+    "work_vs_first": [
+     1.166
+    ],
+    "raw_vs_first": [
+     1.667
+    ],
+    "work_max_over_min": 1.1664849038039806
+   },
+   "C2": {
+    "runs": [
+     "C2",
+     "C2b",
+     "C2r"
+    ],
+    "raw": [
+     120000,
+     150000,
+     130000
+    ],
+    "work": [
+     102763,
+     112764,
+     100927
+    ],
+    "actual": [
+     134825,
+     140291,
+     124201
+    ],
+    "quote_cost": [
+     66000,
+     65216,
+     65029
+    ],
+    "work_vs_first": [
+     1.097,
+     0.982
+    ],
+    "raw_vs_first": [
+     1.25,
+     1.083
+    ],
+    "work_max_over_min": 1.1172827885501402
+   },
+   "C3": {
+    "runs": [
+     "C3",
+     "C3r"
+    ],
+    "raw": [
+     120000,
+     120000
+    ],
+    "work": [
+     137188,
+     88782
+    ],
+    "actual": [
+     203344,
+     120563
+    ],
+    "quote_cost": [
+     65400,
+     65317
+    ],
+    "work_vs_first": [
+     0.647
+    ],
+    "raw_vs_first": [
+     1.0
+    ],
+    "work_max_over_min": 1.5452231308148048
+   },
+   "C4": {
+    "runs": [
+     "C4",
+     "C4r"
+    ],
+    "raw": [
+     150000,
+     120000
+    ],
+    "work": [
+     135887,
+     139362
+    ],
+    "actual": [
+     163337,
+     166681
+    ],
+    "quote_cost": [
+     65017,
+     64648
+    ],
+    "work_vs_first": [
+     1.026
+    ],
+    "raw_vs_first": [
+     0.8
+    ],
+    "work_max_over_min": 1.0255727185087609
+   },
+   "F1": {
+    "runs": [
+     "F1",
+     "F1r"
+    ],
+    "raw": [
+     60000,
+     60000
+    ],
+    "work": [
+     28270,
+     28034
+    ],
+    "actual": [
+     42809,
+     42614
+    ],
+    "quote_cost": [
+     63956,
+     64411
+    ],
+    "work_vs_first": [
+     0.992
+    ],
+    "raw_vs_first": [
+     1.0
+    ],
+    "work_max_over_min": 1.0084183491474639
+   },
+   "F2": {
+    "runs": [
+     "F2",
+     "F2r"
+    ],
+    "raw": [
+     40000,
+     50000
+    ],
+    "work": [
+     25615,
+     26476
+    ],
+    "actual": [
+     44359,
+     45228
+    ],
+    "quote_cost": [
+     64035,
+     63897
+    ],
+    "work_vs_first": [
+     1.034
+    ],
+    "raw_vs_first": [
+     1.25
+    ],
+    "work_max_over_min": 1.0336131173140737
+   },
+   "T1": {
+    "runs": [
+     "T1",
+     "T1r"
+    ],
+    "raw": [
+     30000,
+     30000
+    ],
+    "work": [
+     18309,
+     18342
+    ],
+    "actual": [
+     32812,
+     37000
+    ],
+    "quote_cost": [
+     64280,
+     63606
+    ],
+    "work_vs_first": [
+     1.002
+    ],
+    "raw_vs_first": [
+     1.0
+    ],
+    "work_max_over_min": 1.0018023922660986
+   },
+   "T2": {
+    "runs": [
+     "T2",
+     "T2r"
+    ],
+    "raw": [
+     100000,
+     100000
+    ],
+    "work": [
+     49778,
+     44643
+    ],
+    "actual": [
+     68416,
+     63344
+    ],
+    "quote_cost": [
+     63591,
+     63742
+    ],
+    "work_vs_first": [
+     0.897
+    ],
+    "raw_vs_first": [
+     1.0
+    ],
+    "work_max_over_min": 1.1150236319243778
+   },
+   "T3": {
+    "runs": [
+     "T3",
+     "T3r"
+    ],
+    "raw": [
+     300000,
+     330000
+    ],
+    "work": [
+     190141,
+     143207
+    ],
+    "actual": [
+     230849,
+     174557
+    ],
+    "quote_cost": [
+     74028,
+     74032
+    ],
+    "work_vs_first": [
+     0.753
+    ],
+    "raw_vs_first": [
+     1.1
+    ],
+    "work_max_over_min": 1.3277353760640191
+   },
+   "T4": {
+    "runs": [
+     "T4",
+     "T4b",
+     "T4r"
+    ],
+    "raw": [
+     60000,
+     60000,
+     60000
+    ],
+    "work": [
+     34847,
+     33682,
+     34911
+    ],
+    "actual": [
+     53775,
+     52379,
+     58181
+    ],
+    "quote_cost": [
+     64402,
+     64266,
+     64507
+    ],
+    "work_vs_first": [
+     0.967,
+     1.002
+    ],
+    "raw_vs_first": [
+     1.0,
+     1.0
+    ],
+    "work_max_over_min": 1.0364883320467906
+   },
+   "T5": {
+    "runs": [
+     "T5",
+     "T5r"
+    ],
+    "raw": [
+     75000,
+     80000
+    ],
+    "work": [
+     79057,
+     40325
+    ],
+    "actual": [
+     114686,
+     59025
+    ],
+    "quote_cost": [
+     63864,
+     63691
+    ],
+    "work_vs_first": [
+     0.51
+    ],
+    "raw_vs_first": [
+     1.067
+    ],
+    "work_max_over_min": 1.9604959702417855
+   },
+   "R1": {
+    "runs": [
+     "R1",
+     "R1r"
+    ],
+    "raw": [
+     200000,
+     250000
+    ],
+    "work": [
+     98352,
+     93611
+    ],
+    "actual": [
+     124691,
+     124687
+    ],
+    "quote_cost": [
+     64550,
+     72746
+    ],
+    "work_vs_first": [
+     0.952
+    ],
+    "raw_vs_first": [
+     1.25
+    ],
+    "work_max_over_min": 1.0506457574430355
+   },
+   "R2": {
+    "runs": [
+     "R2",
+     "R2b",
+     "R2r"
+    ],
+    "raw": [
+     200000,
+     200000,
+     200000
+    ],
+    "work": [
+     64238,
+     63909,
+     68328
+    ],
+    "actual": [
+     82984,
+     82804,
+     87178
+    ],
+    "quote_cost": [
+     64853,
+     65058,
+     64984
+    ],
+    "work_vs_first": [
+     0.995,
+     1.064
+    ],
+    "raw_vs_first": [
+     1.0,
+     1.0
+    ],
+    "work_max_over_min": 1.0691451908181946
+   },
+   "R3": {
+    "runs": [
+     "R3",
+     "R3r"
+    ],
+    "raw": [
+     240000,
+     200000
+    ],
+    "work": [
+     75243,
+     99684
+    ],
+    "actual": [
+     104958,
+     131171
+    ],
+    "quote_cost": [
+     70456,
+     64549
+    ],
+    "work_vs_first": [
+     1.325
+    ],
+    "raw_vs_first": [
+     0.833
+    ],
+    "work_max_over_min": 1.3248275587097804
+   },
+   "R4": {
+    "runs": [
+     "R4",
+     "R4r"
+    ],
+    "raw": [
+     150000,
+     250000
+    ],
+    "work": [
+     93262,
+     82196
+    ],
+    "actual": [
+     120653,
+     107918
+    ],
+    "quote_cost": [
+     65599,
+     71540
+    ],
+    "work_vs_first": [
+     0.881
+    ],
+    "raw_vs_first": [
+     1.667
+    ],
+    "work_max_over_min": 1.1346294223563191
+   },
+   "A1": {
+    "runs": [
+     "A1",
+     "A1r"
+    ],
+    "raw": [
+     120000,
+     80000
+    ],
+    "work": [
+     69509,
+     68936
+    ],
+    "actual": [
+     88769,
+     92035
+    ],
+    "quote_cost": [
+     65092,
+     64259
+    ],
+    "work_vs_first": [
+     0.992
+    ],
+    "raw_vs_first": [
+     0.667
+    ],
+    "work_max_over_min": 1.008312057560636
+   },
+   "A2": {
+    "runs": [
+     "A2",
+     "A2r"
+    ],
+    "raw": [
+     50000,
+     50000
+    ],
+    "work": [
+     49512,
+     28587
+    ],
+    "actual": [
+     72295,
+     47126
+    ],
+    "quote_cost": [
+     63328,
+     63247
+    ],
+    "work_vs_first": [
+     0.577
+    ],
+    "raw_vs_first": [
+     1.0
+    ],
+    "work_max_over_min": 1.7319760730401932
+   },
+   "A3": {
+    "runs": [
+     "A3",
+     "A3r"
+    ],
+    "raw": [
+     180000,
+     110000
+    ],
+    "work": [
+     57641,
+     58367
+    ],
+    "actual": [
+     84896,
+     81370
+    ],
+    "quote_cost": [
+     64424,
+     64320
+    ],
+    "work_vs_first": [
+     1.013
+    ],
+    "raw_vs_first": [
+     0.611
+    ],
+    "work_max_over_min": 1.012595201332385
+   }
+  },
+  "repeat_summary": {
+   "pairs": 21,
+   "within_10": 13,
+   "within_15": 15,
+   "within_25": 17,
+   "median_abs_change": 0.04800000000000004,
+   "max_abs_change": 0.49,
+   "raw_changed": 12
+  },
+  "quotes": {
+   "one_line": {
+    "n": 34,
+    "gmean": 64600.814264966844,
+    "min": 63247,
+    "max": 68261
+   },
+   "table": {
+    "n": 6,
+    "gmean": 72184.00059795727,
+    "min": 70397,
+    "max": 74032
+   }
+  },
+  "compare_writing": {
+   "16/10 quote (no rule)": {
+    "n": 3,
+    "gmean": 4.093923499281834,
+    "gsd": 1.2476285259400164,
+    "min": 3.3047333333333335,
+    "max": 5.14086
+   },
+   "16/10 rule applied afterwards": {
+    "n": 3,
+    "gmean": 1.0378489389385417,
+    "gsd": 1.074684852408047,
+    "min": 0.9802791262135923,
+    "max": 1.1253348467650397
+   },
+   "night quote (rule on)": {
+    "n": 13,
+    "gmean": 0.5998376889922211,
+    "gsd": 1.3025843912866457,
+    "min": 0.43396060606060605,
+    "max": 1.0540933333333333
+   },
+   "night rule on the final words": {
+    "n": 13,
+    "gmean": 0.5695933652946521,
+    "gsd": 1.293862743897734,
+    "min": 0.4504843592330979,
+    "max": 0.9862948207171315
+   }
+  },
+  "combined_ratio_raw": {
+   "code": {
+    "n": 21,
+    "gmean": 0.7451625467166143,
+    "gsd": 1.3520730204892104,
+    "min": 0.46723333333333333,
+    "max": 1.1711571428571428
+   },
+   "writing": {
+    "n": 16,
+    "gmean": 0.8598617293280342,
+    "gsd": 2.255877640463048,
+    "min": 0.43396060606060605,
+    "max": 5.14086
+   },
+   "research": {
+    "n": 12,
+    "gmean": 0.3948341293490477,
+    "gsd": 1.2725572619963161,
+    "min": 0.3135125,
+    "max": 0.6217466666666667
+   }
+  },
+  "total_test_sessions_wt": 7276022,
+  "not_done": []
+ },
+ "jobs": [
+  {
+   "raw": 40000,
+   "factor_new": 1.1525,
+   "work": 30133,
+   "actual": 51798,
+   "chat": 21665,
+   "quote_cost": 70500,
+   "calls": 4,
+   "seconds": 35,
+   "ratio_raw": 0.753325,
+   "ratio_new": 0.6536442516268981,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": null,
+   "web_searches": null,
+   "session_wt": null,
+   "run": "L1",
+   "date": "2026-10-16",
+   "type": "code",
+   "subtype": null,
+   "name": "small program (to-do list, 8+ tests)",
+   "repeat_of": null,
+   "task_it": "Scrivi in questa cartella un programma Python da riga di comando, todo.py, che tiene una lista di cose da fare nel file todo.json (nella stessa cartella). Comandi:\n- python todo.py add \"testo\": aggiunge una voce con un numero nuovo;\n- python todo.py list: elenca le voci con numero, stato (fatta o da fare) e testo;\n- python todo.py done N: segna come fatta la voce N;\n- python todo.py remove N: toglie la voce N.\nSe il numero non esiste, il programma lo dice con un messaggio chiaro ed esce con un codice d'errore. Usa solo la libreria standard. Scrivi anche test_todo.py con almeno 8 prove (unittest) e controlla che passino tutte.",
+   "addition_it": null,
+   "result": "10 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 10 tests in 1.384s | OK",
+     "ran": 10
+    },
+    "files": {
+     "todo.py": true,
+     "test_todo.py": true
+    }
+   },
+   "quote_form": null,
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 80000,
+   "factor_new": 1.1525,
+   "work": 74312,
+   "actual": 104980,
+   "chat": 30668,
+   "quote_cost": 71775,
+   "calls": 6,
+   "seconds": 111,
+   "ratio_raw": 0.9289,
+   "ratio_new": 0.8059869848156183,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": null,
+   "web_searches": null,
+   "session_wt": null,
+   "run": "L2",
+   "date": "2026-10-16",
+   "type": "code",
+   "subtype": null,
+   "name": "medium program (expenses, SQLite, 20+ tests)",
+   "repeat_of": null,
+   "task_it": "Scrivi in questa cartella un gestore delle spese da riga di comando in Python, spese.py, che salva i dati in un database SQLite (spese.db, nella stessa cartella). Ogni spesa ha: numero, data (AAAA-MM-GG), importo in euro, categoria, descrizione. Comandi:\n- aggiungi: aggiunge una spesa (data, importo, categoria, descrizione; se la data manca, oggi);\n- elenca: elenca le spese di un mese (AAAA-MM), anche filtrate per categoria;\n- categorie: elenca le categorie usate, con quante spese e il totale di ognuna;\n- totali: totale di un mese e totale per categoria in quel mese;\n- modifica: cambia uno o più campi di una spesa dato il suo numero;\n- cancella: toglie una spesa dato il suo numero;\n- esporta: scrive in un file CSV le spese (tutte o di un mese).\nControlla gli errori (data non valida, importo non positivo, numero inesistente) con messaggi chiari. Usa solo la libreria standard (argparse, sqlite3, csv). Scrivi test_spese.py con almeno 20 prove (unittest), controlla che passino tutte, e un README.md breve in italiano con un esempio per ogni comando.",
+   "addition_it": null,
+   "result": "34 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 34 tests in 22.410s | OK",
+     "ran": 34
+    },
+    "files": {
+     "spese.py": true,
+     "test_spese.py": true,
+     "README.md": true
+    }
+   },
+   "quote_form": null,
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 70000,
+   "factor_new": 1.1525,
+   "work": 81981,
+   "actual": 111264,
+   "chat": 29283,
+   "quote_cost": 70212,
+   "calls": 6,
+   "seconds": 98,
+   "ratio_raw": 1.1711571428571428,
+   "ratio_new": 1.0161884102881933,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": null,
+   "web_searches": null,
+   "session_wt": null,
+   "run": "L2b",
+   "date": "2026-10-16",
+   "type": "code",
+   "subtype": null,
+   "name": "medium program (expenses, SQLite, 20+ tests)",
+   "repeat_of": "L2",
+   "task_it": "Scrivi in questa cartella un gestore delle spese da riga di comando in Python, spese.py, che salva i dati in un database SQLite (spese.db, nella stessa cartella). Ogni spesa ha: numero, data (AAAA-MM-GG), importo in euro, categoria, descrizione. Comandi:\n- aggiungi: aggiunge una spesa (data, importo, categoria, descrizione; se la data manca, oggi);\n- elenca: elenca le spese di un mese (AAAA-MM), anche filtrate per categoria;\n- categorie: elenca le categorie usate, con quante spese e il totale di ognuna;\n- totali: totale di un mese e totale per categoria in quel mese;\n- modifica: cambia uno o più campi di una spesa dato il suo numero;\n- cancella: toglie una spesa dato il suo numero;\n- esporta: scrive in un file CSV le spese (tutte o di un mese).\nControlla gli errori (data non valida, importo non positivo, numero inesistente) con messaggi chiari. Usa solo la libreria standard (argparse, sqlite3, csv). Scrivi test_spese.py con almeno 20 prove (unittest), controlla che passino tutte, e un README.md breve in italiano con un esempio per ogni comando.",
+   "addition_it": null,
+   "result": "32 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 32 tests in 11.976s | OK",
+     "ran": 32
+    },
+    "files": {
+     "spese.py": true,
+     "test_spese.py": true,
+     "README.md": true
+    }
+   },
+   "quote_form": null,
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 60000,
+   "factor_new": 1.1525,
+   "work": 32190,
+   "actual": 48710,
+   "chat": 16520,
+   "quote_cost": 73689,
+   "calls": 3,
+   "seconds": 18,
+   "ratio_raw": 0.5365,
+   "ratio_new": 0.4655097613882863,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": null,
+   "web_searches": null,
+   "session_wt": null,
+   "run": "L3",
+   "date": "2026-10-16",
+   "type": "code",
+   "subtype": null,
+   "name": "fix a module (6 bugs, 32 tests)",
+   "repeat_of": null,
+   "task_it": "In questa cartella ci sono magazzino.py (un modulo Python che gestisce un magazzino: articoli, carichi, scarichi con il metodo FIFO e valore delle giacenze) e test_magazzino.py (le sue prove). Il modulo ha degli errori e diverse prove falliscono (python -m unittest test_magazzino). Correggi magazzino.py in modo che passino tutte le prove, senza modificare test_magazzino.py.",
+   "addition_it": null,
+   "result": "32 tests, all pass, tests untouched",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 32 tests in 0.010s | OK",
+     "ran": 32
+    },
+    "files": {
+     "magazzino.py": true,
+     "test_magazzino.py": true
+    },
+    "tests_untouched": true
+   },
+   "quote_form": null,
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 60000,
+   "factor_new": 1.1525,
+   "work": 29263,
+   "actual": 45244,
+   "chat": 15981,
+   "quote_cost": 72402,
+   "calls": 3,
+   "seconds": 17,
+   "ratio_raw": 0.4877166666666667,
+   "ratio_new": 0.4231814895155459,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": null,
+   "web_searches": null,
+   "session_wt": null,
+   "run": "L3b",
+   "date": "2026-10-16",
+   "type": "code",
+   "subtype": null,
+   "name": "fix a module (6 bugs, 32 tests)",
+   "repeat_of": "L3",
+   "task_it": "In questa cartella ci sono magazzino.py (un modulo Python che gestisce un magazzino: articoli, carichi, scarichi con il metodo FIFO e valore delle giacenze) e test_magazzino.py (le sue prove). Il modulo ha degli errori e diverse prove falliscono (python -m unittest test_magazzino). Correggi magazzino.py in modo che passino tutte le prove, senza modificare test_magazzino.py.",
+   "addition_it": null,
+   "result": "32 tests, all pass, tests untouched",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 32 tests in 0.010s | OK",
+     "ran": 32
+    },
+    "files": {
+     "magazzino.py": true,
+     "test_magazzino.py": true
+    },
+    "tests_untouched": true
+   },
+   "quote_form": null,
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 15000,
+   "factor_new": 1.1525,
+   "work": 49571,
+   "actual": 86722,
+   "chat": 37151,
+   "quote_cost": 66862,
+   "calls": 8,
+   "seconds": 69,
+   "ratio_raw": 3.3047333333333335,
+   "ratio_new": 2.8674475777295734,
+   "words": 881,
+   "wt_per_word": 56.26674233825199,
+   "rule_raw": 44050,
+   "ratio_rule": 1.1253348467650397,
+   "options": null,
+   "web_searches": null,
+   "session_wt": null,
+   "run": "L4",
+   "date": "2026-10-16",
+   "type": "writing",
+   "subtype": null,
+   "name": "article, ~800 words",
+   "repeat_of": null,
+   "task_it": "Scrivi in italiano un articolo di circa 800 parole dal titolo «Come scegliere una bicicletta da città» e salvalo nel file articolo.md in questa cartella. Segui questa scaletta:\n1. Introduzione: perché la bicicletta in città.\n2. Che uso ne farai: tragitti, distanze, salite, dove la lasci.\n3. Il telaio e la misura giusta.\n4. I tipi: olandese, ibrida, pieghevole, elettrica.\n5. Cambio e freni.\n6. Accessori indispensabili: luci, parafanghi, portapacchi, lucchetto.\n7. Quanto spendere e dove comprarla.\n8. Conclusione.",
+   "addition_it": null,
+   "result": "881 words",
+   "check": {
+    "words": 881
+   },
+   "quote_form": null,
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 50000,
+   "factor_new": 1.1525,
+   "work": 257043,
+   "actual": 304341,
+   "chat": 47298,
+   "quote_cost": 70522,
+   "calls": 10,
+   "seconds": 318,
+   "ratio_raw": 5.14086,
+   "ratio_new": 4.460616052060737,
+   "words": 5073,
+   "wt_per_word": 50.66883500887049,
+   "rule_raw": 253650,
+   "ratio_rule": 1.0133767001774099,
+   "options": null,
+   "web_searches": null,
+   "session_wt": null,
+   "run": "L5",
+   "date": "2026-10-16",
+   "type": "writing",
+   "subtype": null,
+   "name": "guide, ~5,000 words, 6 chapters",
+   "repeat_of": null,
+   "task_it": "Scrivi in italiano una guida di circa 5.000 parole dal titolo «L'orto sul balcone: guida pratica per chi comincia», in 6 capitoli di lunghezza simile, e salvala nel file guida.md in questa cartella. Segui questa scaletta dettagliata:\n1. Prima di cominciare: quanta luce prende il balcone (esposizione e ore di sole), il peso che può reggere, il vento, l'acqua a portata di mano, le regole del condominio.\n2. Vasi e contenitori: materiali (plastica, terracotta, legno, tessuto), dimensioni e profondità per ogni tipo di pianta, fori e drenaggio, fioriere e orti verticali.\n3. Terriccio e concimi: che terriccio comprare, come migliorarlo, concimi organici e minerali, quando concimare, il compost in piccolo.\n4. Cosa coltivare: erbe aromatiche, insalate, pomodori, peperoncini, fragole, legumi; cosa è facile e cosa no; il calendario delle semine mese per mese.\n5. Cura di tutti i giorni: come e quando annaffiare, l'irrigazione a goccia, potature e sostegni, i parassiti più comuni e i rimedi naturali.\n6. Raccolto e stagioni: quando raccogliere, come conservare, come preparare il balcone all'inverno, gli errori più comuni da evitare.",
+   "addition_it": null,
+   "result": "5073 words",
+   "check": {
+    "words": 5073,
+    "headings2": 6,
+    "chapters": 6
+   },
+   "quote_form": null,
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 60000,
+   "factor_new": 1.1525,
+   "work": 242325,
+   "actual": 271570,
+   "chat": 29245,
+   "quote_cost": 69588,
+   "calls": 6,
+   "seconds": 311,
+   "ratio_raw": 4.03875,
+   "ratio_new": 3.504338394793926,
+   "words": 4944,
+   "wt_per_word": 49.01395631067961,
+   "rule_raw": 247200,
+   "ratio_rule": 0.9802791262135923,
+   "options": null,
+   "web_searches": null,
+   "session_wt": null,
+   "run": "L5b",
+   "date": "2026-10-16",
+   "type": "writing",
+   "subtype": null,
+   "name": "guide, ~5,000 words, 6 chapters",
+   "repeat_of": "L5",
+   "task_it": "Scrivi in italiano una guida di circa 5.000 parole dal titolo «L'orto sul balcone: guida pratica per chi comincia», in 6 capitoli di lunghezza simile, e salvala nel file guida.md in questa cartella. Segui questa scaletta dettagliata:\n1. Prima di cominciare: quanta luce prende il balcone (esposizione e ore di sole), il peso che può reggere, il vento, l'acqua a portata di mano, le regole del condominio.\n2. Vasi e contenitori: materiali (plastica, terracotta, legno, tessuto), dimensioni e profondità per ogni tipo di pianta, fori e drenaggio, fioriere e orti verticali.\n3. Terriccio e concimi: che terriccio comprare, come migliorarlo, concimi organici e minerali, quando concimare, il compost in piccolo.\n4. Cosa coltivare: erbe aromatiche, insalate, pomodori, peperoncini, fragole, legumi; cosa è facile e cosa no; il calendario delle semine mese per mese.\n5. Cura di tutti i giorni: come e quando annaffiare, l'irrigazione a goccia, potature e sostegni, i parassiti più comuni e i rimedi naturali.\n6. Raccolto e stagioni: quando raccogliere, come conservare, come preparare il balcone all'inverno, gli errori più comuni da evitare.",
+   "addition_it": null,
+   "result": "4944 words",
+   "check": {
+    "words": 4944,
+    "headings2": 6,
+    "chapters": 6
+   },
+   "quote_form": null,
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 200000,
+   "factor_new": 1.1525,
+   "work": 81921,
+   "actual": 115933,
+   "chat": 34012,
+   "quote_cost": 70460,
+   "calls": 7,
+   "seconds": 81,
+   "ratio_raw": 0.409605,
+   "ratio_new": 0.35540563991323204,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": null,
+   "web_searches": null,
+   "session_wt": null,
+   "run": "L6",
+   "date": "2026-10-16",
+   "type": "research",
+   "subtype": null,
+   "name": "research: check 8 claims on the web",
+   "repeat_of": null,
+   "task_it": "Verifica sul web queste 8 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. La Grande Muraglia cinese si vede a occhio nudo dalla Luna.\n2. Napoleone Bonaparte era molto più basso della media dei francesi del suo tempo.\n3. Il DNA dell'uomo e quello dello scimpanzé sono uguali per circa il 98-99%.\n4. D'estate la Torre Eiffel può diventare più alta di circa 15 centimetri per il caldo.\n5. Un fulmine non colpisce mai due volte lo stesso posto.\n6. Il vetro è un liquido che scorre lentamente: per questo le vetrate antiche sono più spesse in basso.\n7. La penicillina fu scoperta da Alexander Fleming nel 1928.\n8. Nel Medioevo la maggior parte delle persone colte credeva che la Terra fosse piatta.",
+   "addition_it": null,
+   "result": "22 links, 9 levels",
+   "check": {
+    "links": 22,
+    "levels": {
+     "solido": 3,
+     "debole": 1,
+     "smentito": 5,
+     "non verificabile": 0
+    },
+    "words": 1065
+   },
+   "quote_form": null,
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 150000,
+   "factor_new": 1.1525,
+   "work": 168718,
+   "actual": 203480,
+   "chat": 34762,
+   "quote_cost": 65247,
+   "calls": 8,
+   "seconds": 301,
+   "ratio_raw": 1.1247866666666666,
+   "ratio_new": 0.9759537237888648,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 150000
+   },
+   "web_searches": 0,
+   "session_wt": 268727,
+   "run": "C1",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "library manager, SQLite, 40+ tests",
+   "repeat_of": null,
+   "task_it": "Scrivi in questa cartella un gestore di biblioteca da riga di comando in Python, biblioteca.py, che salva i dati in un database SQLite (biblioteca.db, nella stessa cartella). Dati: libri (codice, titolo, autore, anno, copie totali), utenti (numero di tessera, nome, email) e prestiti (libro, utente, data del prestito, scadenza dopo 30 giorni, data di restituzione). Comandi:\n- libro-aggiungi, libro-modifica, libro-cerca (per titolo o autore, anche una parte, senza badare alle maiuscole), libro-elenca;\n- utente-aggiungi, utente-elenca;\n- presta: presta un libro a un utente se c'è una copia libera; un utente non può avere più di 5 prestiti aperti né prestiti scaduti;\n- restituisci: chiude un prestito;\n- scaduti: elenca i prestiti scaduti a una data (di default oggi), con i giorni di ritardo;\n- storico: i prestiti di un utente o di un libro;\n- statistiche: i 5 libri più prestati e gli utenti con più prestiti in un anno.\nControlla gli errori (dati mancanti, codici e tessere inesistenti o doppi, date non valide) con messaggi chiari ed esci con un codice d'errore. Usa solo la libreria standard (argparse, sqlite3, datetime). Scrivi test_biblioteca.py con almeno 40 prove (unittest), controlla che passino tutte, e un README.md in italiano con un esempio per ogni comando.",
+   "addition_it": null,
+   "result": "67 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 67 tests in 112.021s | OK",
+     "ran": 67
+    },
+    "files": {
+     "biblioteca.py": true,
+     "test_biblioteca.py": true,
+     "README.md": true
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 300000,
+   "factor_new": 1.1525,
+   "work": 190141,
+   "actual": 230849,
+   "chat": 40708,
+   "quote_cost": 74028,
+   "calls": 8,
+   "seconds": 257,
+   "ratio_raw": 0.6338033333333334,
+   "ratio_new": 0.549937816341287,
+   "words": 6323,
+   "wt_per_word": 30.071326901787128,
+   "rule_raw": 316150,
+   "ratio_rule": 0.6014265380357425,
+   "options": {
+    "good": 240000,
+    "max": 300000
+   },
+   "web_searches": 0,
+   "session_wt": 304878,
+   "run": "T3",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "guide, ~6,000 words, 8 chapters",
+   "repeat_of": null,
+   "task_it": "Scrivi in italiano una guida di circa 6.000 parole dal titolo «Il primo viaggio in camper: guida pratica per chi comincia», in 8 capitoli di lunghezza simile, e salvala nel file guida.md in questa cartella. Segui questa scaletta:\n1. Camper, furgone camperizzato o caravan: le differenze, noleggio o acquisto, la patente.\n2. Scegliere il mezzo a noleggio: dimensioni, posti letto, cosa controllare alla consegna, l'assicurazione.\n3. Pianificare l'itinerario: quanti chilometri al giorno, le strade da evitare, le app e le mappe.\n4. Dove dormire: campeggi, aree di sosta attrezzate, sosta libera e cosa dice la legge.\n5. Acqua, scarichi ed elettricità: serbatoi, cassetta del WC, batterie, pannelli solari.\n6. La vita a bordo: cucinare, fare la spesa, mettere in ordine, viaggiare con bambini o animali.\n7. Guidare un mezzo grande: manovre, vento, salite e discese, il peso, la sicurezza.\n8. Costi, imprevisti e una lista di controllo finale prima di partire.",
+   "addition_it": null,
+   "result": "6323 words",
+   "check": {
+    "words": 6323,
+    "headings2": 8
+   },
+   "quote_form": {
+    "one_line": false,
+    "table": true,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": true
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 200000,
+   "factor_new": 1.1525,
+   "work": 98352,
+   "actual": 124691,
+   "chat": 26339,
+   "quote_cost": 64550,
+   "calls": 6,
+   "seconds": 97,
+   "ratio_raw": 0.49176,
+   "ratio_new": 0.4266898047722342,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 200000
+   },
+   "web_searches": 14,
+   "session_wt": 189241,
+   "run": "R1",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 10 claims (science, health)",
+   "repeat_of": null,
+   "task_it": "Verifica sul web queste 10 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Usiamo solo il 10% del nostro cervello.\n2. I pipistrelli sono ciechi.\n3. Lo zucchero rende iperattivi i bambini.\n4. Aggiungere il sale all'acqua della pasta la fa bollire a una temperatura un po' più alta.\n5. Il cuore umano batte circa 100.000 volte al giorno.\n6. I pesci rossi hanno una memoria di tre secondi.\n7. La vitamina C previene il raffreddore.\n8. Gli esseri umani hanno più di cinque sensi.\n9. I camaleonti cambiano colore soprattutto per mimetizzarsi.\n10. Il sangue nelle vene è blu.",
+   "addition_it": null,
+   "result": "26 links, 24 levels",
+   "check": {
+    "words": 1498,
+    "headings2": 11,
+    "links": 26,
+    "levels": {
+     "solido": 7,
+     "debole": 1,
+     "smentito": 15,
+     "non verificabile": 1
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 60000,
+   "factor_new": 1.1525,
+   "work": 28270,
+   "actual": 42809,
+   "chat": 14539,
+   "quote_cost": 63956,
+   "calls": 3,
+   "seconds": null,
+   "ratio_raw": 0.4711666666666667,
+   "ratio_new": 0.40882140274765005,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 60000
+   },
+   "web_searches": 0,
+   "session_wt": 106765,
+   "run": "F1",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": "correzione",
+   "name": "fix a module (6 bugs, 35 tests)",
+   "repeat_of": null,
+   "task_it": "In questa cartella ci sono prenotazioni.py (un modulo Python che gestisce le prenotazioni di sale riunioni: sale, prenotazioni, sovrapposizioni, disdette, spazi liberi e occupazione) e test_prenotazioni.py (le sue prove). Il modulo ha degli errori e diverse prove falliscono (python -m unittest test_prenotazioni). Correggi prenotazioni.py in modo che passino tutte le prove, senza modificare test_prenotazioni.py.",
+   "addition_it": null,
+   "result": "35 tests, all pass, tests untouched",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 35 tests in 0.008s | OK",
+     "ran": 35
+    },
+    "files": {
+     "prenotazioni.py": true,
+     "test_prenotazioni.py": true
+    },
+    "tests_untouched": true
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 120000,
+   "factor_new": 1.1525,
+   "work": 69509,
+   "actual": 88769,
+   "chat": 19260,
+   "quote_cost": 65092,
+   "calls": 4,
+   "seconds": 69,
+   "ratio_raw": 0.5792416666666667,
+   "ratio_new": 0.5025958062183659,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 120000
+   },
+   "web_searches": 0,
+   "session_wt": 262783,
+   "run": "A1",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "contacts CLI (15 tests), then add vCard (8 tests)",
+   "repeat_of": null,
+   "task_it": "Scrivi in questa cartella una rubrica dei contatti da riga di comando in Python, rubrica.py, che salva i contatti in rubrica.json (nella stessa cartella). Ogni contatto ha: numero, nome, cognome, telefono, email, compleanno (facoltativo, AAAA-MM-GG). Comandi: aggiungi, elenca (in ordine di cognome), cerca (per nome, cognome o email, anche una parte), modifica, cancella, compleanni (quelli dei prossimi N giorni). Controlla gli errori (email non valida, numero inesistente, data non valida) con messaggi chiari. Usa solo la libreria standard. Scrivi test_rubrica.py con almeno 15 prove (unittest) e controlla che passino tutte.",
+   "addition_it": "due comandi, esporta-vcard e importa-vcard, che scrivono e leggono i contatti in un file .vcf (vCard 3.0: nome, telefono, email, compleanno), con altre 8 prove in test_rubrica.py, e controlla che passino tutte.",
+   "result": "37 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 37 tests in 0.353s | OK",
+     "ran": 37
+    },
+    "files": {
+     "rubrica.py": true,
+     "test_rubrica.py": true
+    },
+    "vcard_in_code": true
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 2,
+    "setup_questions": false
+   },
+   "addition": {
+    "quoted": true,
+    "raw": 70000,
+    "factor": 0.8170532545883,
+    "work": 56384,
+    "actual": 87881,
+    "chat": 31497,
+    "quote_cost": 21041,
+    "ratio_raw": 0.8054857142857142,
+    "ratio_new": 0.9858423667764294,
+    "share_of_base_work": 0.8111755312261721
+   },
+   "addition_flow": {
+    "quoted_by_itself": true
+   }
+  },
+  {
+   "raw": 30000,
+   "factor_new": 1.1525,
+   "work": 18309,
+   "actual": 32812,
+   "chat": 14503,
+   "quote_cost": 64280,
+   "calls": 3,
+   "seconds": 26,
+   "ratio_raw": 0.6103,
+   "ratio_new": 0.5295444685466377,
+   "words": 694,
+   "wt_per_word": 26.381844380403457,
+   "rule_raw": 34700,
+   "ratio_rule": 0.5276368876080691,
+   "options": {
+    "good": 30000
+   },
+   "web_searches": 0,
+   "session_wt": 97091,
+   "run": "T1",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "article, ~600 words",
+   "repeat_of": null,
+   "task_it": "Scrivi in italiano un articolo di circa 600 parole dal titolo «Come risparmiare energia in casa d'inverno» e salvalo nel file articolo.md in questa cartella. Segui questa scaletta:\n1. Introduzione: perché conviene, per la bolletta e per l'ambiente.\n2. Il riscaldamento: temperatura, valvole termostatiche, orari.\n3. Spifferi e finestre.\n4. L'acqua calda.\n5. Luci ed elettrodomestici.\n6. Conclusione con tre consigli da cominciare subito.",
+   "addition_it": null,
+   "result": "694 words",
+   "check": {
+    "words": 694,
+    "headings2": 5
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 120000,
+   "factor_new": 1.1525,
+   "work": 102763,
+   "actual": 134825,
+   "chat": 32062,
+   "quote_cost": 66000,
+   "calls": 7,
+   "seconds": 114,
+   "ratio_raw": 0.8563583333333333,
+   "ratio_new": 0.7430441070137382,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 120000
+   },
+   "web_searches": 0,
+   "session_wt": 200825,
+   "run": "C2",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "file converter CLI, 25+ tests",
+   "repeat_of": null,
+   "task_it": "Scrivi in questa cartella un convertitore di file di dati da riga di comando in Python, converti.py, fra quattro formati: CSV, TSV, JSON (una lista di oggetti) e tabella Markdown (solo in uscita). Uso: python converti.py ENTRATA USCITA [opzioni]; il formato si capisce dall'estensione (.csv, .tsv, .json, .md) oppure si dà con --da e --a. Opzioni:\n- --delimitatore per i CSV con un separatore diverso (per esempio ;);\n- --codifica per i file in entrata (utf-8 di default, anche latin-1);\n- --colonne per scegliere e ordinare le colonne in uscita;\n- --ordina COLONNA (con --decrescente) e --filtra 'COLONNA=VALORE' (anche più di una volta);\n- --tipi per scrivere in JSON i numeri e i valori vero/falso come numeri e booleani invece che come testo.\nSe le righe hanno colonne diverse, in uscita compaiono tutte (vuote dove mancano). Gestisci gli errori (file inesistente, formato sconosciuto, JSON non valido, colonna inesistente) con messaggi chiari e un codice d'errore. Usa solo la libreria standard. Scrivi test_converti.py con almeno 25 prove (unittest) che usano file temporanei, controlla che passino tutte, e un README.md breve in italiano con degli esempi.",
+   "addition_it": null,
+   "result": "38 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 38 tests in 0.454s | OK",
+     "ran": 38
+    },
+    "files": {
+     "converti.py": true,
+     "test_converti.py": true,
+     "README.md": true
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 200000,
+   "factor_new": 1.1525,
+   "work": 64238,
+   "actual": 82984,
+   "chat": 18746,
+   "quote_cost": 64853,
+   "calls": 4,
+   "seconds": 54,
+   "ratio_raw": 0.32119,
+   "ratio_new": 0.27868980477223426,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 200000
+   },
+   "web_searches": 8,
+   "session_wt": 147837,
+   "run": "R2",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 8 claims (history)",
+   "repeat_of": null,
+   "task_it": "Verifica sul web queste 8 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Nell'antica Roma i gladiatori combattevano sempre fino alla morte.\n2. Cristoforo Colombo voleva dimostrare che la Terra era rotonda.\n3. La Gioconda fu rubata dal Louvre nel 1911.\n4. Le piramidi di Giza furono costruite da schiavi.\n5. I vichinghi portavano elmi con le corna.\n6. La Dichiarazione d'indipendenza degli Stati Uniti fu firmata da tutti i delegati il 4 luglio 1776.\n7. Maria Antonietta disse «Che mangino brioche».\n8. Il muro di Berlino cadde il 9 novembre 1989.",
+   "addition_it": null,
+   "result": "24 links, 20 levels",
+   "check": {
+    "words": 1160,
+    "headings2": 9,
+    "links": 24,
+    "levels": {
+     "solido": 5,
+     "debole": 1,
+     "smentito": 13,
+     "non verificabile": 1
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 40000,
+   "factor_new": 1.1525,
+   "work": 25615,
+   "actual": 44359,
+   "chat": 18744,
+   "quote_cost": 64035,
+   "calls": 4,
+   "seconds": 21,
+   "ratio_raw": 0.640375,
+   "ratio_new": 0.5556399132321042,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 40000
+   },
+   "web_searches": 0,
+   "session_wt": 108394,
+   "run": "F2",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": "correzione",
+   "name": "fix a module (6 bugs, 29 tests)",
+   "repeat_of": null,
+   "task_it": "In questa cartella ci sono testo_utils.py (un modulo Python di funzioni sui testi in italiano: slug, parole, frasi, a capo, titoli, palindromi, anagrammi, frequenze, troncare, censurare) e test_testo_utils.py (le sue prove). Il modulo ha degli errori e diverse prove falliscono (python -m unittest test_testo_utils). Correggi testo_utils.py in modo che passino tutte le prove, senza modificare test_testo_utils.py.",
+   "addition_it": null,
+   "result": "29 tests, all pass, tests untouched",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 29 tests in 0.001s | OK",
+     "ran": 29
+    },
+    "files": {
+     "testo_utils.py": true,
+     "test_testo_utils.py": true
+    },
+    "tests_untouched": true
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 50000,
+   "factor_new": 1.1525,
+   "work": 49512,
+   "actual": 72295,
+   "chat": 22783,
+   "quote_cost": 63328,
+   "calls": 5,
+   "seconds": 73,
+   "ratio_raw": 0.99024,
+   "ratio_new": 0.8592104121475053,
+   "words": 1004,
+   "wt_per_word": 49.31474103585657,
+   "rule_raw": 50200,
+   "ratio_rule": 0.9862948207171315,
+   "options": {
+    "good": 50000
+   },
+   "web_searches": 0,
+   "session_wt": 208404,
+   "run": "A2",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "article ~1,000 words, then add FAQ and summary",
+   "repeat_of": null,
+   "task_it": "Scrivi in italiano un articolo di circa 1.000 parole dal titolo «Lavorare da casa senza perdere la concentrazione» e salvalo nel file articolo.md in questa cartella. Segui questa scaletta:\n1. Introduzione.\n2. Lo spazio di lavoro.\n3. Gli orari e le pause.\n4. Le distrazioni digitali.\n5. Il rapporto con colleghi e famiglia.\n6. Conclusione.",
+   "addition_it": "in fondo all'articolo una sezione «Domande frequenti» con 8 domande e le loro risposte (circa 400 parole in tutto) e, in un file a parte, sintesi.md, una versione breve dell'articolo di circa 200 parole.",
+   "result": "1402 words + summary 200 words",
+   "check": {
+    "words": 1402,
+    "headings2": 7,
+    "faq": true,
+    "sintesi_words": 200
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 2,
+    "setup_questions": false
+   },
+   "addition": {
+    "quoted": true,
+    "raw": 30000,
+    "factor": 1.068293779819016,
+    "work": 26945,
+    "actual": 55530,
+    "chat": 28585,
+    "quote_cost": 17250,
+    "ratio_raw": 0.8981666666666667,
+    "ratio_new": 0.8407487562258659,
+    "share_of_base_work": 0.5442115042817903
+   },
+   "addition_flow": {
+    "quoted_by_itself": true
+   }
+  },
+  {
+   "raw": 100000,
+   "factor_new": 1.1525,
+   "work": 49778,
+   "actual": 68416,
+   "chat": 18638,
+   "quote_cost": 63591,
+   "calls": 4,
+   "seconds": 91,
+   "ratio_raw": 0.49778,
+   "ratio_new": 0.4319132321041214,
+   "words": 1875,
+   "wt_per_word": 26.548266666666667,
+   "rule_raw": 93750,
+   "ratio_rule": 0.5309653333333333,
+   "options": {
+    "good": 100000
+   },
+   "web_searches": 0,
+   "session_wt": 132007,
+   "run": "T2",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "short story, ~2,000 words",
+   "repeat_of": null,
+   "task_it": "Scrivi in italiano un racconto di circa 2.000 parole dal titolo «L'ultimo autobus della notte» e salvalo nel file racconto.md in questa cartella. Traccia: Marta, infermiera, finito il turno di notte prende l'ultimo autobus per tornare a casa. A bordo ci sono solo l'autista, un anziano con una valigia e un ragazzo con la chitarra. L'autobus devia per un incidente e si ferma in un quartiere che Marta non conosce. Nell'attesa i quattro parlano, e l'anziano racconta perché viaggia con quella valigia. Il racconto finisce all'alba, quando Marta scende alla sua fermata ed è cambiata qualcosa nel modo in cui guarda il suo lavoro. Narrazione in terza persona, al passato, con dialoghi.",
+   "addition_it": null,
+   "result": "1875 words",
+   "check": {
+    "words": 1875,
+    "headings2": 0
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 120000,
+   "factor_new": 1.1525,
+   "work": 137188,
+   "actual": 203344,
+   "chat": 66156,
+   "quote_cost": 65400,
+   "calls": 15,
+   "seconds": 343,
+   "ratio_raw": 1.1432333333333333,
+   "ratio_new": 0.9919595083152567,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 120000
+   },
+   "web_searches": 0,
+   "session_wt": 268744,
+   "run": "C3",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "small web server (notes API), 20+ tests",
+   "repeat_of": null,
+   "task_it": "Scrivi in questa cartella un piccolo server web in Python, solo con la libreria standard (http.server, json), note_server.py, che offre un'API JSON per delle note. Ogni nota ha: id, titolo (obbligatorio, al massimo 100 caratteri), testo, etichette (una lista di parole), creata e modificata (data e ora ISO). Indirizzi:\n- GET /note: tutte le note, con i parametri facoltativi ?etichetta=X e ?cerca=Y (nel titolo e nel testo, senza badare alle maiuscole);\n- GET /note/<id>: una nota;\n- POST /note: crea una nota (risponde 201 con la nota);\n- PUT /note/<id>: cambia i campi dati;\n- DELETE /note/<id>: cancella (risponde 204);\n- GET /etichette: le etichette, con quante note ha ognuna.\nLe note si salvano in note.json (il percorso si può cambiare con un'opzione) e restano dopo un riavvio. Errori: 400 per JSON non valido o campi sbagliati, 404 per note o indirizzi inesistenti, 405 per i metodi non ammessi, sempre con un corpo JSON {\"errore\": \"...\"}. La porta si sceglie da riga di comando (8000 di default). Scrivi test_note_server.py con almeno 20 prove (unittest) che avviano il server su una porta libera in un thread e lo interrogano con urllib, controlla che passino tutte, e un README.md breve in italiano.",
+   "addition_it": null,
+   "result": "31 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 31 tests in 18.585s | OK",
+     "ran": 31
+    },
+    "files": {
+     "note_server.py": true,
+     "test_note_server.py": true,
+     "README.md": true
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 240000,
+   "factor_new": 1.1525,
+   "work": 75243,
+   "actual": 104958,
+   "chat": 29715,
+   "quote_cost": 70456,
+   "calls": 6,
+   "seconds": 82,
+   "ratio_raw": 0.3135125,
+   "ratio_new": 0.27202819956616053,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 240000
+   },
+   "web_searches": 12,
+   "session_wt": 175414,
+   "run": "R3",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 12 claims (geography, nature)",
+   "repeat_of": null,
+   "task_it": "Verifica sul web queste 12 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Il Monte Everest è il punto della Terra più lontano dal suo centro.\n2. Il Nilo è il fiume più lungo del mondo.\n3. L'Australia è più larga della Luna.\n4. Il deserto più grande del mondo è il Sahara.\n5. Il lago Bajkal contiene circa un quinto dell'acqua dolce superficiale non ghiacciata del pianeta.\n6. Il Canada ha più laghi di tutto il resto del mondo messo insieme.\n7. La Russia ha 11 fusi orari.\n8. Il punto più profondo degli oceani è a circa 11.000 metri.\n9. Gli struzzi nascondono la testa sotto la sabbia quando hanno paura.\n10. Il Vaticano è lo Stato più piccolo del mondo.\n11. In Islanda non ci sono zanzare.\n12. Le formiche non dormono mai.",
+   "addition_it": null,
+   "result": "29 links, 28 levels",
+   "check": {
+    "words": 1179,
+    "headings2": 12,
+    "links": 29,
+    "levels": {
+     "solido": 13,
+     "debole": 3,
+     "smentito": 11,
+     "non verificabile": 1
+    }
+   },
+   "quote_form": {
+    "one_line": false,
+    "table": true,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": null,
+   "factor_new": 1.1525,
+   "work": 8833,
+   "actual": 21561,
+   "chat": 12728,
+   "quote_cost": 59062,
+   "calls": 2,
+   "seconds": null,
+   "ratio_raw": null,
+   "ratio_new": null,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": null,
+   "web_searches": 0,
+   "session_wt": 80623,
+   "run": "F3",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": "correzione",
+   "name": "fix a module (6 bugs, 25 tests)",
+   "repeat_of": null,
+   "task_it": "In questa cartella ci sono conto.py (un modulo Python con un carrello con IVA, sconti e spedizione, e due conti di finanza: la rata di un mutuo e l'interesse composto) e test_conto.py (le sue prove). Il modulo ha degli errori e diverse prove falliscono (python -m unittest test_conto). Correggi conto.py in modo che passino tutte le prove, senza modificare test_conto.py.",
+   "addition_it": null,
+   "result": "25 tests, all pass, tests untouched",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 25 tests in 0.001s | OK",
+     "ran": 25
+    },
+    "files": {
+     "conto.py": true,
+     "test_conto.py": true
+    },
+    "tests_untouched": true
+   },
+   "quote_form": {
+    "one_line": false,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 0,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 180000,
+   "factor_new": 1.1525,
+   "work": 57641,
+   "actual": 84896,
+   "chat": 27255,
+   "quote_cost": 64424,
+   "calls": 6,
+   "seconds": 76,
+   "ratio_raw": 0.3202277777777778,
+   "ratio_new": 0.27785490479633645,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 180000
+   },
+   "web_searches": 11,
+   "session_wt": 223775,
+   "run": "A3",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 6 claims, then add 4",
+   "repeat_of": null,
+   "task_it": "Verifica sul web queste 6 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Il polpo ha tre cuori.\n2. Le banane sono bacche, le fragole no.\n3. La Torre di Pisa fu costruita storta apposta.\n4. Albert Einstein fu bocciato in matematica a scuola.\n5. Il miele non va mai a male.\n6. I tori si arrabbiano per il colore rosso.",
+   "addition_it": "altre 4 affermazioni da verificare allo stesso modo, nello stesso report.md:\n7. Nello spazio c'è silenzio assoluto.\n8. Capelli e unghie continuano a crescere dopo la morte.\n9. Gli elefanti sono gli unici mammiferi che non sanno saltare.\n10. Il Monte Bianco è la montagna più alta d'Europa.",
+   "result": "26 links, 10 levels",
+   "check": {
+    "words": 1191,
+    "headings2": 10,
+    "links": 26,
+    "levels": {
+     "solido": 2,
+     "debole": 3,
+     "smentito": 5,
+     "non verificabile": 0
+    },
+    "has_added_claims": true
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 2,
+    "setup_questions": false
+   },
+   "addition": {
+    "quoted": true,
+    "raw": 65000,
+    "factor": 0.6075051554422307,
+    "work": 31794,
+    "actual": 52989,
+    "chat": 21195,
+    "quote_cost": 21467,
+    "ratio_raw": 0.4891384615384615,
+    "ratio_new": 0.8051593589891354,
+    "share_of_base_work": 0.5515865443000642
+   },
+   "addition_flow": {
+    "quoted_by_itself": true
+   }
+  },
+  {
+   "raw": 60000,
+   "factor_new": 1.1525,
+   "work": 34847,
+   "actual": 53775,
+   "chat": 18928,
+   "quote_cost": 64402,
+   "calls": 4,
+   "seconds": 49,
+   "ratio_raw": 0.5807833333333333,
+   "ratio_new": 0.5039334779464931,
+   "words": 1230,
+   "wt_per_word": 28.33089430894309,
+   "rule_raw": 61500,
+   "ratio_rule": 0.5666178861788618,
+   "options": {
+    "good": 60000
+   },
+   "web_searches": 0,
+   "session_wt": 118177,
+   "run": "T4",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "formal letter, ~1,200 words",
+   "repeat_of": null,
+   "task_it": "Scrivi in italiano una lettera formale di circa 1.200 parole e salvala nel file lettera.md in questa cartella. Il comitato di quartiere «Borgo Verde» scrive al sindaco e all'assessore ai lavori pubblici del Comune per chiedere la riqualificazione del parco di via dei Tigli. La lettera deve avere intestazione, destinatari, oggetto, saluto formale e firma, e trattare questi punti: lo stato attuale del parco (giochi rotti, illuminazione insufficiente, panchine danneggiate, rifiuti); chi lo usa e perché è importante per il quartiere; le segnalazioni già fatte negli ultimi due anni senza risposta; le proposte concrete del comitato, in ordine di priorità; la disponibilità dei residenti a collaborare (giornate di pulizia, adozione delle aiuole); la richiesta di un incontro entro 30 giorni. Tono rispettoso ma fermo.",
+   "addition_it": null,
+   "result": "1230 words",
+   "check": {
+    "words": 1230,
+    "headings2": 0
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 150000,
+   "factor_new": 1.1525,
+   "work": 135887,
+   "actual": 163337,
+   "chat": 27450,
+   "quote_cost": 65017,
+   "calls": 6,
+   "seconds": 151,
+   "ratio_raw": 0.9059133333333333,
+   "ratio_new": 0.7860419378163412,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 150000
+   },
+   "web_searches": 0,
+   "session_wt": 228354,
+   "run": "C4",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "math library (stats, matrices), 50+ tests",
+   "repeat_of": null,
+   "task_it": "Scrivi in questa cartella una libreria Python di calcolo, calcolo.py, senza librerie esterne (niente numpy), con:\n- statistica: media, mediana, moda (anche più di una), varianza e deviazione standard (della popolazione e del campione), percentile (con interpolazione lineare), quartili e scarto interquartile, coefficiente di correlazione di Pearson, regressione lineare (pendenza, intercetta, R²);\n- matrici (liste di liste): somma, prodotto per un numero, prodotto fra matrici, trasposta, determinante, inversa (con l'eliminazione di Gauss e la scelta del pivot), soluzione di un sistema lineare;\n- massimo comun divisore e minimo comune multiplo di più numeri.\nOgni funzione controlla i dati (lista vuota, matrici di dimensioni sbagliate, matrice singolare) e solleva ValueError con un messaggio chiaro. Scrivi le docstring. Scrivi test_calcolo.py con almeno 50 prove (unittest), che confrontano i risultati con valori calcolati a mano (e con il modulo statistics dove si può), e controlla che passino tutte.",
+   "addition_it": null,
+   "result": "84 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 84 tests in 0.003s | OK",
+     "ran": 84
+    },
+    "files": {
+     "calcolo.py": true,
+     "test_calcolo.py": true
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 150000,
+   "factor_new": 1.1525,
+   "work": 93262,
+   "actual": 120653,
+   "chat": 27391,
+   "quote_cost": 65599,
+   "calls": 6,
+   "seconds": 103,
+   "ratio_raw": 0.6217466666666667,
+   "ratio_new": 0.5394765003615329,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 150000
+   },
+   "web_searches": 13,
+   "session_wt": 186251,
+   "run": "R4",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 10 claims (technology)",
+   "repeat_of": null,
+   "task_it": "Verifica sul web queste 10 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Il primo «bug» informatico fu una vera falena trovata in un computer nel 1947.\n2. La tastiera QWERTY fu progettata per rallentare i dattilografi.\n3. I telefoni cellulari possono far esplodere le pompe di benzina.\n4. Bill Gates disse che «640 KB dovrebbero bastare a chiunque».\n5. La legge di Moore dice che i transistor in un chip raddoppiano circa ogni due anni.\n6. Il primo SMS fu inviato nel 1992.\n7. Internet e il World Wide Web sono la stessa cosa.\n8. Caricare il telefono durante la notte rovina la batteria.\n9. Il Bitcoin fu creato da Satoshi Nakamoto nel 2009.\n10. La navigazione in incognito rende anonimi su Internet.",
+   "addition_it": null,
+   "result": "25 links, 14 levels",
+   "check": {
+    "words": 1134,
+    "headings2": 10,
+    "links": 25,
+    "levels": {
+     "solido": 5,
+     "debole": 2,
+     "smentito": 6,
+     "non verificabile": 1
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 75000,
+   "factor_new": 1.1525,
+   "work": 79057,
+   "actual": 114686,
+   "chat": 35629,
+   "quote_cost": 63864,
+   "calls": 8,
+   "seconds": 88,
+   "ratio_raw": 1.0540933333333333,
+   "ratio_new": 0.9146146059291396,
+   "words": 1632,
+   "wt_per_word": 48.44178921568628,
+   "rule_raw": 81600,
+   "ratio_rule": 0.9688357843137255,
+   "options": {
+    "good": 75000
+   },
+   "web_searches": 0,
+   "session_wt": 178550,
+   "run": "T5",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "summary of a given topic, ~1,500 words",
+   "repeat_of": null,
+   "task_it": "Scrivi in italiano un riassunto di circa 1.500 parole sul tema «La storia di Internet, da ARPANET a oggi», pensato per studenti delle scuole superiori, e salvalo nel file riassunto.md in questa cartella. Dividilo in queste sezioni: 1. Le origini militari e universitarie (anni Sessanta e Settanta); 2. Il protocollo TCP/IP e la nascita della rete delle reti; 3. Il World Wide Web di Tim Berners-Lee; 4. Gli anni Novanta: i browser, la bolla delle dot-com; 5. Il Web 2.0 e i social network; 6. Smartphone, cloud e Internet delle cose; 7. Le sfide di oggi: privacy, disinformazione, divario digitale. Chiudi con un breve glossario di 8 termini.",
+   "addition_it": null,
+   "result": "1632 words",
+   "check": {
+    "words": 1632,
+    "headings2": 8
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 150000,
+   "factor_new": 1.1525,
+   "work": 112764,
+   "actual": 140291,
+   "chat": 27527,
+   "quote_cost": 65216,
+   "calls": 6,
+   "seconds": 127,
+   "ratio_raw": 0.75176,
+   "ratio_new": 0.6522863340563991,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 150000
+   },
+   "web_searches": 0,
+   "session_wt": 205508,
+   "run": "C2b",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "file converter CLI, 25+ tests",
+   "repeat_of": "C2",
+   "task_it": "Scrivi in questa cartella un convertitore di file di dati da riga di comando in Python, converti.py, fra quattro formati: CSV, TSV, JSON (una lista di oggetti) e tabella Markdown (solo in uscita). Uso: python converti.py ENTRATA USCITA [opzioni]; il formato si capisce dall'estensione (.csv, .tsv, .json, .md) oppure si dà con --da e --a. Opzioni:\n- --delimitatore per i CSV con un separatore diverso (per esempio ;);\n- --codifica per i file in entrata (utf-8 di default, anche latin-1);\n- --colonne per scegliere e ordinare le colonne in uscita;\n- --ordina COLONNA (con --decrescente) e --filtra 'COLONNA=VALORE' (anche più di una volta);\n- --tipi per scrivere in JSON i numeri e i valori vero/falso come numeri e booleani invece che come testo.\nSe le righe hanno colonne diverse, in uscita compaiono tutte (vuote dove mancano). Gestisci gli errori (file inesistente, formato sconosciuto, JSON non valido, colonna inesistente) con messaggi chiari e un codice d'errore. Usa solo la libreria standard. Scrivi test_converti.py con almeno 25 prove (unittest) che usano file temporanei, controlla che passino tutte, e un README.md breve in italiano con degli esempi.",
+   "addition_it": null,
+   "result": "46 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 46 tests in 0.397s | OK",
+     "ran": 46
+    },
+    "files": {
+     "converti.py": true,
+     "test_converti.py": true,
+     "README.md": true
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 60000,
+   "factor_new": 1.1525,
+   "work": 33682,
+   "actual": 52379,
+   "chat": 18697,
+   "quote_cost": 64266,
+   "calls": 4,
+   "seconds": 48,
+   "ratio_raw": 0.5613666666666667,
+   "ratio_new": 0.48708604483007956,
+   "words": 1275,
+   "wt_per_word": 26.417254901960785,
+   "rule_raw": 63750,
+   "ratio_rule": 0.5283450980392157,
+   "options": {
+    "good": 60000
+   },
+   "web_searches": 0,
+   "session_wt": 116645,
+   "run": "T4b",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "formal letter, ~1,200 words",
+   "repeat_of": "T4",
+   "task_it": "Scrivi in italiano una lettera formale di circa 1.200 parole e salvala nel file lettera.md in questa cartella. Il comitato di quartiere «Borgo Verde» scrive al sindaco e all'assessore ai lavori pubblici del Comune per chiedere la riqualificazione del parco di via dei Tigli. La lettera deve avere intestazione, destinatari, oggetto, saluto formale e firma, e trattare questi punti: lo stato attuale del parco (giochi rotti, illuminazione insufficiente, panchine danneggiate, rifiuti); chi lo usa e perché è importante per il quartiere; le segnalazioni già fatte negli ultimi due anni senza risposta; le proposte concrete del comitato, in ordine di priorità; la disponibilità dei residenti a collaborare (giornate di pulizia, adozione delle aiuole); la richiesta di un incontro entro 30 giorni. Tono rispettoso ma fermo.",
+   "addition_it": null,
+   "result": "1275 words",
+   "check": {
+    "words": 1275,
+    "headings2": 0
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 200000,
+   "factor_new": 1.1525,
+   "work": 63909,
+   "actual": 82804,
+   "chat": 18895,
+   "quote_cost": 65058,
+   "calls": 4,
+   "seconds": 60,
+   "ratio_raw": 0.319545,
+   "ratio_new": 0.27726247288503253,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 200000
+   },
+   "web_searches": 8,
+   "session_wt": 147862,
+   "run": "R2b",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 8 claims (history)",
+   "repeat_of": "R2",
+   "task_it": "Verifica sul web queste 8 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Nell'antica Roma i gladiatori combattevano sempre fino alla morte.\n2. Cristoforo Colombo voleva dimostrare che la Terra era rotonda.\n3. La Gioconda fu rubata dal Louvre nel 1911.\n4. Le piramidi di Giza furono costruite da schiavi.\n5. I vichinghi portavano elmi con le corna.\n6. La Dichiarazione d'indipendenza degli Stati Uniti fu firmata da tutti i delegati il 4 luglio 1776.\n7. Maria Antonietta disse «Che mangino brioche».\n8. Il muro di Berlino cadde il 9 novembre 1989.",
+   "addition_it": null,
+   "result": "23 links, 20 levels",
+   "check": {
+    "words": 1132,
+    "headings2": 9,
+    "links": 23,
+    "levels": {
+     "solido": 5,
+     "debole": 1,
+     "smentito": 13,
+     "non verificabile": 1
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 250000,
+   "factor_new": 1.1525,
+   "work": 196807,
+   "actual": 248569,
+   "chat": 51762,
+   "quote_cost": 70397,
+   "calls": 11,
+   "seconds": 308,
+   "ratio_raw": 0.787228,
+   "ratio_new": 0.6830611713665944,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 250000
+   },
+   "web_searches": 0,
+   "session_wt": 318966,
+   "run": "C1r",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "library manager, SQLite, 40+ tests",
+   "repeat_of": "C1",
+   "task_it": "Scrivi in questa cartella un gestore di biblioteca da riga di comando in Python, biblioteca.py, che salva i dati in un database SQLite (biblioteca.db, nella stessa cartella). Dati: libri (codice, titolo, autore, anno, copie totali), utenti (numero di tessera, nome, email) e prestiti (libro, utente, data del prestito, scadenza dopo 30 giorni, data di restituzione). Comandi:\n- libro-aggiungi, libro-modifica, libro-cerca (per titolo o autore, anche una parte, senza badare alle maiuscole), libro-elenca;\n- utente-aggiungi, utente-elenca;\n- presta: presta un libro a un utente se c'è una copia libera; un utente non può avere più di 5 prestiti aperti né prestiti scaduti;\n- restituisci: chiude un prestito;\n- scaduti: elenca i prestiti scaduti a una data (di default oggi), con i giorni di ritardo;\n- storico: i prestiti di un utente o di un libro;\n- statistiche: i 5 libri più prestati e gli utenti con più prestiti in un anno.\nControlla gli errori (dati mancanti, codici e tessere inesistenti o doppi, date non valide) con messaggi chiari ed esci con un codice d'errore. Usa solo la libreria standard (argparse, sqlite3, datetime). Scrivi test_biblioteca.py con almeno 40 prove (unittest), controlla che passino tutte, e un README.md in italiano con un esempio per ogni comando.",
+   "addition_it": null,
+   "result": "71 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 71 tests in 98.433s | OK",
+     "ran": 71
+    },
+    "files": {
+     "biblioteca.py": true,
+     "test_biblioteca.py": true,
+     "README.md": true
+    }
+   },
+   "quote_form": {
+    "one_line": false,
+    "table": true,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 330000,
+   "factor_new": 1.1525,
+   "work": 143207,
+   "actual": 174557,
+   "chat": 31350,
+   "quote_cost": 74032,
+   "calls": 6,
+   "seconds": 203,
+   "ratio_raw": 0.43396060606060605,
+   "ratio_new": 0.37653848682048247,
+   "words": 6122,
+   "wt_per_word": 23.3921920940869,
+   "rule_raw": 306100,
+   "ratio_rule": 0.467843841881738,
+   "options": {
+    "good": 250000,
+    "max": 330000
+   },
+   "web_searches": 0,
+   "session_wt": 248588,
+   "run": "T3r",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "guide, ~6,000 words, 8 chapters",
+   "repeat_of": "T3",
+   "task_it": "Scrivi in italiano una guida di circa 6.000 parole dal titolo «Il primo viaggio in camper: guida pratica per chi comincia», in 8 capitoli di lunghezza simile, e salvala nel file guida.md in questa cartella. Segui questa scaletta:\n1. Camper, furgone camperizzato o caravan: le differenze, noleggio o acquisto, la patente.\n2. Scegliere il mezzo a noleggio: dimensioni, posti letto, cosa controllare alla consegna, l'assicurazione.\n3. Pianificare l'itinerario: quanti chilometri al giorno, le strade da evitare, le app e le mappe.\n4. Dove dormire: campeggi, aree di sosta attrezzate, sosta libera e cosa dice la legge.\n5. Acqua, scarichi ed elettricità: serbatoi, cassetta del WC, batterie, pannelli solari.\n6. La vita a bordo: cucinare, fare la spesa, mettere in ordine, viaggiare con bambini o animali.\n7. Guidare un mezzo grande: manovre, vento, salite e discese, il peso, la sicurezza.\n8. Costi, imprevisti e una lista di controllo finale prima di partire.",
+   "addition_it": null,
+   "result": "6122 words",
+   "check": {
+    "words": 6122,
+    "headings2": 8
+   },
+   "quote_form": {
+    "one_line": false,
+    "table": true,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": true
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 250000,
+   "factor_new": 1.1525,
+   "work": 93611,
+   "actual": 124687,
+   "chat": 31076,
+   "quote_cost": 72746,
+   "calls": 6,
+   "seconds": 94,
+   "ratio_raw": 0.374444,
+   "ratio_new": 0.32489718004338397,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 250000
+   },
+   "web_searches": 15,
+   "session_wt": 197432,
+   "run": "R1r",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 10 claims (science, health)",
+   "repeat_of": "R1",
+   "task_it": "Verifica sul web queste 10 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Usiamo solo il 10% del nostro cervello.\n2. I pipistrelli sono ciechi.\n3. Lo zucchero rende iperattivi i bambini.\n4. Aggiungere il sale all'acqua della pasta la fa bollire a una temperatura un po' più alta.\n5. Il cuore umano batte circa 100.000 volte al giorno.\n6. I pesci rossi hanno una memoria di tre secondi.\n7. La vitamina C previene il raffreddore.\n8. Gli esseri umani hanno più di cinque sensi.\n9. I camaleonti cambiano colore soprattutto per mimetizzarsi.\n10. Il sangue nelle vene è blu.",
+   "addition_it": null,
+   "result": "28 links, 24 levels",
+   "check": {
+    "words": 1247,
+    "headings2": 11,
+    "links": 28,
+    "levels": {
+     "solido": 7,
+     "debole": 1,
+     "smentito": 15,
+     "non verificabile": 1
+    }
+   },
+   "quote_form": {
+    "one_line": false,
+    "table": true,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": true
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 60000,
+   "factor_new": 1.1525,
+   "work": 28034,
+   "actual": 42614,
+   "chat": 14580,
+   "quote_cost": 64411,
+   "calls": 3,
+   "seconds": 13,
+   "ratio_raw": 0.46723333333333333,
+   "ratio_new": 0.4054085321764281,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 60000
+   },
+   "web_searches": 0,
+   "session_wt": 107026,
+   "run": "F1r",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": "correzione",
+   "name": "fix a module (6 bugs, 35 tests)",
+   "repeat_of": "F1",
+   "task_it": "In questa cartella ci sono prenotazioni.py (un modulo Python che gestisce le prenotazioni di sale riunioni: sale, prenotazioni, sovrapposizioni, disdette, spazi liberi e occupazione) e test_prenotazioni.py (le sue prove). Il modulo ha degli errori e diverse prove falliscono (python -m unittest test_prenotazioni). Correggi prenotazioni.py in modo che passino tutte le prove, senza modificare test_prenotazioni.py.",
+   "addition_it": null,
+   "result": "35 tests, all pass, tests untouched",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 35 tests in 0.009s | OK",
+     "ran": 35
+    },
+    "files": {
+     "prenotazioni.py": true,
+     "test_prenotazioni.py": true
+    },
+    "tests_untouched": true
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 80000,
+   "factor_new": 1.1525,
+   "work": 68936,
+   "actual": 92035,
+   "chat": 23099,
+   "quote_cost": 64259,
+   "calls": 5,
+   "seconds": 79,
+   "ratio_raw": 0.8617,
+   "ratio_new": 0.7476789587852495,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 80000
+   },
+   "web_searches": 0,
+   "session_wt": 242155,
+   "run": "A1r",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "contacts CLI (15 tests), then add vCard (8 tests)",
+   "repeat_of": "A1",
+   "task_it": "Scrivi in questa cartella una rubrica dei contatti da riga di comando in Python, rubrica.py, che salva i contatti in rubrica.json (nella stessa cartella). Ogni contatto ha: numero, nome, cognome, telefono, email, compleanno (facoltativo, AAAA-MM-GG). Comandi: aggiungi, elenca (in ordine di cognome), cerca (per nome, cognome o email, anche una parte), modifica, cancella, compleanni (quelli dei prossimi N giorni). Controlla gli errori (email non valida, numero inesistente, data non valida) con messaggi chiari. Usa solo la libreria standard. Scrivi test_rubrica.py con almeno 15 prove (unittest) e controlla che passino tutte.",
+   "addition_it": "due comandi, esporta-vcard e importa-vcard, che scrivono e leggono i contatti in un file .vcf (vCard 3.0: nome, telefono, email, compleanno), con altre 8 prove in test_rubrica.py, e controlla che passino tutte.",
+   "result": "39 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 39 tests in 0.110s | OK",
+     "ran": 39
+    },
+    "files": {
+     "rubrica.py": true,
+     "test_rubrica.py": true
+    },
+    "vcard_in_code": true
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 2,
+    "setup_questions": false
+   },
+   "addition": {
+    "quoted": true,
+    "raw": 50000,
+    "factor": 0.9965486691577086,
+    "work": 46439,
+    "actual": 65833,
+    "chat": 19394,
+    "quote_cost": 20027,
+    "ratio_raw": 0.92878,
+    "ratio_new": 0.9319966287095771,
+    "share_of_base_work": 0.6736538238366021
+   },
+   "addition_flow": {
+    "quoted_by_itself": true
+   }
+  },
+  {
+   "raw": 30000,
+   "factor_new": 1.1525,
+   "work": 18342,
+   "actual": 37000,
+   "chat": 18658,
+   "quote_cost": 63606,
+   "calls": 4,
+   "seconds": 25,
+   "ratio_raw": 0.6114,
+   "ratio_new": 0.5304989154013016,
+   "words": 683,
+   "wt_per_word": 26.855051244509518,
+   "rule_raw": 34150,
+   "ratio_rule": 0.5371010248901903,
+   "options": {
+    "good": 30000
+   },
+   "web_searches": 0,
+   "session_wt": 100605,
+   "run": "T1r",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "article, ~600 words",
+   "repeat_of": "T1",
+   "task_it": "Scrivi in italiano un articolo di circa 600 parole dal titolo «Come risparmiare energia in casa d'inverno» e salvalo nel file articolo.md in questa cartella. Segui questa scaletta:\n1. Introduzione: perché conviene, per la bolletta e per l'ambiente.\n2. Il riscaldamento: temperatura, valvole termostatiche, orari.\n3. Spifferi e finestre.\n4. L'acqua calda.\n5. Luci ed elettrodomestici.\n6. Conclusione con tre consigli da cominciare subito.",
+   "addition_it": null,
+   "result": "683 words",
+   "check": {
+    "words": 683,
+    "headings2": 5
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 130000,
+   "factor_new": 1.1525,
+   "work": 100927,
+   "actual": 124201,
+   "chat": 23274,
+   "quote_cost": 65029,
+   "calls": 5,
+   "seconds": 109,
+   "ratio_raw": 0.7763615384615384,
+   "ratio_new": 0.6736325713332221,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 130000
+   },
+   "web_searches": 0,
+   "session_wt": 189230,
+   "run": "C2r",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "file converter CLI, 25+ tests",
+   "repeat_of": "C2",
+   "task_it": "Scrivi in questa cartella un convertitore di file di dati da riga di comando in Python, converti.py, fra quattro formati: CSV, TSV, JSON (una lista di oggetti) e tabella Markdown (solo in uscita). Uso: python converti.py ENTRATA USCITA [opzioni]; il formato si capisce dall'estensione (.csv, .tsv, .json, .md) oppure si dà con --da e --a. Opzioni:\n- --delimitatore per i CSV con un separatore diverso (per esempio ;);\n- --codifica per i file in entrata (utf-8 di default, anche latin-1);\n- --colonne per scegliere e ordinare le colonne in uscita;\n- --ordina COLONNA (con --decrescente) e --filtra 'COLONNA=VALORE' (anche più di una volta);\n- --tipi per scrivere in JSON i numeri e i valori vero/falso come numeri e booleani invece che come testo.\nSe le righe hanno colonne diverse, in uscita compaiono tutte (vuote dove mancano). Gestisci gli errori (file inesistente, formato sconosciuto, JSON non valido, colonna inesistente) con messaggi chiari e un codice d'errore. Usa solo la libreria standard. Scrivi test_converti.py con almeno 25 prove (unittest) che usano file temporanei, controlla che passino tutte, e un README.md breve in italiano con degli esempi.",
+   "addition_it": null,
+   "result": "43 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 43 tests in 1.811s | OK",
+     "ran": 43
+    },
+    "files": {
+     "converti.py": true,
+     "test_converti.py": true,
+     "README.md": true
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 200000,
+   "factor_new": 1.1525,
+   "work": 68328,
+   "actual": 87178,
+   "chat": 18850,
+   "quote_cost": 64984,
+   "calls": 4,
+   "seconds": 62,
+   "ratio_raw": 0.34164,
+   "ratio_new": 0.2964338394793926,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 200000
+   },
+   "web_searches": 8,
+   "session_wt": 152162,
+   "run": "R2r",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 8 claims (history)",
+   "repeat_of": "R2",
+   "task_it": "Verifica sul web queste 8 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Nell'antica Roma i gladiatori combattevano sempre fino alla morte.\n2. Cristoforo Colombo voleva dimostrare che la Terra era rotonda.\n3. La Gioconda fu rubata dal Louvre nel 1911.\n4. Le piramidi di Giza furono costruite da schiavi.\n5. I vichinghi portavano elmi con le corna.\n6. La Dichiarazione d'indipendenza degli Stati Uniti fu firmata da tutti i delegati il 4 luglio 1776.\n7. Maria Antonietta disse «Che mangino brioche».\n8. Il muro di Berlino cadde il 9 novembre 1989.",
+   "addition_it": null,
+   "result": "23 links, 20 levels",
+   "check": {
+    "words": 1301,
+    "headings2": 9,
+    "links": 23,
+    "levels": {
+     "solido": 5,
+     "debole": 1,
+     "smentito": 13,
+     "non verificabile": 1
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 50000,
+   "factor_new": 1.1525,
+   "work": 26476,
+   "actual": 45228,
+   "chat": 18752,
+   "quote_cost": 63897,
+   "calls": 4,
+   "seconds": 19,
+   "ratio_raw": 0.52952,
+   "ratio_new": 0.4594533622559652,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 50000
+   },
+   "web_searches": 0,
+   "session_wt": 109125,
+   "run": "F2r",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": "correzione",
+   "name": "fix a module (6 bugs, 29 tests)",
+   "repeat_of": "F2",
+   "task_it": "In questa cartella ci sono testo_utils.py (un modulo Python di funzioni sui testi in italiano: slug, parole, frasi, a capo, titoli, palindromi, anagrammi, frequenze, troncare, censurare) e test_testo_utils.py (le sue prove). Il modulo ha degli errori e diverse prove falliscono (python -m unittest test_testo_utils). Correggi testo_utils.py in modo che passino tutte le prove, senza modificare test_testo_utils.py.",
+   "addition_it": null,
+   "result": "29 tests, all pass, tests untouched",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 29 tests in 0.001s | OK",
+     "ran": 29
+    },
+    "files": {
+     "testo_utils.py": true,
+     "test_testo_utils.py": true
+    },
+    "tests_untouched": true
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 50000,
+   "factor_new": 1.1525,
+   "work": 28587,
+   "actual": 47126,
+   "chat": 18539,
+   "quote_cost": 63247,
+   "calls": 4,
+   "seconds": 46,
+   "ratio_raw": 0.57174,
+   "ratio_new": 0.49608676789587847,
+   "words": 1244,
+   "wt_per_word": 22.979903536977492,
+   "rule_raw": 62200,
+   "ratio_rule": 0.45959807073954984,
+   "options": {
+    "good": 50000
+   },
+   "web_searches": 0,
+   "session_wt": 160117,
+   "run": "A2r",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "article ~1,000 words, then add FAQ and summary",
+   "repeat_of": "A2",
+   "task_it": "Scrivi in italiano un articolo di circa 1.000 parole dal titolo «Lavorare da casa senza perdere la concentrazione» e salvalo nel file articolo.md in questa cartella. Segui questa scaletta:\n1. Introduzione.\n2. Lo spazio di lavoro.\n3. Gli orari e le pause.\n4. Le distrazioni digitali.\n5. Il rapporto con colleghi e famiglia.\n6. Conclusione.",
+   "addition_it": "in fondo all'articolo una sezione «Domande frequenti» con 8 domande e le loro risposte (circa 400 parole in tutto) e, in un file a parte, sintesi.md, una versione breve dell'articolo di circa 200 parole.",
+   "result": "1580 words + summary 180 words",
+   "check": {
+    "words": 1580,
+    "headings2": 7,
+    "faq": true,
+    "sintesi_words": 180
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 2,
+    "setup_questions": false
+   },
+   "addition": {
+    "quoted": true,
+    "raw": 30000,
+    "factor": 0.8117452494471403,
+    "work": 15801,
+    "actual": 32882,
+    "chat": 17081,
+    "quote_cost": 16862,
+    "ratio_raw": 0.5267,
+    "ratio_new": 0.6488488849903616,
+    "share_of_base_work": 0.552733760100745
+   },
+   "addition_flow": {
+    "quoted_by_itself": true
+   }
+  },
+  {
+   "raw": 100000,
+   "factor_new": 1.1525,
+   "work": 44643,
+   "actual": 63344,
+   "chat": 18701,
+   "quote_cost": 63742,
+   "calls": 4,
+   "seconds": 85,
+   "ratio_raw": 0.44643,
+   "ratio_new": 0.38735791757049887,
+   "words": 1982,
+   "wt_per_word": 22.524217961654895,
+   "rule_raw": 99100,
+   "ratio_rule": 0.4504843592330979,
+   "options": {
+    "good": 100000
+   },
+   "web_searches": 0,
+   "session_wt": 127086,
+   "run": "T2r",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "short story, ~2,000 words",
+   "repeat_of": "T2",
+   "task_it": "Scrivi in italiano un racconto di circa 2.000 parole dal titolo «L'ultimo autobus della notte» e salvalo nel file racconto.md in questa cartella. Traccia: Marta, infermiera, finito il turno di notte prende l'ultimo autobus per tornare a casa. A bordo ci sono solo l'autista, un anziano con una valigia e un ragazzo con la chitarra. L'autobus devia per un incidente e si ferma in un quartiere che Marta non conosce. Nell'attesa i quattro parlano, e l'anziano racconta perché viaggia con quella valigia. Il racconto finisce all'alba, quando Marta scende alla sua fermata ed è cambiata qualcosa nel modo in cui guarda il suo lavoro. Narrazione in terza persona, al passato, con dialoghi.",
+   "addition_it": null,
+   "result": "1982 words",
+   "check": {
+    "words": 1982,
+    "headings2": 0
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 120000,
+   "factor_new": 1.1525,
+   "work": 88782,
+   "actual": 120563,
+   "chat": 31781,
+   "quote_cost": 65317,
+   "calls": 7,
+   "seconds": 140,
+   "ratio_raw": 0.73985,
+   "ratio_new": 0.6419522776572668,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 120000
+   },
+   "web_searches": 0,
+   "session_wt": 185880,
+   "run": "C3r",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "small web server (notes API), 20+ tests",
+   "repeat_of": "C3",
+   "task_it": "Scrivi in questa cartella un piccolo server web in Python, solo con la libreria standard (http.server, json), note_server.py, che offre un'API JSON per delle note. Ogni nota ha: id, titolo (obbligatorio, al massimo 100 caratteri), testo, etichette (una lista di parole), creata e modificata (data e ora ISO). Indirizzi:\n- GET /note: tutte le note, con i parametri facoltativi ?etichetta=X e ?cerca=Y (nel titolo e nel testo, senza badare alle maiuscole);\n- GET /note/<id>: una nota;\n- POST /note: crea una nota (risponde 201 con la nota);\n- PUT /note/<id>: cambia i campi dati;\n- DELETE /note/<id>: cancella (risponde 204);\n- GET /etichette: le etichette, con quante note ha ognuna.\nLe note si salvano in note.json (il percorso si può cambiare con un'opzione) e restano dopo un riavvio. Errori: 400 per JSON non valido o campi sbagliati, 404 per note o indirizzi inesistenti, 405 per i metodi non ammessi, sempre con un corpo JSON {\"errore\": \"...\"}. La porta si sceglie da riga di comando (8000 di default). Scrivi test_note_server.py con almeno 20 prove (unittest) che avviano il server su una porta libera in un thread e lo interrogano con urllib, controlla che passino tutte, e un README.md breve in italiano.",
+   "addition_it": null,
+   "result": "33 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 33 tests in 18.592s | OK",
+     "ran": 33
+    },
+    "files": {
+     "note_server.py": true,
+     "test_note_server.py": true,
+     "README.md": true
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 200000,
+   "factor_new": 1.1525,
+   "work": 99684,
+   "actual": 131171,
+   "chat": 31487,
+   "quote_cost": 64549,
+   "calls": 7,
+   "seconds": 105,
+   "ratio_raw": 0.49842,
+   "ratio_new": 0.432468546637744,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 200000
+   },
+   "web_searches": 14,
+   "session_wt": 195720,
+   "run": "R3r",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 12 claims (geography, nature)",
+   "repeat_of": "R3",
+   "task_it": "Verifica sul web queste 12 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Il Monte Everest è il punto della Terra più lontano dal suo centro.\n2. Il Nilo è il fiume più lungo del mondo.\n3. L'Australia è più larga della Luna.\n4. Il deserto più grande del mondo è il Sahara.\n5. Il lago Bajkal contiene circa un quinto dell'acqua dolce superficiale non ghiacciata del pianeta.\n6. Il Canada ha più laghi di tutto il resto del mondo messo insieme.\n7. La Russia ha 11 fusi orari.\n8. Il punto più profondo degli oceani è a circa 11.000 metri.\n9. Gli struzzi nascondono la testa sotto la sabbia quando hanno paura.\n10. Il Vaticano è lo Stato più piccolo del mondo.\n11. In Islanda non ci sono zanzare.\n12. Le formiche non dormono mai.",
+   "addition_it": null,
+   "result": "34 links, 28 levels",
+   "check": {
+    "words": 1164,
+    "headings2": 12,
+    "links": 34,
+    "levels": {
+     "solido": 11,
+     "debole": 7,
+     "smentito": 9,
+     "non verificabile": 1
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 40000,
+   "factor_new": 1.1525,
+   "work": 26393,
+   "actual": 40931,
+   "chat": 14538,
+   "quote_cost": 68261,
+   "calls": 3,
+   "seconds": 19,
+   "ratio_raw": 0.659825,
+   "ratio_new": 0.5725162689804772,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 40000
+   },
+   "web_searches": 0,
+   "session_wt": 109192,
+   "run": "F3r",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": "correzione",
+   "name": "fix a module (6 bugs, 25 tests)",
+   "repeat_of": "F3",
+   "task_it": "In questa cartella ci sono conto.py (un modulo Python con un carrello con IVA, sconti e spedizione, e due conti di finanza: la rata di un mutuo e l'interesse composto) e test_conto.py (le sue prove). Il modulo ha degli errori e diverse prove falliscono (python -m unittest test_conto). Correggi conto.py in modo che passino tutte le prove, senza modificare test_conto.py.",
+   "addition_it": null,
+   "result": "25 tests, all pass, tests untouched",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 25 tests in 0.001s | OK",
+     "ran": 25
+    },
+    "files": {
+     "conto.py": true,
+     "test_conto.py": true
+    },
+    "tests_untouched": true
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 110000,
+   "factor_new": 1.1525,
+   "work": 58367,
+   "actual": 81370,
+   "chat": 23003,
+   "quote_cost": 64320,
+   "calls": 5,
+   "seconds": 59,
+   "ratio_raw": 0.5306090909090909,
+   "ratio_new": 0.4603983435219877,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 110000
+   },
+   "web_searches": 13,
+   "session_wt": 219691,
+   "run": "A3r",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 6 claims, then add 4",
+   "repeat_of": "A3",
+   "task_it": "Verifica sul web queste 6 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Il polpo ha tre cuori.\n2. Le banane sono bacche, le fragole no.\n3. La Torre di Pisa fu costruita storta apposta.\n4. Albert Einstein fu bocciato in matematica a scuola.\n5. Il miele non va mai a male.\n6. I tori si arrabbiano per il colore rosso.",
+   "addition_it": "altre 4 affermazioni da verificare allo stesso modo, nello stesso report.md:\n7. Nello spazio c'è silenzio assoluto.\n8. Capelli e unghie continuano a crescere dopo la morte.\n9. Gli elefanti sono gli unici mammiferi che non sanno saltare.\n10. Il Monte Bianco è la montagna più alta d'Europa.",
+   "result": "24 links, 10 levels",
+   "check": {
+    "words": 1240,
+    "headings2": 10,
+    "links": 24,
+    "levels": {
+     "solido": 5,
+     "debole": 1,
+     "smentito": 4,
+     "non verificabile": 0
+    },
+    "has_added_claims": true
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 2,
+    "setup_questions": false
+   },
+   "addition": {
+    "quoted": true,
+    "raw": 70000,
+    "factor": 0.7820019036247465,
+    "work": 31958,
+    "actual": 53247,
+    "chat": 21289,
+    "quote_cost": 20755,
+    "ratio_raw": 0.45654285714285714,
+    "ratio_new": 0.5838129741458212,
+    "share_of_base_work": 0.54753542241335
+   },
+   "addition_flow": {
+    "quoted_by_itself": true
+   }
+  },
+  {
+   "raw": 60000,
+   "factor_new": 1.1525,
+   "work": 34911,
+   "actual": 58181,
+   "chat": 23270,
+   "quote_cost": 64507,
+   "calls": 5,
+   "seconds": 48,
+   "ratio_raw": 0.58185,
+   "ratio_new": 0.5048590021691974,
+   "words": 1201,
+   "wt_per_word": 29.06827643630308,
+   "rule_raw": 60050,
+   "ratio_rule": 0.5813655287260616,
+   "options": {
+    "good": 60000
+   },
+   "web_searches": 0,
+   "session_wt": 122688,
+   "run": "T4r",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "formal letter, ~1,200 words",
+   "repeat_of": "T4",
+   "task_it": "Scrivi in italiano una lettera formale di circa 1.200 parole e salvala nel file lettera.md in questa cartella. Il comitato di quartiere «Borgo Verde» scrive al sindaco e all'assessore ai lavori pubblici del Comune per chiedere la riqualificazione del parco di via dei Tigli. La lettera deve avere intestazione, destinatari, oggetto, saluto formale e firma, e trattare questi punti: lo stato attuale del parco (giochi rotti, illuminazione insufficiente, panchine danneggiate, rifiuti); chi lo usa e perché è importante per il quartiere; le segnalazioni già fatte negli ultimi due anni senza risposta; le proposte concrete del comitato, in ordine di priorità; la disponibilità dei residenti a collaborare (giornate di pulizia, adozione delle aiuole); la richiesta di un incontro entro 30 giorni. Tono rispettoso ma fermo.",
+   "addition_it": null,
+   "result": "1201 words",
+   "check": {
+    "words": 1201,
+    "headings2": 0
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 120000,
+   "factor_new": 1.1525,
+   "work": 139362,
+   "actual": 166681,
+   "chat": 27319,
+   "quote_cost": 64648,
+   "calls": 6,
+   "seconds": 146,
+   "ratio_raw": 1.16135,
+   "ratio_new": 1.0076789587852495,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 120000
+   },
+   "web_searches": 0,
+   "session_wt": 231330,
+   "run": "C4r",
+   "date": "2026-10-17",
+   "type": "code",
+   "subtype": null,
+   "name": "math library (stats, matrices), 50+ tests",
+   "repeat_of": "C4",
+   "task_it": "Scrivi in questa cartella una libreria Python di calcolo, calcolo.py, senza librerie esterne (niente numpy), con:\n- statistica: media, mediana, moda (anche più di una), varianza e deviazione standard (della popolazione e del campione), percentile (con interpolazione lineare), quartili e scarto interquartile, coefficiente di correlazione di Pearson, regressione lineare (pendenza, intercetta, R²);\n- matrici (liste di liste): somma, prodotto per un numero, prodotto fra matrici, trasposta, determinante, inversa (con l'eliminazione di Gauss e la scelta del pivot), soluzione di un sistema lineare;\n- massimo comun divisore e minimo comune multiplo di più numeri.\nOgni funzione controlla i dati (lista vuota, matrici di dimensioni sbagliate, matrice singolare) e solleva ValueError con un messaggio chiaro. Scrivi le docstring. Scrivi test_calcolo.py con almeno 50 prove (unittest), che confrontano i risultati con valori calcolati a mano (e con il modulo statistics dove si può), e controlla che passino tutte.",
+   "addition_it": null,
+   "result": "85 tests, all pass",
+   "check": {
+    "tests": {
+     "rc": 0,
+     "summary": "Ran 85 tests in 0.003s | OK",
+     "ran": 85
+    },
+    "files": {
+     "calcolo.py": true,
+     "test_calcolo.py": true
+    }
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": false,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 250000,
+   "factor_new": 1.1525,
+   "work": 82196,
+   "actual": 107918,
+   "chat": 25722,
+   "quote_cost": 71540,
+   "calls": 5,
+   "seconds": 81,
+   "ratio_raw": 0.328784,
+   "ratio_new": 0.28527895878524945,
+   "words": null,
+   "wt_per_word": null,
+   "rule_raw": null,
+   "ratio_rule": null,
+   "options": {
+    "good": 250000
+   },
+   "web_searches": 10,
+   "session_wt": 179458,
+   "run": "R4r",
+   "date": "2026-10-17",
+   "type": "research",
+   "subtype": null,
+   "name": "research: 10 claims (technology)",
+   "repeat_of": "R4",
+   "task_it": "Verifica sul web queste 10 affermazioni e scrivi il risultato in italiano nel file report.md in questa cartella. Per ognuna: l'affermazione, se è vera, falsa o vera solo in parte, una spiegazione breve, almeno due link alle fonti che hai usato, e un livello fra: solido / debole / smentito / non verificabile.\n1. Il primo «bug» informatico fu una vera falena trovata in un computer nel 1947.\n2. La tastiera QWERTY fu progettata per rallentare i dattilografi.\n3. I telefoni cellulari possono far esplodere le pompe di benzina.\n4. Bill Gates disse che «640 KB dovrebbero bastare a chiunque».\n5. La legge di Moore dice che i transistor in un chip raddoppiano circa ogni due anni.\n6. Il primo SMS fu inviato nel 1992.\n7. Internet e il World Wide Web sono la stessa cosa.\n8. Caricare il telefono durante la notte rovina la batteria.\n9. Il Bitcoin fu creato da Satoshi Nakamoto nel 2009.\n10. La navigazione in incognito rende anonimi su Internet.",
+   "addition_it": null,
+   "result": "30 links, 24 levels",
+   "check": {
+    "words": 1478,
+    "headings2": 11,
+    "links": 30,
+    "levels": {
+     "solido": 7,
+     "debole": 3,
+     "smentito": 11,
+     "non verificabile": 3
+    }
+   },
+   "quote_form": {
+    "one_line": false,
+    "table": true,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  },
+  {
+   "raw": 80000,
+   "factor_new": 1.1525,
+   "work": 40325,
+   "actual": 59025,
+   "chat": 18700,
+   "quote_cost": 63691,
+   "calls": 4,
+   "seconds": 52,
+   "ratio_raw": 0.5040625,
+   "ratio_new": 0.4373644251626898,
+   "words": 1770,
+   "wt_per_word": 22.782485875706215,
+   "rule_raw": 88500,
+   "ratio_rule": 0.4556497175141243,
+   "options": {
+    "good": 80000
+   },
+   "web_searches": 0,
+   "session_wt": 122716,
+   "run": "T5r",
+   "date": "2026-10-17",
+   "type": "writing",
+   "subtype": null,
+   "name": "summary of a given topic, ~1,500 words",
+   "repeat_of": "T5",
+   "task_it": "Scrivi in italiano un riassunto di circa 1.500 parole sul tema «La storia di Internet, da ARPANET a oggi», pensato per studenti delle scuole superiori, e salvalo nel file riassunto.md in questa cartella. Dividilo in queste sezioni: 1. Le origini militari e universitarie (anni Sessanta e Settanta); 2. Il protocollo TCP/IP e la nascita della rete delle reti; 3. Il World Wide Web di Tim Berners-Lee; 4. Gli anni Novanta: i browser, la bolla delle dot-com; 5. Il Web 2.0 e i social network; 6. Smartphone, cloud e Internet delle cose; 7. Le sfide di oggi: privacy, disinformazione, divario digitale. Chiudi con un breve glossario di 8 termini.",
+   "addition_it": null,
+   "result": "1770 words",
+   "check": {
+    "words": 1770,
+    "headings2": 8
+   },
+   "quote_form": {
+    "one_line": true,
+    "table": false,
+    "words_flag": true,
+    "quote_commands": 1,
+    "setup_questions": false
+   },
+   "addition": null,
+   "addition_flow": null
+  }
+ ]
+}

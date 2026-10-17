@@ -113,7 +113,9 @@ DEFAULTS = {
     # writing_wt_per_word: for a text to write, the quote counts this many wt per word of the final text (50 suggested;
     # the protocol says the margin, from half of it to 1.1 times: 25 to 55). The texts were quoted 4 times under: 10 to
     # 19 wt a word in the quotes, 49 to 56 measured, because the text comes out as output (weight 5, about 6.5 tokens a
-    # word through the Write tool), then goes back into the context and is re-read at every call after it.
+    # word through the Write tool), then goes back into the context and is re-read at every call after it. On 17/10/2026,
+    # with the rule on, 13 more texts cost 23 to 49 wt a word (about 28): 50 quoted them high, 30 to 35 may fit better
+    # (docs/evidence/quote-accuracy.md).
     "writing_wt_per_word": 0,
     # note_web_haiku (1 = on): Claude Code's web searches also run a small model (haiku) that is not in the session's
     # log, so its cost is not in the measure; the report at the end of a research job says so in one line (on the one
