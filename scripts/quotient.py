@@ -39,7 +39,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.1.7"
+VERSION = "1.1.8"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -109,6 +109,27 @@ DEFAULTS = {
     # x1.41 under to x1.06: learned from installments alone, the factor came from a few big book jobs that cost less
     # than quoted, and was applied to smaller jobs that cost more. Only 13 installments: a hint, not a proof.
     "learn_rate_all": 0,
+    # 1.1.8: what 9 small jobs measured in new sessions taught (16/10/2026, no additions halfway). Each one 0 = off.
+    # writing_wt_per_word: for a text to write, the quote counts this many wt per word of the final text (50 suggested;
+    # the protocol says the margin, from half of it to 1.1 times: 25 to 55). The texts were quoted 4 times under: 10 to
+    # 19 wt a word in the quotes, 49 to 56 measured, because the text comes out as output (weight 5, about 6.5 tokens a
+    # word through the Write tool), then goes back into the context and is re-read at every call after it.
+    "writing_wt_per_word": 0,
+    # note_web_haiku (1 = on): Claude Code's web searches also run a small model (haiku) that is not in the session's
+    # log, so its cost is not in the measure; the report at the end of a research job says so in one line (on the one
+    # research job measured: about 12% of the session at list prices, some 14,000 haiku input tokens a search).
+    "note_web_haiku": 0,
+    # small_quote_line (1 = on): a quote the user asks for a job under the threshold is one line (work, total, time,
+    # shares) instead of the full table and the choice window, and the first-use questions wait for the first job above
+    # the threshold: in a new session the full quote cost about 70,000 wt, more than the small job itself.
+    "small_quote_line": 0,
+    # margin_percent: the same job done again cost from -9% to +10%, and the quote of the same task changed too; at the
+    # end of a job a miss under this many percent is said to be within the margin, noise and not a signal (15 suggested).
+    "margin_percent": 0,
+    # requote_on_addition (1 = on): the protocol says that a task added to a job (while it is open or right after it)
+    # gets a quote of its own before it is done. In the author's jobs, those with signs of additions cost x1.82 their
+    # raw quote and the others x1.20; a new quote made halfway came within x0.84 to x1.14 of the real cost.
+    "requote_on_addition": 0,
     # Claude Code runs (claude -p) a Hermes chat starts, counted in its quoted jobs (hermes branch; 1 = on). A SessionStart
     # hook records which Hermes chat started each Claude Code session (Hermes gives HERMES_SESSION_ID to all it
     # starts); when a job closes, what those sessions spent while it was open is added to its cost.
@@ -1904,12 +1925,36 @@ def requote_text(cfg, rq, kind="chat", context=None, lang="en"):
     return "\n".join(lines)
 
 
-def closed_note(row):
+def margin_words(cfg, real, expected):
+    """1.1.8 (margin_percent): ', within the ±15% margin (...)' when the real cost is that near the expected one, else
+    ''. The same job done again cost from -9% to +10% (16/10/2026): a miss that small is noise, not a signal."""
+    margin = float((cfg or {}).get("margin_percent") or 0)
+    if margin <= 0 or not expected or real is None:
+        return ""
+    if abs(real / float(expected) - 1) * 100 >= margin:
+        return ""
+    return (" (x%.2f: within the ±%g%% margin, since the same job done again varies by about ±10%%: say it is within "
+            "the margin)" % (real / float(expected), margin))
+
+
+def web_note(cfg, row, tail="say so in the same line"):
+    """1.1.8 (note_web_haiku): for a research job, or one that searched the web, the line that says the searches' small
+    model is not in the measure; '' otherwise."""
+    if not (cfg or {}).get("note_web_haiku") or not (row.get("type") == "research" or row.get("searches")):
+        return ""
+    n = row.get("searches")
+    return ("; Claude Code's web searches%s also ran a small model (haiku) that is not in the session's log, so its cost "
+            "is not in this measure (on one research job measured, about 12%% of the session at list prices): %s" % (
+                " (%d in this job)" % n if n else "", tail))
+
+
+def closed_note(row, cfg=None):
     """For the agent, at the user's next message after a quoted job closed: what it cost and how long it took."""
     corrected = (row.get("raw_estimate") or 0) * (row.get("factor_used") or 1.0)
     text = ("The last quoted job (level '%s') is closed: real cost %s wt (work %s + chat part %s) against a corrected "
-            "estimate of %s wt of work" % (row.get("choice"), fmt(row.get("actual") or 0), fmt(work_of(row)),
-                                           fmt(row.get("chat") or 0), fmt(corrected)))
+            "estimate of %s wt of work%s" % (row.get("choice"), fmt(row.get("actual") or 0), fmt(work_of(row)),
+                                             fmt(row.get("chat") or 0), fmt(corrected),
+                                             margin_words(cfg, work_of(row), corrected)))
     if row.get("claude"):
         n = row.get("claude_runs") or 1   # hermes branch: the Claude Code runs it started, inside the work
         text += "; of which %s wt in %d Claude Code run%s it started (claude -p)" % (
@@ -1933,7 +1978,7 @@ def closed_note(row):
         # 1.1.4: work done elsewhere meanwhile
         text += ("; while it ran, other sessions (other chats, installments, Hermes) spent %s wt: not in this job, "
                  "but in the limits" % fmt(row["elsewhere"]))
-    return text + ". Tell the user in one line, in their language."
+    return text + web_note(cfg, row) + ". Tell the user in one line, in their language."
 
 
 # The stopwatch: a small file the hooks keep (run while the agent works, pause on the user's turn, end when the job
@@ -2619,11 +2664,84 @@ def pace_options(cfg, options, levels, kind="chat", new_chat=False, wtype=None):
     return found
 
 
-def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=None, lang="en", wtype=None):
+def writing_notes(cfg, options, wtype, words, lang):
+    """1.1.8, the rule for texts in quote-table: a line for the user (the words and what the rule gives) and a note for
+    the agent when its biggest level is under the rule's margin, or when a text is quoted without its words."""
+    it = lang == "it"
+    if not float(cfg.get("writing_wt_per_word") or 0):
+        return [], []
+    rule = writing_raw(cfg, words)
+    if not rule:
+        return [], (["Writing: count about %s wt per word of the final text (TEXTS in the protocol) and run quote-table "
+                     "again with --words <the words of the biggest level>." % fmt(cfg["writing_wt_per_word"])]
+                    if wtype == "writing" else [])
+    top = max(options.values())
+    user = [("Testo di circa %s parole: con la regola dei testi (%s token pesati a parola finale, fra %s e %s) il lavoro "
+             "grezzo è circa %s, fra %s e %s." if it else
+             "A text of about %s words: by the rule for texts (%s weighted tokens per final word, between %s and %s) the "
+             "raw work is about %s, between %s and %s.") % (
+        amount(words, lang), amount(cfg["writing_wt_per_word"], lang), amount(rule[1] / words, lang),
+        amount(rule[2] / words, lang), amount(rule[0], lang), amount(rule[1], lang), amount(rule[2], lang))]
+    agent = []
+    if top < rule[1]:
+        agent.append("[for the agent] Nothing to copy yet. Writing: your biggest level (%s wt raw) is under the rule for "
+                     "%s words (%s to %s, about %s): estimate each level again with the rule and run quote-table again "
+                     "(without --words if the text is not written new, for example a light revision)." % (
+                         fmt(top), "{:,}".format(int(words)), fmt(rule[1]), fmt(rule[2]), fmt(rule[0])))
+    return user, agent
+
+
+def small_quote(cfg, options, kind, context, wtype, lang):
+    """1.1.8 (small_quote_line): a quote for a job under the threshold, in one line: the biggest level's work, chat part,
+    total, time and shares, and a note for the agent (no window, no first-use questions now); None for a job over it.
+    In a new session the full table, the window and the first-use questions cost about 70,000 wt, more than the job."""
+    if not cfg.get("small_quote_line") or kind == "rate":
+        return None
+    it = lang == "it"
+    nums = quote_numbers(cfg, options, kind, context, wtype)
+    top = max(nums["rows"], key=lambda r: r["total"])
+    if top["total"] >= float(cfg["threshold"]):
+        return None
+    parts = ["%s %s" % ("lavoro" if it else "work", amount(top["work"], lang))]
+    if top["chat"] is not None:
+        parts.append(("parte della chat %s" if it else "chat part %s") % amount(top["chat"], lang))
+    shares = []
+    for window, label in (("five_hour", "delle 5 ore" if it else "of the 5 hours"),
+                          ("seven_day", "della settimana" if it else "of the week")):
+        if window in top:
+            shares.append("~%s %s" % (percent(top[window], lang), label))
+    learned = learning(cfg, kind, wtype)
+    line = (("PREVENTIVO, lavoro piccolo (sotto la soglia di %s token pesati): circa %s token pesati (%s)%s%s. Le stime "
+             "non sono garantite e migliorano con l'uso (fattore x%.2f, da %d lavori)." if it else
+             "QUOTE, a small job (under the threshold of %s weighted tokens): about %s weighted tokens (%s)%s%s. The "
+             "estimates are not guaranteed and get more precise with use (factor x%.2f, from %d jobs).") % (
+        amount(cfg["threshold"], lang), amount(top["total"], lang), " + ".join(parts),
+        ((", circa %s" if it else ", about %s") % fmt_duration(top["seconds"])) if top["seconds"] else "",
+        (", " + (" e " if it else " and ").join(shares)) if shares else "", learned["factor"],
+        learned["type_jobs"] if learned["typed"] else learned["kind_jobs"]))
+    raw = round(top["raw"])
+    save_json(os.path.join(home(), "quote-table.json"), {"options": {"good": raw}, "kind": kind, "small": True,
+                                                          "epoch": round(time.time()), "session": chat_id(), "type": wtype})
+    return "\n".join([line, "", "[for the agent, not to copy] A small job: copy the line above as it is, in the user's "
+                      "language, and ask in one short sentence whether to go on: no table, no choice window, and the "
+                      "first-use questions wait for the first job above the threshold. When the user says yes, write "
+                      "`CHOICE: good` and `PACE: today` and do the work.",
+                      "Machine line, in the LAST message of the reply: QUOTE: good=%d%s" % (
+                          raw, " kind=%s" % wtype if wtype else "")]) + "\n"
+
+
+def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=None, lang="en", wtype=None, words=None):
     """The quote, ready: a table of the levels with every number, the pace options and what the free field is for, in
     the user's language; then a few lines for the agent (in English). The agent copies the first part as it is.
-    1.1.4: `wtype` is the type of work (code, writing, research, other), with its own factor once it has its jobs."""
+    1.1.4: `wtype` is the type of work (code, writing, research, other), with its own factor once it has its jobs.
+    1.1.8: `words`, the final words of a text (the rule for texts); one line for a small job (small_quote_line)."""
     it = lang == "it"
+    told_words, check_words = writing_notes(cfg, options, wtype, words, lang)
+    if check_words and words:
+        return "\n".join(check_words) + "\n"     # under the rule for texts: estimated again before anything is shown
+    small = small_quote(cfg, options, kind, context, wtype, lang)
+    if small:
+        return small + "".join(n + "\n" for n in check_words)
     nums = quote_numbers(cfg, options, kind, context, wtype)
     rows = nums["rows"]
     biggest = max(rows, key=lambda r: r["work"])
@@ -2660,6 +2778,8 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
                  time_of(r["seconds"])]
         cells += ([share_of(r, "five_hour")] if kind != "rate" else []) + [share_of(r, "seven_day")]
         lines.append("| " + " | ".join(cells) + " |")
+    if told_words:
+        lines += [""] + told_words
     unknown = []
     if not any(r["seconds"] for r in rows):
         unknown.append("il tempo previsto arriva dopo 3 lavori misurati col tempo" if it else
@@ -2768,6 +2888,7 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
     if not wtype:
         notes.append("Add the type of work to the QUOTE line: kind=code, kind=writing, kind=research or kind=other "
                      "(and run quote-table with --type <it>): each type learns its own factor.")
+    notes += check_words   # 1.1.8: a text quoted without its words
     if len(names) != levels:
         notes.append("For this size (biggest level ~%s wt of corrected work) Quotient gives %d level%s (%s); you gave "
                      "%d. Unless the user asked otherwise, give %d." % (
@@ -2788,6 +2909,8 @@ def quote_gaps(cfg, quote, text, window=()):
     `window` the options of the window's level question (in Hermes, 1.1.5: also the lines of the reply's messages
     before the last one). [(level, ['time', 'shares']), ...], [] when complete."""
     last = load_json(os.path.join(home(), "quote-table.json"), {}) or {}
+    if last.get("small") and last.get("options") == quote:
+        return []     # 1.1.8: a small job's quote is one line (small_quote_line), with no levels to check
     kind = last.get("kind") if last.get("options") == quote else "chat"
     need_time = bool(minutes_per_million(cfg, kind))
     windows = (1 if kind != "rate" and five_capacity(cfg) else 0) + (1 if week_capacity(cfg) else 0)
@@ -2850,30 +2973,81 @@ def cmd_quote_table(args):
         sys.exit("quotient: give the raw estimates as --raw essential=<n> good=<n> max=<n> (1 to 4 levels)")
     context, fresh = (args.context, None) if args.context else chat_context()
     out(quote_table(cfg, options, args.kind, context, fresh, True if args.new_chat else None,
-                    args.lang or cfg.get("lang") or "en", work_type(getattr(args, "type", None))))
+                    args.lang or cfg.get("lang") or "en", work_type(getattr(args, "type", None)),
+                    getattr(args, "words", None)))
+
+
+WRITING_MARGIN = (0.5, 1.1)   # 1.1.8: the margin of writing_wt_per_word, as shares of it (25 to 55 wt a word for 50)
+
+
+def writing_raw(cfg, words):
+    """1.1.8: the raw estimate of a text of `words` final words by the rule for texts (writing_wt_per_word): (estimate,
+    low, high) in wt, or None when the rule is off. With 50: the article of 881 words about 44,000 wt (it cost 49,571),
+    the guide of 5,073 words about 254,000 (it cost 257,043)."""
+    per = float(cfg.get("writing_wt_per_word") or 0)
+    if per <= 0 or not words or words <= 0:
+        return None
+    return words * per, words * per * WRITING_MARGIN[0], words * per * WRITING_MARGIN[1]
+
+
+def writing_rule(cfg):
+    """1.1.8: the rule for texts, in step 1 of the protocol; '' when writing_wt_per_word is off."""
+    per = float(cfg.get("writing_wt_per_word") or 0)
+    if per <= 0:
+        return ""
+    return (" TEXTS (kind=writing): count about %s wt per word of the final text (between %s and %s), its checks and "
+            "edits included, whatever the words alone suggest: the text comes out as output (weight 5, about 6.5 tokens a "
+            "word through the Write tool), then goes back into the context and is re-read at every call after it. For "
+            "example 900 words about %s wt, 5,000 words about %s wt. Give quote-table the words of the biggest level with "
+            "--words <n>." % ("{:,}".format(int(per)) if per == int(per) else per, fmt(per * WRITING_MARGIN[0]),
+                              fmt(per * WRITING_MARGIN[1]), fmt(900 * per), fmt(5000 * per)))
+
+
+def additions_rule(cfg):
+    """1.1.8: what to do when a task is added to a job (requote_on_addition); '' when it is off. Before 1.1.8 the
+    protocol said only that writing during a job adds to its cost: nothing told the agent to quote the new part."""
+    if not cfg.get("requote_on_addition"):
+        return ""
+    return ("ADDITIONS: a message that adds a task to the job (more to do than what was chosen, while the job is open or "
+            "right after it ended; not a fix, an answer or a detail of the same task) gets a quote of its own BEFORE you "
+            "do it: estimate only the new part, as in steps 1-4, and wait for the choice. A new QUOTE line closes the "
+            "open job with what it cost so far, so first finish what was chosen when you can; when the new part cannot "
+            "be told apart from what is left, quote what is left of the whole job with it. Quotient then measures the "
+            "addition against its own quote.")
+
+
+def addition_hint(cfg):
+    """1.1.8: the reminder in the open job's line, only where the ASIDE reminder is (the first message of the job and
+    after a reply counted apart), so the line of every message does not grow; '' when requote_on_addition is off."""
+    return (" If it adds a task to the job, quote the new part before doing it (ADDITIONS)."
+            if cfg.get("requote_on_addition") else "")
 
 
 def protocol(cfg, factor):
     """The full rules, given once at the start of a session (and after a compaction)."""
     cmd = run_cmd()
     sizes = level_sizes(cfg)
-    return "\n".join([
+    small = (" If the user asks for a quote anyway, run quote-table as below: for a job under the threshold it gives "
+             "ONE line, without the table and the window." if cfg.get("small_quote_line") else "")
+    added = (", that a task added to it gets a quote of its own" if cfg.get("requote_on_addition") else "")
+    return "\n".join([x for x in [
         "[Quotient %s] Quote protocol for this session. Unit: weighted tokens (wt) = input + 1.25 x cache write (2 x for 1-hour cache) + 0.1 x cache read + 5 x output, the ratios of the API prices." % VERSION,
-        "WHEN: before work that will likely cost more than the threshold (%s wt), and whenever the user calls a job big or asks for a quote. Do not start the work: quote first. Under the threshold, if nobody asks, just work." % fmt(cfg["threshold"]),
+        "WHEN: before work that will likely cost more than the threshold (%s wt), and whenever the user calls a job big or asks for a quote. Do not start the work: quote first. Under the threshold, if nobody asks, just work.%s" % (fmt(cfg["threshold"]), small),
         "HOW:",
-        "1) Estimate the WORK: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate.%s First the biggest level (the whole job done well), then the smaller ones. HOW MANY LEVELS goes with the size of the biggest, as a corrected estimate (raw x the factor, now x%.2f%s; for installments x%.2f): up to %s wt one level, up to %s two, up to %s three, above that four. Their names, from the smallest: one level `good`; two `good max`; three `essential good max`; four `essential good full max` (or short names of your own, in English). Example for a job of 2 million: essential 400k, good 1M, max 2M." % (claude_runs_text(cfg), factor, mid_text(cfg, factor), learning(cfg, "rate")["factor"], fmt(sizes["one"]), fmt(sizes["two"]), fmt(sizes["three"])),
+        "1) Estimate the WORK: the steps of the job itself (reading, writing, checking). Re-reading, at every call, what the chat already holds (system, tools, rules, the conversation so far) is measured apart and added by Quotient (the CHAT PART line at each message gives it): never put it in the estimate.%s" % writing_rule(cfg) + "%s First the biggest level (the whole job done well), then the smaller ones. HOW MANY LEVELS goes with the size of the biggest, as a corrected estimate (raw x the factor, now x%.2f%s; for installments x%.2f): up to %s wt one level, up to %s two, up to %s three, above that four. Their names, from the smallest: one level `good`; two `good max`; three `essential good max`; four `essential good full max` (or short names of your own, in English). Example for a job of 2 million: essential 400k, good 1M, max 2M." % (claude_runs_text(cfg), factor, mid_text(cfg, factor), learning(cfg, "rate")["factor"], fmt(sizes["one"]), fmt(sizes["two"]), fmt(sizes["three"])),
         "2) Let Quotient work the numbers out: run `%s quote-table --raw essential=<n> good=<n> max=<n>` with your raw estimates (add `--kind rate` when the job is surely in installments, `--lang it|en` for the user's language). It gives, for each level, the corrected work, the chat part, the total, the expected TIME and the share of the 5 hours and of the week with what is left, then the pace options that fit the job's size, what the free field is for, and the week. Copy its table into your message AS IT IS: do not work these numbers out yourself and leave none out. The end of the reply checks it: a quote that lacks the time or the shares of a level is sent back at the next message." % cmd,
         "3) Write one machine line with your RAW estimates, always in English, 1 to 4 levels from the smallest, and the TYPE of the work: QUOTE: essential=<n> good=<n> max=<n> kind=<type>. The type is one of code (programs, scripts), writing (texts, a book), research (web searches, checking sources) or other (a mix, or anything else): pass the same with `--type <type>` to quote-table (and to rate new / rate apart). Each type learns its own correction factor, because each goes wrong in its own way.",
         "4) Open the choice window: call the AskUserQuestion tool with two questions in the user's language. 'Livello'/'Level': one option per level, its name and total in the label, what it includes and the table's time and shares in the description; with one level, ask only the pace (a question needs two options). 'Ritmo'/'Pace': the pace options of the table, as they are: all today; 'in a new chat' when this chat is long; 'a parte, adesso'/'apart, now' (the job starts at once as one installment in a separate session: its measure is clean and this chat does not re-read it; it costs the user this: they cannot talk to it while it works, the task must be written well, it asks no questions halfway, a command that needs a permission may stop it); installment plans in days, 2 or 3 for a small job and up to 7 for a big one. One installment = ONE DAY of work: always write a plan in days and per-day amount, e.g. '2 giorni: circa 250.000 token al giorno', '5 giorni: circa 100.000 token al giorno'; never write 'N rate'/'N installments' alone. The window shows 4 options at most per question and adds by itself a free field ('Other'/'Altro'): say what it is for. For the level, a choice of the user's own, e.g. a mix (part of good and part of max); for the pace, how many days, how much a day and AT WHAT TIME (e.g. '5 giorni alle 2:00', '50.000 al giorno'). Say the estimates are not guaranteed and get more precise with use. If the tool is not available, ask the same in text.",
         "Numbers for the user: in words and with the unit ('1,1 milioni di token pesati', not '1.1M'). A range is the margin of the estimate: write it as 'fra 0,7 e 2 milioni' and say so; never bare numbers in parentheses.",
-        "5) After the answer write `CHOICE: <level>`. A choice written in the free field: estimate it (raw, as the levels) and write `CHOICE: custom=<n>` (or a short name of your own with its estimate): Quotient measures the job against that estimate. Then one of `PACE: today`, `PACE: apart`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>` (add `at=HH:MM` when the user gave a time; the user's own words work too). Apart: write what the whole job is to a file, with everything a session that cannot ask needs, then run `%s rate apart <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level>`: it starts at once in the background, and its report comes back to this chat when it ends." % cmd + " If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. Right after the choice, tell the user in one line that writing to you while the job runs adds to its cost, and that messages about something else are counted apart: while the job is open, a reply that is not about it ends with the line `ASIDE` (the job stays open; Quotient counts that reply apart from the work). New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % cmd,
+        "5) After the answer write `CHOICE: <level>`. A choice written in the free field: estimate it (raw, as the levels) and write `CHOICE: custom=<n>` (or a short name of your own with its estimate): Quotient measures the job against that estimate. Then one of `PACE: today`, `PACE: apart`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>` (add `at=HH:MM` when the user gave a time; the user's own words work too). Apart: write what the whole job is to a file, with everything a session that cannot ask needs, then run `%s rate apart <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level>`: it starts at once in the background, and its report comes back to this chat when it ends." % cmd + " If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. Right after the choice, tell the user in one line that writing to you while the job runs adds to its cost%s, and that messages about something else are counted apart: while the job is open, a reply that is not about it ends with the line `ASIDE` (the job stays open; Quotient counts that reply apart from the work). New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % (cmd, added),
         "Machine lines (QUOTE, CHOICE, PACE, JOB, ASIDE, LIMITS) go in the LAST message of your reply, the one after your last tool call: a progress note written in the middle of a reply may be kept only as a summary, and then Quotient never sees them. Write QUOTE and CHOICE once: later replies of the same job carry only the JOB line.",
+        additions_rule(cfg),
         "6) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n> (and --at HH:MM for the time); a pace the user wrote in the free field goes as it is with --pace \"<their words>\": Quotient reads the days, the amount a day and the time from it. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at the time of the plan, 03:00 unless they gave another), 'Ogni giorno'/'Every day' (the daily time; free field; leave it out when the pace already gave the time: `rate schedule <name>` uses it) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: whoever turned the PC on, it sleeps only when nobody is using it, after a 2-minute warning). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (without --time: the time of the plan; add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely. Each installment's report comes back to the chat that ran `rate new`, at the user's next message there (other chats get a one-line notice, twice at most); `rate here <name>` run in another chat moves the reports there." % (cmd, cmd),
         "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them (in Claude Code also how many wt 1% holds); quote-table works out each level's share. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
         "Read the limits before running quote-table, so its shares are fresh. When the table says a level does not fit in what is left of the 5 hours, say so in the window and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left; at the next message Quotient gives the job's real cost and working time against the expected ones: tell them in one line.",
         "WEEK: before creating installments, run `%s rate week`: it adds up all open installment jobs until the weekly limit resets, against what is left minus a reserve for normal use (%d%%). If the new job would not fit with the others, say so in the window and offer: keep all, slow some down (`rate set <name> --daily <n>`), pause some (`rate pause <name>`), or pace the new one over more days." % (run_cmd(), cfg["week"]["reserve_percent"]),
         "Every decision Quotient needs from the user goes through the choice window, with a free field.",
-    ]) + "\n"
+    ] if x]) + "\n"
 
 
 NOTICES_MAX = 2         # one-line notices in other chats about a report waiting in its own chat
@@ -3005,8 +3179,11 @@ def report_lines(name, job, runs, told, folder):
                       if spent >= expected else
                       "; by the quote, about %d more installment(s)." % math.ceil((expected - spent) / max(1, job["daily_cap"])))
         else:
-            total += "."
+            total += margin_words(config(), spent, expected) + "."   # 1.1.8 (margin_percent)
     lines.append(total)
+    web = web_note(config(), job, "say so with the real cost") if job.get("status") == "done" else ""
+    if web:
+        lines.append("Note:" + web[1:] + ".")   # 1.1.8 (note_web_haiku), a research job
     left = remaining(job, runs) if job.get("status") != "done" else None
     if left and left[0] < 100:
         lines.append("The installments say ~%.0f%% of the whole job is done: at the cost so far, about %s wt remain, "
@@ -3249,7 +3426,11 @@ def compaction_summary():
 
 
 def setup_instructions(cfg):
-    return ("FIRST USE: Quotient is not set up yet. At the user's first message in this session, before anything else, "
+    # 1.1.8 (small_quote_line): the first-use questions wait for the first job above the threshold
+    when = ("Before the first quote of a job above the threshold (%s wt; a small job does not need these questions), or "
+            "when the user asks to set it up, " % fmt(cfg["threshold"]) if cfg.get("small_quote_line") else
+            "At the user's first message in this session, before anything else, ")
+    return ("FIRST USE: Quotient is not set up yet. " + when +
             "open the choice window (AskUserQuestion) in the user's language with four questions, each with a free field: "
             "'Soglia'/'Threshold' (from how many weighted tokens a job gets a quote: 100.000 = often, 300.000 = the default, "
             "1.000.000 = only huge jobs); 'Riserva'/'Reserve' (share of the weekly limit kept for normal use: 10%%, 20%%, 30%%); "
@@ -3464,7 +3645,7 @@ def hook_prompt():
         if state.get("aside_told") != (job.get("started") or "job"):
             # 1.1.7: at the first message of the job and after a reply counted apart; the protocol explains ASIDE
             line += (" If this message is about something else, answer it and end the reply with the line ASIDE "
-                     "instead: the job stays open and that reply is counted apart.")
+                     "instead: the job stays open and that reply is counted apart.") + addition_hint(cfg)
             aside_told = job.get("started") or "job"
         lines.append(line + pace_note(job.get("raw_estimate"), job.get("factor_used"),
                                       job.get("actual") - (job.get("aside") or 0), job.get("seconds"), cfg,
@@ -3774,6 +3955,9 @@ def hook_stop():
     q_text, q_actions, q_actions_wt = quotient_weight(cfg, main, text, state.get("q_chars", 0), new_chars)
     now = {"cost": total, "chat": chat_part(main, 0, base, w), "older": chat_part(main, fresh, base, w),
            "q_text": q_text, "q_actions": q_actions, "q_actions_wt": q_actions_wt}
+    if cfg.get("note_web_haiku"):
+        # 1.1.8: the web searches of the reply, for the line on their small model at the end of the job
+        now["searches"] = sum(1 for c in main for b in c["tools"] if b.get("name") == "WebSearch")
     if repeat and "cost" not in seen:
         seen = dict(seen, cost=seen.get("counted", 0))  # a turn counted by 0.9.1
     delta = {k: max(0, v - ((seen.get(k) or 0) if repeat else 0)) for k, v in now.items()}
@@ -3860,10 +4044,12 @@ def hook_stop():
                 job["progress"] = progress
         if not repeat:
             add_families(job, families)
+        if delta.get("searches") and not aside:
+            job["searches"] = (job.get("searches") or 0) + delta["searches"]
         if quote or not (continues or aside):
             close_job(job, cfg)
             state["closed"] = {"options": job.get("options"), "choice": job.get("choice")}
-            state["last_closed"] = closed_note(job)
+            state["last_closed"] = closed_note(job, cfg)
             state["job"] = None
             note_chat_job(sid, None)
         else:
@@ -3898,6 +4084,8 @@ def hook_stop():
                 job["custom"] = True     # 1.1.3: measured against the agent's estimate of the user's own choice
             if source.get("type"):
                 job["type"] = source["type"]   # 1.1.4: its type learns its own factor
+            if delta.get("searches"):
+                job["searches"] = delta["searches"]   # 1.1.8 (note_web_haiku)
             if progress is not None:
                 job["progress"] = progress
             if pace == "new-chat":
@@ -3920,7 +4108,7 @@ def hook_stop():
                 else:
                     close_job(job, cfg)
                     state["closed"] = {"options": job.get("options"), "choice": job.get("choice")}
-                    state["last_closed"] = closed_note(job)
+                    state["last_closed"] = closed_note(job, cfg)
     elif pending and not repeat:
         pending["age"] = pending.get("age", 0) + 1
         if pending["age"] > cfg["pending_ttl_turns"]:
@@ -5358,7 +5546,7 @@ COMMANDS = [
     ("hermes", "Hermes Agent chats (same Claude login, same limits): read its token counters now",
      "le chat di Hermes Agent (stesso login di Claude, stessi limiti): legge adesso i suoi contatori dei token"),
     ("export", "the exact line sharing sends for each finished job", "la riga esatta che la condivisione manda per ogni lavoro finito"),
-    ("quote-table --raw essential=N good=N max=N [--kind rate] [--type code|writing|research|other] [--lang it|en]",
+    ("quote-table --raw essential=N good=N max=N [--kind rate] [--type code|writing|research|other] [--words N] [--lang it|en]",
      "the quote worked out by Quotient: every number of each level (time, share of the 5 hours and of the week) and the pace options; the agent copies it",
      "il preventivo calcolato da Quotient: ogni numero di ogni livello (tempo, parte delle 5 ore e della settimana) e le scelte del ritmo; l'agente lo copia"),
     ("fix [list] / fix merge <a> <b> / fix exclude <job> [--why ...] / fix undo",
@@ -7589,6 +7777,7 @@ def main(argv=None):
     p.add_argument("--context", type=int, help="tokens each step re-reads now (Hermes: the CHAT PART line)")
     p.add_argument("--new-chat", action="store_true", help="offer 'in a new chat' among the pace options")
     p.add_argument("--type", help="the type of work: code, writing, research or other (each learns its own factor)")
+    p.add_argument("--words", type=int, help="1.1.8: the final words of a text (biggest level), for the rule for texts")
     p = sub.add_parser("fix", help="the guided repair of the measures: list, merge <a> <b>, exclude <job>, chat <job>, undo")
     p.add_argument("what", nargs="?", choices=("list", "merge", "exclude", "chat", "undo"), default="list")
     p.add_argument("jobs", nargs="*", help="jobs: their number in the report or their key (see fix list)")

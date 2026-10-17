@@ -206,7 +206,7 @@ def pre_llm_call(q, payload):
         text += "."
         if not open_job.get("aside_told"):
             # 1.1.7: at the first message of the job and after a reply counted apart; the protocol explains ASIDE
-            text += ASIDE_TEXT
+            text += ASIDE_TEXT + q.addition_hint(cfg)   # 1.1.8: and a task added to the job gets its own quote
             open_job["aside_told"] = True
         text += q.pace_note(open_job["raw_estimate"], open_job.get("factor"), spent - (open_job.get("aside") or 0),
                             open_job.get("seconds"), cfg, open_job.get("progress"), open_job.get("packages"))
@@ -294,7 +294,7 @@ def _close(q, cfg, chat, totals, calls, how):
             row["claude_sessions"] = [r.get("session") for r in runs["runs"] if r.get("session")]   # not counted again as work elsewhere
             q.add_families(row, runs["families"])
     q.close_job(row, cfg)
-    chat["last_closed"] = q.closed_note(row)
+    chat["last_closed"] = q.closed_note(row, cfg)
     return row
 
 
