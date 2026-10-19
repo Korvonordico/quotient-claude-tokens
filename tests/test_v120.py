@@ -35,7 +35,7 @@ class TestDefaults(Base):
         spec.loader.exec_module(fresh)
         for key, value in NEW.items():
             self.assertEqual(fresh.DEFAULTS[key], value, key)
-        self.assertRegex(fresh.VERSION, r"^d+.d+.d+$")
+        self.assertRegex(fresh.VERSION, r"^\d+\.\d+\.\d+$")
 
 
 class TestCleanJobs(V119):
