@@ -208,7 +208,10 @@ had never seen, each in a fresh session as a new user, paid with API credits so 
 | Batch A, 1.1.8's start (the shared average, x1.15) | 15 | 96% | 2 | x0.51 |
 | Batch A, 1.1.9 first version (x0.58 for every type) | 15 | 49% | 7 | x1.01 |
 | Batch B, 1.1.8's start (x1.15) | 12 | 136% | 4 | x0.42 |
-| Batch B, 1.1.9 as released (start by type, rule for texts) | 12 | 12% | 7 | x0.94 |
+| Batch B, 1.1.9 (start by type, rule for texts) | 12 | 12% | 7 | x0.94 |
+| Batch C, 1.1.8's start (x1.15) | 30 | 111% | 2 | x0.47 |
+| Batch C, 1.1.9 as released (other x0.40) | 30 | 27% | 15 | x0.87 |
+| Batches B and C together, 1.1.9 | 42 | 22% | 22 | x0.89 |
 
 Batch A showed that one factor for every type was not enough: texts cost about twice their quote, research about half.
 1.1.9 then got a start by type, from the 64 clean jobs so far (code x0.70, research x0.35, other x0.58) and the rule for
@@ -216,7 +219,9 @@ texts at 27 weighted tokens per final word (20 measured texts: 20 to 56 a word, 
 used to set them: texts within 4% on the median (3 of 4 within 30%), code 8%, research 41%, and the two "other" tasks,
 which the agent quoted as code, about twice too high.
 
-What this does not say: 12 jobs are few, and a 12% median is partly luck; they are small jobs (11,000 to 350,000 raw)
+Batch C, 30 more new tasks, was the confirmation, and it showed that the 12% of batch B was partly luck: 27% typical miss, 15 of 30 within 30%, against 111% with 1.1.8's start. Texts (17%) and research (16%) held; code was quoted too high this time (x0.63 the corrected quote, 58%), and the mixed tasks spread both ways. Batches B and C together: 22% on 42 jobs.
+
+What this does not say: these are few jobs; they are small jobs (11,000 to 350,000 raw)
 in fresh sessions, where nothing is added halfway. In a long chat, and when the user adds tasks during the work, real
 jobs miss more: on the author's own clean chat jobs 1.1.9's learning gave a 43% typical miss (11 jobs). One job of 16
-in batch A went unmeasured: the agent closed it without writing its choice. API cost of the two batches: about 11 dollars.
+in batch A went unmeasured: the agent closed it without writing its choice. API cost of the three batches: about 23 dollars.
