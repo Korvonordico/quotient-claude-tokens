@@ -4367,6 +4367,17 @@ def run_pieces(name, sid):
     return ((load_json(pieces_path(name), {}) or {}).get(str(sid or "")) or {}).get("pieces") or []
 
 
+def step_weight(usage, cfg, first=False):
+    """1.2.2: the cost of one step, to size the reserve that closes an installment. The first call of a new session also
+    writes the whole start to the cache (about 100k wt), once: no later step pays it again, so with rate.start_fixed it
+    counts as if its prompt were read from the cache (19/10/2026: counted whole, it made a 155k installment refuse its
+    first read)."""
+    if first and (cfg.get("rate") or {}).get("start_fixed"):
+        w = cfg["weights"]
+        return prompt_tokens(usage) * w["cache_read"] + (usage.get("output_tokens") or 0) * w["output"]
+    return weigh(usage, cfg["weights"])
+
+
 def hook_pretool():
     """Inside an installment run: in the last part of the day's cap only saving passes (Write, Edit, a here-document);
     when the cap is spent, only the handoff update."""
@@ -4387,7 +4398,7 @@ def hook_pretool():
     # 06/10/2026: three installments ended 9%, 23% and 9% over the cap, because the check comes before a tool
     # call and the calls after it (updating the handoff, the last answer) still cost. So new work stops
     # when what is spent plus the next steps (the size of the latest calls) would reach the cap.
-    recent = [weigh(c["usage"], cfg["weights"]) for c in ordered_calls(entries)][-3:]
+    recent = [step_weight(c["usage"], cfg, i == 0) for i, c in enumerate(ordered_calls(entries))][-3:]
     reserve = min(cfg["rate"]["reserve_calls"] * max(recent or [0]), cap * cfg["rate"]["reserve_max_share"])
     saving = cap * (1 - float(cfg["rate"].get("save_percent") or 0) / 100.0)
     if spent + reserve < min(cap, saving):

@@ -7,7 +7,7 @@ import os
 import unittest
 from unittest import mock
 
-from test_quotient import Base, pv
+from test_quotient import Base, pv, usage
 
 NEW = {"start_fixed": 1, "min_cap_starts": 1.5}
 
@@ -130,6 +130,29 @@ class TestCaps(V122):
         self.assertFalse(sub.run.called or sub.Popen.called)
         self.assertEqual(pv.load_json(os.path.join(pv.rate_dir("post"), "job.json"), None)["last_skip"]["room"],
                          120000)
+
+
+class TestReserve(V122):
+    """19/10/2026: the reserve that closes an installment counted the first call's start as a step, and a 155k
+    installment refused its first read after the start alone (103k)."""
+
+    def test_the_start_is_not_a_step(self):
+        cfg = pv.config()
+        first = usage(inp=8, write=54000, read=12000, output=500, write_1h=54000)
+        self.assertGreater(pv.step_weight(first, cfg), 100000)
+        self.assertAlmostEqual(pv.step_weight(first, cfg, first=True), 66008 * 0.1 + 500 * 5)
+        off = dict(cfg, rate=dict(cfg["rate"], start_fixed=0))
+        self.assertEqual(pv.step_weight(first, off, first=True), pv.step_weight(first, off))
+
+    def test_a_read_after_the_start_passes(self):
+        self.new_job(daily=155000)
+        self.t.user("installment")
+        self.t.call("c0", usage(inp=8, write=54000, read=12000, output=500, write_1h=54000), tools=1)   # ~113k wt
+        self.t.tool_result()
+        with mock.patch.dict(os.environ, {"QUOTIENT_JOB": "post"}):
+            said = self.run_hook(pv.hook_pretool, {"transcript_path": self.t.path, "tool_name": "Read",
+                                                   "tool_input": {"file_path": "README.md"}})
+        self.assertEqual(said, "")
 
 
 if __name__ == "__main__":
