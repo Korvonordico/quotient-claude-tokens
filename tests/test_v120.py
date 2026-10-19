@@ -10,7 +10,7 @@ from unittest import mock
 from test_quotient import Base, pv
 
 NEW = {"learn_clean_only": 1, "start_factor": 0.58, "requote_on_addition": 1, "clean_max_turns": 1,
-       "writing_wt_per_word": 27, "start_factors": {"code": 0.70, "research": 0.35, "writing": 1.0, "other": 0.58}}
+       "writing_wt_per_word": 27, "start_factors": {"code": 0.70, "research": 0.35, "writing": 1.0, "other": 0.40}}
 
 
 class V119(Base):
@@ -98,7 +98,7 @@ class TestStartByType(V119):
 
     def test_each_type_starts_from_its_own(self):
         cfg = pv.config()
-        for wtype, factor in (("code", 0.70), ("research", 0.35), ("writing", 1.0), ("other", 0.58)):
+        for wtype, factor in (("code", 0.70), ("research", 0.35), ("writing", 1.0), ("other", 0.40)):
             learned = pv.learning(cfg, "chat", wtype)
             self.assertAlmostEqual(learned["factor"], factor, places=3, msg=wtype)
             self.assertTrue(learned["typed"])
