@@ -344,5 +344,50 @@ class TestLimitsLeft(Base):
             self.assertIsNone(pv.refresh_limits(pv.config()))     # tried just now: not before a minute
 
 
+
+class TestReadingsWithoutAJob(Base):
+    """1.1.8, found in the new-user test of 19/10/2026: Claude Code without the status line (desktop app, claude -p) read
+    the limits only while a job was open, so the first quote had no shares and the line no tokens left."""
+
+    def setUp(self):
+        super().setUp()
+        live = mock.patch.dict(os.environ, {"QUOTIENT_LIMITS_LIVE": "1"})
+        live.start()
+        self.addCleanup(live.stop)
+        import limits_usage
+        self.fetch = mock.patch.object(limits_usage, "fetch", side_effect=AssertionError("a hook waited for /usage")).start()
+        self.started = mock.patch.object(pv, "start_detached", return_value=True).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def prompt(self):
+        self.t.user("hi")
+        self.t.call("a", usage(output=10), texts=["Hello."])
+        return self.run_hook(pv.hook_prompt, {"session_id": "s1", "transcript_path": self.t.path})
+
+    def test_a_reading_with_no_job_open(self):
+        self.prompt()
+        self.fetch.assert_not_called()                                   # in the background: the message never waits
+        self.assertEqual(self.started.call_args.args[0], ["limits-read", "--every", "60"])
+
+    def test_not_when_the_status_line_just_gave_them(self):
+        pv.record_limits({"five_hour": 10, "seven_day": 3}, "statusline")
+        self.prompt()
+        self.started.assert_not_called()
+
+    def test_again_when_the_status_line_is_old(self):
+        pv.record_limits({"five_hour": 10, "seven_day": 3}, "statusline")
+        rows = pv.read_jsonl(pv.limits_path())
+        rows[-1]["epoch"] -= 900
+        with open(pv.limits_path(), "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in rows))
+        self.prompt()
+        self.assertEqual(self.started.call_args.args[0], ["limits-read", "--every", "60"])
+
+    def test_an_installment_never_reads_from_the_prompt_hook(self):
+        with mock.patch.dict(os.environ, {"QUOTIENT_JOB": "x"}):
+            self.prompt()
+        self.started.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

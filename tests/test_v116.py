@@ -165,7 +165,8 @@ class TestLimitsDuringAJob(Cli):
         soon.assert_called_once()
         with mock.patch.object(pv, "limits_soon") as soon:
             self.run_hook(pv.hook_prompt, {"session_id": "s2", "transcript_path": self.t.path})
-        soon.assert_not_called()                                     # no job: the usual pace
+        soon.assert_called_once()                                    # 1.1.8: no job: a reading too, at the usual pace
+        self.assertEqual(soon.call_args.args[1], 60)
 
 
 import socket

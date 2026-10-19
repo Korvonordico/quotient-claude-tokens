@@ -3594,6 +3594,14 @@ def hook_prompt():
     state = load_json(session_path(sid), {})
     learned = learning(cfg)
     hints = []
+    if not state.get("job"):
+        # 1.1.8: with no job open too, a reading in the background (at most every limits.every seconds), as in Hermes.
+        # Claude Code without the status line (the desktop app, claude -p) read the limits only while a job was open, so
+        # a new user's first quote had no shares and the line no tokens left (found in the test of 19/10/2026). Not when
+        # the status line has just given them.
+        last = read_jsonl(limits_path(), tail_bytes=4096)
+        if not (last and last[-1].get("source") == "statusline" and time.time() - (last[-1].get("epoch") or 0) < 600):
+            limits_soon(cfg, limits_every(cfg))
     ctx = context_size(path)
     chat_line = chat_hint(cfg, ctx, state.get("fresh") or first_context(path)) if ctx else None
     current = limits_line("en")

@@ -25,6 +25,10 @@ And one more, from a test on the author's own jobs:
 
 - **Installments can learn from all your jobs** (`learn_rate_all`, off by default). The user asked to check the estimates against the jobs already measured: a walk-forward test on the author's 51 jobs, each one estimated only with the jobs finished before it (45 of them with at least 5 before), compared the method of 1.1.7 with no correction, one median of all the jobs before, a correction by size and a median that weighs recent jobs more. For chat jobs no method was better in a stable way (the gains changed sign as soon as a few jobs were left out), so nothing changes for them. For installments, learning from all the jobs (chat jobs and installments, the last `history_window`, without `learn_min_raw`, `learn_max_speed` and the types) brought the typical miss from 48% to 34% and the lean from x1.41 under the real cost to x1.06, and it was at least 22% better in each of six checks (later jobs only, without the jobs measured wrong, and so on). Learned from installments alone, the factor came from a few big book jobs that cost less than quoted and was applied to smaller jobs that cost more. Only 13 installments (8 better, 5 worse): a hint, not a proof, so it stays off until the user turns it on (`config learn_rate_all 1`). The report and the quote say when the installments learn from all the jobs.
 
+### Fixed
+
+- **No limits without the status line.** Claude Code without Quotient's status line (the Claude desktop app, `claude -p`, or a user who did not set it up) read the limits only while a job was open: a new user's first quote had no shares of the 5 hours and the week, and the line could not say the tokens left. Found in a test as a new user on 19/10/2026. Now each message with no job open starts a reading in the background too, at most every `limits.every` seconds, as in Hermes; not when the status line gave them in the last 10 minutes. No message waits for it and it spends no tokens.
+
 ## [1.1.7] - 2026-10-16
 
 ### Added
