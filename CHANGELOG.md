@@ -2,6 +2,20 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.1.9] - 2026-10-19
+
+### Changed
+
+Asked by the user on 19/10/2026 ("the forecast is always wrong"). The author's 58 measured jobs showed where the misses came from: a chat job where the user wrote nothing during the work cost about x0.56 its raw quote (12 jobs), a chat job where the user wrote during the work, mostly adding tasks, about x1.49 (27 jobs). One factor learned from both was wrong both ways.
+
+- **The chat factor learns from clean jobs only** (`learn_clean_only`, on; `clean_max_turns` 1). A clean job is a chat job with at most one turn (replies counted apart with ASIDE are not turns). Installments keep their rules: their turns are runs. Walk-forward on the author's jobs with the real code: the clean jobs' typical miss went from 60% to 43% and their lean from x0.65 to x1.01 (11 jobs: a hint, not a proof); the jobs with additions are missed more (126% to 157%), which is why the next point matters.
+- **A task added during a job gets its own quote** (`requote_on_addition`, now on; it was off in 1.1.8).
+- **New users start from x0.58** (`start_factor`): what the 49 clean jobs of `docs/evidence` cost against their raw quotes; until there are 5 clean jobs, rows at this factor fill the gap, instead of the shared average (which had too few jobs). With a learned factor those 49 jobs were within 33% on the median, against 75% raw. `config start_factor 0` brings back the shared average.
+- The medium band (hermes branch, `learn_mid_min`) also learns from clean jobs only.
+- README EN/IT: what 1.1.9 changes in the learning; under the picture of the limits, that its numbers come from a Max 5x plan and that Anthropic can change the limits at any time. Site: version, and how the factor starts.
+
+Tested and not kept: estimating the number of steps instead of the tokens. The cost follows the steps closely (on the author's jobs, with the true number of steps, the typical miss would be 39%), but asked through the API to foresee its steps for the 49 test tasks, Claude missed them by about 50%, and steps times the cost of a step missed the cost by 40-46%, worse than a learned factor (33%).
+
 ## [1.1.8] - 2026-10-19
 
 ### Added
@@ -391,6 +405,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.1.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.9
 [1.1.8]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.8
 [1.1.7]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.7
 [1.1.6]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.6

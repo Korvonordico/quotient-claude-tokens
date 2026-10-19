@@ -10,7 +10,7 @@ from unittest import mock
 
 from test_quotient import Base, pv, usage
 
-KEYS = ("writing_wt_per_word", "note_web_haiku", "small_quote_line", "margin_percent", "requote_on_addition")
+KEYS = ("writing_wt_per_word", "note_web_haiku", "small_quote_line", "margin_percent")   # requote_on_addition: on from 1.1.9 (test_v120)
 
 
 class TestOffByDefault(Base):

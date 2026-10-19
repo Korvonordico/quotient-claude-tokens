@@ -84,6 +84,12 @@ class Base(unittest.TestCase):
             patcher = mock.patch.object(pv, name, return_value=value)
             patcher.start()
             self.addCleanup(patcher.stop)
+        # 1.1.9: the tests written before it keep the 1.1.8 learning (clean jobs only, the start factor and a quote for
+        # each addition were off); tests/test_v120.py turns them on as they are by default
+        self.v118_learning = mock.patch.dict(pv.DEFAULTS, {"learn_clean_only": 0, "start_factor": 0,
+                                                            "requote_on_addition": 0})
+        self.v118_learning.start()
+        self.addCleanup(self.v118_learning.stop)
         # tests do not see the numbers shipped with the plugin unless they ask for them
         self.bundled = mock.patch.object(pv, "bundled_average_path", return_value=os.path.join(self.dir, "none.json"))
         self.bundled.start()

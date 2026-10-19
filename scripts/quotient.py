@@ -39,7 +39,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.1.8"
+VERSION = "1.1.9"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -131,7 +131,20 @@ DEFAULTS = {
     # requote_on_addition (1 = on): the protocol says that a task added to a job (while it is open or right after it)
     # gets a quote of its own before it is done. In the author's jobs, those with signs of additions cost x1.82 their
     # raw quote and the others x1.20; a new quote made halfway came within x0.84 to x1.14 of the real cost.
-    "requote_on_addition": 0,
+    # 1.1.9: on for everyone (it was off in 1.1.8): with additions counted in the same job its quote could not be
+    # right, and the factor learned the additions as if they were misses (see learn_clean_only).
+    "requote_on_addition": 1,
+    # learn_clean_only (1.1.9, 1 = on): the chat jobs' factor learns only from CLEAN jobs, those where the user wrote
+    # nothing during the work (turns, replies counted apart excluded, at most clean_max_turns). On the author's jobs
+    # (19/10/2026) a clean job cost x0.56 its raw quote and a job with messages during the work x1.49 (the user added
+    # tasks): one factor for both learned the mix, so it was too low for some jobs and too high for the others. With
+    # the clean jobs alone the typical miss of the clean jobs went from 85% to 50%; on the 49 jobs of docs/evidence
+    # (all clean) a learned factor gave 33% against 75% raw. Installments keep their own rules (their turns are runs).
+    "learn_clean_only": 1,
+    "clean_max_turns": 1,
+    # start_factor (1.1.9): until there are min_jobs clean chat jobs, rows at this factor fill the gap (instead of the
+    # shared average): the 49 clean jobs of docs/evidence cost x0.58 their raw quote. 0 = the shared average as before.
+    "start_factor": 0.58,
     # Claude Code runs (claude -p) a Hermes chat starts, counted in its quoted jobs (hermes branch; 1 = on). A SessionStart
     # hook records which Hermes chat started each Claude Code session (Hermes gives HERMES_SESSION_ID to all it
     # starts); when a job closes, what those sessions spent while it was open is added to its cost.
@@ -1245,7 +1258,7 @@ def mid_factor(cfg):
     if not (cfg.get("learn_mid_min") and cfg.get("learn_min_raw")):
         return None
     jobs = [j for j in finished_jobs() if kind_of(j) == "chat" and mid_band(cfg, j.get("raw_estimate"))
-            and not too_fast(j, cfg)]
+            and not too_fast(j, cfg) and (not cfg.get("learn_clean_only") or is_clean(j, cfg))]   # 1.1.9: clean only
     return factor_from(jobs, cfg["history_window"]) if len(jobs) >= cfg["min_jobs"] else None
 
 
@@ -1325,6 +1338,12 @@ def factor_from(jobs, window, since=None, weight=1, least=3):
     return math.exp(med)
 
 
+def is_clean(job, cfg):
+    """1.1.9: a job where the user wrote nothing during the work: at most clean_max_turns replies (the replies counted
+    apart with ASIDE are not in them). Only chat jobs: an installment's turns are its runs."""
+    return kind_of(job) == "chat" and (job.get("turns") or 1) <= int(cfg.get("clean_max_turns") or 1)
+
+
 def miss(ratio):
     """How far off, as a factor >= 1: x2 too low and x2 too high both give 2."""
     return max(ratio, 1 / ratio) if ratio > 0 else float("inf")
@@ -1375,6 +1394,21 @@ def learning(cfg, kind="chat", wtype=None):
     env = merge(DEFAULTS["env"], cfg.get("env") or {})
     changes = env_change_epochs()
     rate_all = bool(cfg.get("learn_rate_all"))
+    clean_on = bool(cfg.get("learn_clean_only"))
+    start = float(cfg.get("start_factor") or 0)
+
+    def tidy(done):
+        """1.1.9: the clean chat jobs that teach (learn_clean_only)."""
+        return [j for j in done if kind_of(j) == "chat" and teaches(j, cfg) and is_clean(j, cfg)]
+
+    def prior(k, done):
+        """What stands for jobs not there yet: 1.1.9, with learn_clean_only and start_factor, rows at start_factor up
+        to min_jobs clean chat jobs; otherwise the shared average while there are fewer than min_jobs jobs in all."""
+        if clean_on and start > 0 and k == "chat":
+            row = {"raw_estimate": 1000000, "actual": round(1000000 * start), "finished": "", "choice": "start",
+                   "shared": True}
+            return [dict(row) for _ in range(max(0, cfg["min_jobs"] - len(tidy(done))))]
+        return shared if len(done) < cfg["min_jobs"] else []
 
     def since(at):
         before = [c for c in changes if c <= at]
@@ -1383,6 +1417,13 @@ def learning(cfg, kind="chat", wtype=None):
     def own(k, done, t=None):
         if k == "rate" and rate_all:
             return list(done)   # v118: every finished job teaches the installments (learn_rate_all)
+        if clean_on and k == "chat":
+            done = tidy(done)   # 1.1.9 (learn_clean_only): the chat factor learns from the clean chat jobs only
+            if t:
+                typed = [j for j in done if job_type(j) == t]
+                if len(typed) >= least:
+                    return typed
+            return done
         done = [j for j in done if teaches(j, cfg)]   # hermes branch: only the jobs that teach
         same = [j for j in done if kind_of(j) == k]
         if t:
@@ -1397,7 +1438,7 @@ def learning(cfg, kind="chat", wtype=None):
     rows = []
     for i, job in enumerate(jobs):
         at = ts_epoch(job.get("started")) or ts_epoch(job.get("finished"))
-        before = factor((shared if i < cfg["min_jobs"] else []) + own(kind_of(job), jobs[:i], job.get("type")), at)
+        before = factor(prior(kind_of(job), jobs[:i]) + own(kind_of(job), jobs[:i], job.get("type")), at)
         corrected = job["raw_estimate"] * before
         work = max(work_of(job), 1)
         rows.append({
@@ -1409,12 +1450,17 @@ def learning(cfg, kind="chat", wtype=None):
             "miss_raw": miss(work / job["raw_estimate"]),
             "miss_corrected": miss(work / corrected),
         })
-    use_shared = len(jobs) < cfg["min_jobs"]
-    basis = (shared if use_shared else []) + own(kind, jobs, wtype)
+    start_rows = prior(kind, jobs) if clean_on and start > 0 and kind == "chat" else []
+    use_shared = len(jobs) < cfg["min_jobs"] and not (clean_on and start > 0 and kind == "chat")
+    basis = (start_rows or (shared if use_shared else [])) + own(kind, jobs, wtype)
     every = kind == "rate" and rate_all
-    type_jobs = sum(1 for j in jobs if kind_of(j) == kind and job_type(j) == wtype and teaches(j, cfg)) if wtype and not every else 0
+    clean = clean_on and kind == "chat"
+    type_jobs = sum(1 for j in (tidy(jobs) if clean else jobs) if kind_of(j) == kind and job_type(j) == wtype
+                    and teaches(j, cfg)) if wtype and not every else 0
     return {"jobs": jobs, "rows": rows, "factor": factor(basis, time.time()), "kind": kind,
-            "kind_jobs": len(jobs) if every else sum(1 for j in jobs if kind_of(j) == kind and teaches(j, cfg)),
+            "kind_jobs": len(jobs) if every else (len(tidy(jobs)) if clean else
+                                                  sum(1 for j in jobs if kind_of(j) == kind and teaches(j, cfg))),
+            "clean": clean, "start_rows": len(start_rows),
             "type": wtype, "type_jobs": type_jobs, "typed": bool(wtype) and type_jobs >= least, "all": every,
             "shared": shared_n if use_shared and shared else 0}
 
