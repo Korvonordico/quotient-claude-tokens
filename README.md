@@ -196,6 +196,7 @@ When you come back, Windows has shown a notification for each installment, which
 
 Good to know:
 
+- **Each installment pays its start (1.2.2).** It is a new Claude Code session: before any work it reads its rules and tools, about 100,000 weighted tokens on the author's PC. Quotient counts that once per installment in the quote, and never sets a cap under 1.5 times it, so an installment never spends its whole cap just starting.
 - If you prefer that Quotient never touches the PC, choose so in the setup: installments then run only when the PC is already on.
 - A timer can wake a PC that is asleep or hibernated, not one that is shut down. If the PC was off, the installment runs as soon as you turn it on.
 - Windows must allow wake timers. `rate check` tells you whether it does, and how to turn them on.
@@ -292,7 +293,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.2.1","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.2.2","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - `plan` only if you chose your plan; `per_point` and `per_point_5h` (how many weighted tokens 1% of your week and 1% of your 5 hours hold, 3 digits) only when Quotient has learned them from your own readings.

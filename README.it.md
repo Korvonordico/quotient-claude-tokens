@@ -196,6 +196,7 @@ Quando torni, Windows ha mostrato una notifica per ogni rata, che resta nel cent
 
 Da sapere:
 
+- **Ogni rata paga la sua partenza (1.2.2).** È una sessione nuova di Claude Code: prima di lavorare legge le sue regole e i suoi strumenti, circa 100.000 token pesati sul PC dell'autore. Quotient la conta una volta per rata nel preventivo e non mette mai un tetto sotto 1,5 volte quella cifra, così una rata non spende tutto il tetto solo per partire.
 - Se preferisci che Quotient non tocchi mai il PC, lo scegli nella configurazione: le rate allora partono solo con il PC già acceso.
 - Un timer può svegliare un PC in sospensione o in ibernazione, non uno spento del tutto. Se il PC era spento, la rata parte appena lo accendi.
 - Windows deve permettere i timer di riattivazione. `rate check` ti dice se è così, e come attivarli.
@@ -292,7 +293,7 @@ Tutto quello che Quotient registra resta sul tuo computer, in `~/.quotient/` (o 
 Una sola cosa esce dal tuo computer, e la puoi spegnere: dopo ogni lavoro finito, una riga di numeri per la media condivisa, esattamente questa:
 
 ```json
-{"v":1,"q":"1.2.1","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.2.2","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - `plan` solo se hai scelto il tuo piano; `per_point` e `per_point_5h` (quanti token pesati tengono l'1% della tua settimana e l'1% delle tue 5 ore, 3 cifre) solo quando Quotient li ha imparati dalle tue letture.

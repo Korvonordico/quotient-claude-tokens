@@ -2,13 +2,14 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
-## [Unreleased]
+## [1.2.2] - 2026-10-19
 
 ### Fixed
 
 - **An installment's start is counted** (on for everyone; `rate.start_fixed` 1, `rate.min_cap_starts` 1.5). Each installment is a new Claude Code session, and its first call writes the whole start (system, tools, rules: about 50k tokens) to the one-hour cache: on the author's PC about 94k weighted tokens before any work. Quotient counted only the re-reading of that start, as a share of the work, so small installments were quoted far too low: on 19/10/2026 a job run apart was given a 99k cap, spent 139k just starting and did nothing. Now each installment's start is counted once (the median of the last 10 installments, recorded as `start_wt` in each run from now on, worked out for the older ones), the re-reading share leaves it out, and each day of a plan in days pays its own. Backtest on the 48 measured installments, each predicted from the 10 before it: typical miss of an installment's whole cost 8.9% -> 6.7%, within 30% 40 -> 48; installments under 500k of work 36% -> 12%.
 - **A cap too small to start is raised**: `rate new`, `rate apart` and `rate set` raise a cap under 1.5 times the largest recent start (155k on the author's PC) and say so, and an installment whose week has less room than that is skipped instead of spending what is left just starting. The quote table says what the start costs. `config rate.start_fixed 0` and `config rate.min_cap_starts 0` bring back the old way.
 - **The reserve that closes an installment leaves the start out.** Before each tool call an installment keeps a reserve for its closing steps, sized on its latest calls; the first call, which also writes the start to the cache once, counted as a step of about 100k, so a 155k installment refused its first read right after starting (found by a real test on 19/10/2026). That call now counts as if its prompt were read from the cache.
+- README EN/IT: each installment pays its start (How installments work); the new quote halfway comes at each piece, and the factor learns from clean jobs and starts by type (other x0.40). CHANGELOG 1.1.9: other x0.40, not x0.58 (a later 1.1.9 commit had changed it).
 
 ## [1.2.1] - 2026-10-19
 
@@ -436,6 +437,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.2.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.2
 [1.2.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.0
 [1.1.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.9
