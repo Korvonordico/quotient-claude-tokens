@@ -39,7 +39,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -152,6 +152,13 @@ DEFAULTS = {
     # new ones done as a new user through the API on 19/10/2026 (code 27 jobs x0.70, research 14 x0.34, other 5 x0.38,
     # all 64 x0.59). Texts: 1.0, because their raw quote follows the rule for texts (writing_wt_per_word), already
     # measured. A type not listed starts from start_factor.
+    # piece_share, piece_min (1.2.0, the user's request: "the work in small pieces"): a job is measured in pieces of
+    # piece_share of its corrected quote (at least piece_min wt), each with a PROGRESS line: before, a piece was 1M wt,
+    # so most chat jobs (under 1M) had none, and an installment of 2-3M was one piece. In an installment a piece is
+    # piece_share of the day's cap: at each one Quotient asks the agent to update the PROGRESS line once. 0: 1M pieces
+    # (requote.after) and one piece per installment, as before.
+    "piece_share": 0.25,
+    "piece_min": 250000,
     "start_factors": {"code": 0.70, "research": 0.35, "writing": 1.0, "other": 0.40},
     # Claude Code runs (claude -p) a Hermes chat starts, counted in its quoted jobs (hermes branch; 1 = on). A SessionStart
     # hook records which Hermes chat started each Claude Code session (Hermes gives HERMES_SESSION_ID to all it
@@ -1805,12 +1812,23 @@ def claude_active_seconds(entries, since, until):
     return total + max(0.0, until - prev)
 
 
+def piece_size(raw, factor, cfg=None):
+    """1.2.0: the size of a piece of a job: piece_share of its corrected quote, at least piece_min; with piece_share 0,
+    requote.after (1M) as before."""
+    cfg = cfg or {}
+    share = float(cfg.get("piece_share") or 0)
+    if share > 0 and raw:
+        return max(float(cfg.get("piece_min") or 0), float(raw) * float(factor or 1.0) * share)
+    return float(merge(DEFAULTS["requote"], cfg.get("requote") or {})["after"])
+
+
 def pace_note(raw, factor, spent, seconds, cfg=None, progress=None, packages=None):
     """After the first million wt of a job, its own pace says more than the quote: how long the rest of the estimate
     takes at that pace, or that the estimate is already passed (idea of the user, 15/10/2026). 1.1.4: from then on the
     agent writes how much of the job is done (PROGRESS), and Quotient makes a new quote from it (requote_due). 1.1.6:
-    with packages, the whole job from the cost so far divided by the progress, with its margin."""
-    after = float(merge(DEFAULTS["requote"], (cfg or {}).get("requote") or {})["after"])
+    with packages, the whole job from the cost so far divided by the progress, with its margin. 1.2.0: a piece is
+    piece_size (a quarter of the corrected quote), no longer always 1M."""
+    after = piece_size(raw, factor, cfg)
     if not spent or spent < after or not raw:
         return ""
     ask = ""
@@ -1864,9 +1882,9 @@ def requote_due(cfg, job, work, progress):
 # Quotient keeps how far each PROGRESS line was from the truth, and that error is the margin of the next jobs.
 
 def add_package(job, work, progress, cfg):
-    """A package of a chat job: the first PROGRESS line written after each requote.after wt of work (work, working
-    time, progress). Returns the package, or None."""
-    after = float(merge(DEFAULTS["requote"], cfg.get("requote") or {})["after"])
+    """A package of a chat job: the first PROGRESS line written after each piece of work (piece_size; 1M before 1.2.0)
+    (work, working time, progress). Returns the package, or None."""
+    after = piece_size(job.get("raw_estimate"), job.get("factor_used") or job.get("factor"), cfg)
     if progress is None or not 0 < progress < 100 or work < after:
         return None
     packs = job.setdefault("packages", [])
@@ -1881,8 +1899,14 @@ def run_packages(runs):
     """The packages of an installment job: one per installment with a PROGRESS line, its cost and time so far."""
     packs, work, seconds = [], 0.0, 0.0
     for r in runs:
+        took = run_seconds(r)
+        for piece in r.get("pieces") or []:   # 1.2.0: the pieces inside the installment, before its end
+            p = piece.get("progress")
+            if p is not None and 0 < p < 100 and 0 < piece.get("wt", 0) < (r.get("wt") or 0):
+                share = piece["wt"] / float(r["wt"])
+                packs.append({"work": round(work + piece["wt"]), "seconds": round(seconds + took * share), "progress": p})
         work += r.get("wt") or 0
-        seconds += run_seconds(r)
+        seconds += took
         p = r.get("progress")
         if p is not None and 0 < p < 100:
             packs.append({"work": round(work), "seconds": round(seconds), "progress": p})
@@ -4281,6 +4305,43 @@ def main_transcript(path):
     return path
 
 
+def pieces_path(name):
+    return os.path.join(rate_dir(name), "pieces.json")
+
+
+def piece_check(name, data, spent, cap, cfg):
+    """1.2.1 (the user's request): an installment measured in pieces. Each tool call records the handoff's PROGRESS
+    line when it changed (a piece: wt spent in this run, progress); the agent updates it with the handoff after each
+    step (RATE_PROMPT). Never refuses a call: in the real test of 19/10/2026 a paused call at each quarter of a 100k
+    cap (the first one already passed by the session's start, ~45k) ate the cap and nothing was saved. Returns False."""
+    share = float(cfg.get("piece_share") or 0)
+    sid = str(data.get("session_id") or "")
+    if share <= 0 or not sid or not cap:
+        return False
+    path = pieces_path(name)
+    state = load_json(path, {})
+    state = state if isinstance(state, dict) else {}
+    mine = state.get(sid) or {"pieces": [], "asked": 0}
+    handoff = os.path.join(rate_dir(name), "HANDOFF.md")
+    try:
+        progress = parse_progress(open(handoff, encoding="utf-8").read())
+    except OSError:
+        progress = None
+    changed = False
+    if progress is not None and 0 < progress < 100 and (not mine["pieces"] or mine["pieces"][-1]["progress"] != progress):
+        mine["pieces"].append({"wt": round(spent), "progress": progress})
+        changed = True
+    if changed:
+        state[sid] = mine
+        save_json(path, state)
+    return False
+
+
+def run_pieces(name, sid):
+    """1.2.0: the pieces an installment run recorded (piece_check)."""
+    return ((load_json(pieces_path(name), {}) or {}).get(str(sid or "")) or {}).get("pieces") or []
+
+
 def hook_pretool():
     """Inside an installment run: in the last part of the day's cap only saving passes (Write, Edit, a here-document);
     when the cap is spent, only the handoff update."""
@@ -4296,6 +4357,8 @@ def hook_pretool():
     entries = read_jsonl(path)
     spent, _ = cost_of(entries + subagent_entries(path, None), cfg["weights"])
     cap = int(os.environ.get("QUOTIENT_CAP") or job["daily_cap"])
+    if piece_check(name, data, spent, cap, cfg):
+        return
     # 06/10/2026: three installments ended 9%, 23% and 9% over the cap, because the check comes before a tool
     # call and the calls after it (updating the handoff, the last answer) still cost. So new work stops
     # when what is spent plus the next steps (the size of the latest calls) would reach the cap.
@@ -6707,7 +6770,8 @@ RATE_PROMPT = """You are doing ONE installment of a bigger job, inside a spendin
 1. Read the job: {task}
 2. Read the handoff from the previous installments: {handoff}
 3. Continue from where the handoff says. Work in small steps. After each finished step, update {handoff}: what is done, what remains, where to resume. Keep it short. Save results as you go (after each part), not only at the end. If you start helpers (subagents), tell each one to write its results into a file of its own in {notes} as it goes, not only at the end, and give it the path.
-4. Keep one line `PROGRESS: <n>%` near the top of {handoff}: your honest estimate of how much of the WHOLE job is done (not of this installment). Quotient uses it to tell how many installments remain.
+4. Keep one line `PROGRESS: <n>%` near the top of {handoff}: your honest estimate of how much of the WHOLE job is done (not of this installment). Quotient uses it to tell how many installments remain. Update this line EVERY time you update {handoff}: Quotient reads it as you go and measures the installment in pieces.
+Your working folder is {workdir} (the current folder): the job's own files go there, never next to the task and handoff files.
 5. Near the end of the cap Quotient refuses tools that start new work but still lets Write and Edit through: then save at once what you have found. If a tool call is refused because this installment is used up, update {handoff} and stop at once. If the handoff lists the work of helpers stopped in an earlier installment, use their files before searching again.
 6. When the WHOLE job is finished, write the line JOB DONE at the top of {handoff}.
 This installment's cap: {cap} weighted tokens. This is installment {number} of about {days}."""
@@ -7379,7 +7443,8 @@ def run_installment(args):
         out("Installment of '%s' shortened to %s wt to stay out of the reserve.\n" % (args.name, fmt(cap)))
     prompt = (rc["prompt_prefix"] + " " if rc["prompt_prefix"] else "") + RATE_PROMPT.format(
         task=os.path.join(folder, "TASK.md"), handoff=os.path.join(folder, "HANDOFF.md"),
-        notes=os.path.join(folder, "notes"), cap=fmt(cap), number=len(runs) + 1, days=job.get("days") or "?")
+        notes=os.path.join(folder, "notes"), cap=fmt(cap), number=len(runs) + 1, days=job.get("days") or "?",
+        workdir=job.get("dir") or os.getcwd())
     hook = {"hooks": {"PreToolUse": [{"hooks": [{
         "type": "command", "command": sys.executable,
         "args": [os.path.abspath(__file__), "hook-pretool"], "timeout": 30}]}]}}
@@ -7453,6 +7518,7 @@ def run_installment(args):
            "found_asleep": getattr(args, "woke", None) if isinstance(getattr(args, "woke", None), bool) else None,
            "chat": chat, "fresh": fresh, "usd": usd, "tokens": tokens or None, "error": error, "done": done, "cap": cap,
            "progress": 100.0 if done else parse_progress(handoff),
+           "pieces": run_pieces(args.name, sid),   # 1.2.0: the PROGRESS lines inside the run
            # 1.1.0: an installment works alone, so its time is its whole run
            "seconds": round(max(0.0, ts_epoch(finished_at) - ts_epoch(started))),
            "predicted_seconds": round(expected_run) if expected_run else None,

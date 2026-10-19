@@ -88,7 +88,7 @@ class Base(unittest.TestCase):
         # each addition were off); tests/test_v120.py turns them on as they are by default
         self.v118_learning = mock.patch.dict(pv.DEFAULTS, {"learn_clean_only": 0, "start_factor": 0,
                                                             "requote_on_addition": 0, "writing_wt_per_word": 0,
-                                                            "start_factors": {}})
+                                                            "start_factors": {}, "piece_share": 0})
         self.v118_top = mock.patch.dict(pv.DEFAULTS["limits"], {"show_top": 0})   # 1.2.0: the ceiling in the line
         self.v118_top.start()
         self.addCleanup(self.v118_top.stop)

@@ -225,6 +225,8 @@ Over time it also estimates how many tokens 1% of each limit holds, so a quote c
 
 Since 1.1.8 the line also says how many weighted tokens are left in each limit (`~22M wt` above): the share left times how much 1% holds, measured on your PC or, until then, the shared size of your plan. It falls as you use the limit, and the quotes use the same sizes. It is rounded because it is an estimate; it shows up once a size is known. Off with `config limits.show_left 0`. Since 1.2.0 the line also says the ceiling, `~22M of ~32M wt` (100 times how much 1% holds), so the number falls toward zero of a whole you can see; `config limits.show_top 0` leaves the tokens left alone.
 
+**The work in pieces (1.2.1).** A job is measured in pieces, each with a `PROGRESS: n%` line: in a chat a piece is a quarter of the corrected quote (at least 250,000 weighted tokens; before, it was always one million, so most jobs had none), and an installment records its handoff's `PROGRESS` line each time the agent updates it, so a 2-3 million installment is no longer one piece. The whole job is worked out again at each piece (cost so far divided by the progress). In a real test paid with API credits, one installment of 265,000 weighted tokens recorded 6 pieces, and the estimate of the whole job went 617k, 450k, 383k, 344k, 332k, 323k as it went. `config piece_share 0` brings back the old pieces.
+
 ![Two bars, the 5-hour limit and the week, each with the share left and the weighted tokens left (~26M of ~32M wt, ~276M of ~291M wt), and the line Quotient shows at each message with the tokens left in brackets, new in 1.1.8](docs/limits-left.svg)
 
 *The numbers in the picture come from the author's Max 5x plan on 19/10/2026: yours depend on your plan. Anthropic does not publish the limits in tokens and can change them at any time without notice (it doubled Claude Code's 5-hour limits on 6 May 2026), so Quotient keeps measuring them.*
@@ -290,7 +292,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.2.0","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.2.1","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - `plan` only if you chose your plan; `per_point` and `per_point_5h` (how many weighted tokens 1% of your week and 1% of your 5 hours hold, 3 digits) only when Quotient has learned them from your own readings.

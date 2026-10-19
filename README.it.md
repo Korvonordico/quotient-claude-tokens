@@ -225,6 +225,8 @@ Col tempo stima anche quanti token vale l'1% di ogni limite, così un preventivo
 
 Dalla 1.1.8 la riga dice anche quanti token pesati restano in ogni limite (`~22M wt` qui sopra): la parte che resta per quanto vale l'1%, misurato sul tuo PC o, finché non c'è, quello comune del tuo piano. Scende man mano che usi il limite, e i preventivi usano gli stessi numeri. È arrotondato perché è una stima; compare quando quanto vale l'1% è noto. Si spegne con `config limits.show_left 0`. Dalla 1.2.0 la riga dice anche il tetto, `~22M su ~32M wt` (100 volte quanto vale l'1%), così il numero scende verso zero di un totale che vedi; `config limits.show_top 0` lascia solo i token che restano.
 
+**Il lavoro a pezzi (1.2.1).** Un lavoro si misura a pezzi, ognuno con una riga `PROGRESS: n%`: in una chat un pezzo è un quarto del preventivo corretto (almeno 250.000 token pesati; prima era sempre un milione, quindi la maggior parte dei lavori non ne aveva), e una rata registra la riga `PROGRESS` del suo passaggio di consegne ogni volta che l'agente la aggiorna, così una rata da 2-3 milioni non è più un pezzo solo. A ogni pezzo il lavoro intero viene ricalcolato (costo fin qui diviso l'avanzamento). In una prova vera pagata coi crediti API, una rata di 265.000 token pesati ha registrato 6 pezzi, e la stima del lavoro intero è passata da 617k a 450k, 383k, 344k, 332k, 323k man mano. `config piece_share 0` torna ai pezzi di prima.
+
 ![Due barre, il limite delle 5 ore e la settimana, ognuna con la parte che resta e i token pesati che restano (~26M su ~32M wt, ~276M su ~291M wt), e la riga che Quotient mostra a ogni messaggio con i token che restano tra parentesi, novità della 1.1.8](docs/limits-left.it.svg)
 
 *I numeri dell'immagine vengono dal piano Max 5x dell'autore, il 19/10/2026: i tuoi dipendono dal tuo piano. Anthropic non pubblica i limiti in token e può cambiarli in qualsiasi momento senza avvisare (il 6 maggio 2026 ha raddoppiato quelli delle 5 ore di Claude Code), per questo Quotient continua a misurarli.*
@@ -290,7 +292,7 @@ Tutto quello che Quotient registra resta sul tuo computer, in `~/.quotient/` (o 
 Una sola cosa esce dal tuo computer, e la puoi spegnere: dopo ogni lavoro finito, una riga di numeri per la media condivisa, esattamente questa:
 
 ```json
-{"v":1,"q":"1.2.0","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.2.1","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - `plan` solo se hai scelto il tuo piano; `per_point` e `per_point_5h` (quanti token pesati tengono l'1% della tua settimana e l'1% delle tue 5 ore, 3 cifre) solo quando Quotient li ha imparati dalle tue letture.

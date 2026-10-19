@@ -2,6 +2,14 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.2.1] - 2026-10-19
+
+### Changed
+
+- **The work in pieces** (the user's request; `piece_share` 0.25, `piece_min` 250,000). A chat job's piece, with its `PROGRESS` line, is a quarter of its corrected quote (at least 250k) instead of always 1M, so jobs under 1M get pieces too. An installment records its handoff's `PROGRESS` line each time it changes (`pieces` in its run), so an installment of 2-3M is no longer one piece, and the estimate of the whole job uses every piece. Tested for real with API credits: a 265k installment recorded 6 pieces (2% to 70%, then 82% at the end), and the estimate of the whole job narrowed from 617k to 323k as they came. A first version paused one tool call at each quarter of the cap to ask for the line: in a 100k installment the pauses ate the cap and nothing was saved, so Quotient now only reads the line, never pauses. `config piece_share 0` brings back 1M pieces and one piece per installment.
+- **An installment works in the job's folder**: the prompt says the working folder, and that the job's files never go next to the task and handoff files (in the same test, the first chapter was written into Quotient's own folder of the installment).
+- The demo's nights show their pieces. README EN/IT.
+
 ## [1.2.0] - 2026-10-19
 
 Published for a few minutes as 1.1.10 and renamed: the versions go up to 9 in each place, so after 1.1.9 comes 1.2.0 (and after 1.9.9, 2.0.0). Nothing else changed.
@@ -420,6 +428,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.2.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.0
 [1.1.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.9
 [1.1.8]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.8
