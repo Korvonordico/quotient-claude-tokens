@@ -150,7 +150,7 @@ class TestLimitsInTheBackground(Base):
         h.post_llm_call(pv, {"session_id": "c1", "extra": {"assistant_response": "Hello."}})
         self.fetch.assert_not_called()
         self.assertEqual(self.started.call_count, 1)                 # once per interval, before it writes anything
-        self.assertEqual(self.started.call_args.args[0], ["limits-read", "--every", "600"])
+        self.assertEqual(self.started.call_args.args[0], ["limits-read", "--every", "60"])   # 1.1.8: limits.every 60 (was 600)
 
     def test_hermes_with_a_job_reads_every_minute_in_the_background(self):
         pv.save_json(os.path.join(pv.home(), "hermes-jobs.json"), {"c1": {"told": True, "job": {
@@ -176,7 +176,7 @@ class TestLimitsInTheBackground(Base):
                 mock.patch.object(pv, "measure_checks"):
             pv.check_alert(pv.config())
         self.fetch.assert_not_called()
-        self.assertEqual(self.started.call_args.args[0], ["limits-read", "--every", "600"])
+        self.assertEqual(self.started.call_args.args[0], ["limits-read", "--every", "60"])   # 1.1.8: limits.every 60 (was 600)
 
     def test_once_per_interval_until_the_process_writes(self):
         cfg = pv.config()

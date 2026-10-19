@@ -6,6 +6,7 @@ added to a job (requote_on_addition). Run: python -m unittest discover tests"""
 import json
 import os
 import unittest
+from unittest import mock
 
 from test_quotient import Base, pv, usage
 
@@ -271,6 +272,76 @@ class TestAdditions(Base):
         state = pv.load_json(pv.session_path("s1"), {})
         self.assertEqual(state["pending"]["options"], {"good": 40000})
         self.assertIsNone(state["job"])
+
+
+class TestLimitsLeft(Base):
+    """1.1.8, the user's request (19/10/2026): the limits read every minute for everyone, and the line says how many
+    weighted tokens are left in each window, from the same sizes the quotes use."""
+
+    def setUp(self):
+        super().setUp()
+        future = int(pv.time.time())
+        pv.record_limits({"five_hour": 19, "five_hour_resets": future + 3600,
+                          "seven_day": 5, "seven_day_resets": future + 6 * 86400}, "usage")
+
+    def test_defaults(self):
+        self.assertEqual(pv.DEFAULTS["limits"]["every"], 60)
+        self.assertEqual(pv.DEFAULTS["limits"]["show_left"], 1)
+        self.assertEqual(pv.limits_every(pv.config()), 60)
+        self.assertEqual(pv.limits_every({}), 60)          # an old config without the key: the new pace too
+
+    def test_left_in_the_line(self):
+        sizes = {"five_hour": 320000, "seven_day": 2.91e6}
+        line = pv.limits_line("it", sizes=sizes)
+        self.assertIn("5 ore: usato 19%, resta 81% (~26M wt), si azzera", line)
+        self.assertIn("settimana: usato 5%, resta 95% (~276M wt), si azzera", line)
+        self.assertIn("5-hour: 19% used, 81% left (~26M wt), resets", pv.limits_line("en", sizes=sizes))
+
+    def test_one_window_unknown(self):
+        line = pv.limits_line("en", sizes={"seven_day": 2.91e6})
+        self.assertIn("5-hour: 19% used, 81% left, resets", line)
+        self.assertIn("95% left (~276M wt)", line)
+
+    def test_sizes_are_the_quotes_sizes(self):
+        with mock.patch.object(pv, "five_capacity", return_value={"per_point": 320000}), \
+                mock.patch.object(pv, "week_capacity", return_value={"per_point": 2.91e6}):
+            self.assertEqual(pv.window_sizes(), {"five_hour": 320000.0, "seven_day": 2.91e6})
+            self.assertIn("(~26M wt)", pv.limits_line("en"))
+            pv.store(("limits", "show_left"), 0)
+            self.assertEqual(pv.window_sizes(), {})
+            self.assertNotIn("wt)", pv.limits_line("en"))
+
+    def test_nothing_known_yet(self):
+        self.assertEqual(pv.window_sizes(), {})         # a new user: no readings measured, no plan chosen
+        self.assertIn("81% left, resets", pv.limits_line("en"))
+
+    def test_a_size_that_fails_never_stops_the_line(self):
+        with mock.patch.object(pv, "five_capacity", side_effect=ValueError("broken")):
+            self.assertEqual(pv.window_sizes(), {})
+            self.assertIn("81% left, resets", pv.limits_line("en"))
+
+    def test_rounding(self):
+        self.assertEqual(pv.left_text(25.9e6, "it"), "~26M wt")
+        self.assertEqual(pv.left_text(4.51e6, "it"), "~4,5M wt")
+        self.assertEqual(pv.left_text(4.51e6, "en"), "~4.5M wt")
+        self.assertEqual(pv.left_text(812000, "en"), "~812k wt")
+        self.assertEqual(pv.left_text(0, "en"), "0 wt")
+        self.assertEqual(pv.left_text(-5, "en"), "0 wt")
+
+    def test_read_again_after_a_minute_with_no_job(self):
+        live = mock.patch.dict(os.environ, {"QUOTIENT_LIMITS_LIVE": "1"})   # the suite turns live readings off
+        live.start()
+        self.addCleanup(live.stop)
+        rows = pv.read_jsonl(pv.limits_path())
+        rows[-1]["epoch"] -= 120
+        with open(pv.limits_path(), "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in rows))
+        import limits_usage
+        with mock.patch.object(limits_usage, "fetch", return_value={"five_hour": 20, "seven_day": 5}) as fetch, \
+                mock.patch.object(pv, "find_claude", return_value="claude"):
+            self.assertEqual(pv.refresh_limits(pv.config())["five_hour"], 20)
+            self.assertEqual(fetch.call_count, 1)
+            self.assertIsNone(pv.refresh_limits(pv.config()))     # tried just now: not before a minute
 
 
 if __name__ == "__main__":

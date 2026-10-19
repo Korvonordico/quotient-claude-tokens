@@ -170,9 +170,15 @@ DEFAULTS = {
     "claude_path": "",
     "limits": {
         # Read the plan limits through Claude Code's own /usage command (run in the background, no tokens spent),
-        # at most once every this many seconds. live false: only the status line.
+        # at most once every this many seconds. live false: only the status line. 1.1.8: 60 (was 600, the user's
+        # request): each step of the percentage is caught within a minute, so the size of 1% is measured between two
+        # steps instead of across ten minutes of work; a reading costs no tokens, only a ~4 s process in the background.
         "live": True,
-        "every": 600,
+        "every": 60,
+        # 1.1.8 (the user's request): the line also says how many weighted tokens are left in each window, the share
+        # left times how much 1% holds (the user's own estimate, or the plan's shared one until there is one), e.g.
+        # "81% left (~26M wt)". It falls as the window is used and follows the same sizes as the quotes. 0: off.
+        "show_left": 1,
         # 1.1.6: while a job or an installment is open, at most once every this many seconds (in the background, the
         # message does not wait): more readings, so the size of the limit is learned in fewer uses.
         "job_every": 60,
@@ -4341,19 +4347,58 @@ def when(epoch, lang):
     return "%s %d %s" % (days[moment.weekday()], moment.day, moment.strftime("%H:%M"))
 
 
-def limits_line(lang):
+def window_sizes(cfg=None):
+    """1.1.8 (limits.show_left): how many weighted tokens 1% of each window holds, for the line at each message: the
+    same estimates the quotes use (five_capacity, week_capacity). {} when the key is off or nothing is known yet."""
+    try:
+        cfg = cfg or config()
+        if not (cfg.get("limits") or {}).get("show_left"):
+            return {}
+        turns = measured_turns(cfg)
+        sizes = {}
+        for window, size in (("five_hour", five_capacity), ("seven_day", week_capacity)):
+            c = size(cfg, turns=turns)
+            if c and c.get("per_point"):
+                sizes[window] = float(c["per_point"])
+        return sizes
+    except Exception:  # the line never fails for its tokens left
+        return {}
+
+
+def left_text(wt, lang):
+    """1.1.8: the weighted tokens left in a window, rounded as an estimate: ~26M from 10 million, ~4.5M from one
+    million, ~800k below (Italian: decimal comma)."""
+    wt = max(0.0, float(wt))
+    if wt < 500:
+        return "0 wt"
+    if wt >= 1e7:
+        text = "%.0fM" % (wt / 1e6)
+    elif wt >= 1e6:
+        text = "%.1fM" % (wt / 1e6)
+    else:
+        text = "%.0fk" % (wt / 1e3)
+    return "~%s wt" % (text.replace(".", ",") if lang == "it" else text)
+
+
+def limits_line(lang, sizes=None):
+    """The plan limits for the line at each message. 1.1.8: with limits.show_left on (and how much 1% holds known),
+    after the share left the weighted tokens left, e.g. "resta 81% (~26M wt)"; `sizes` (window -> wt per 1%) skips
+    working them out again."""
     latest = latest_limits()
     if not latest:
         return None
+    sizes = window_sizes() if sizes is None else sizes
     names = {"it": {"five_hour": "5 ore", "seven_day": "settimana"},
              "en": {"five_hour": "5-hour", "seven_day": "week"}}["it" if lang == "it" else "en"]
-    words = ("usato %s%%, resta %s%%, si azzera %s" if lang == "it" else "%s%% used, %s%% left, resets %s")
+    words = ("usato %s%%, resta %s%%%s, si azzera %s" if lang == "it" else "%s%% used, %s%% left%s, resets %s")
     parts = []
     for window in WINDOWS:
         if window in latest:
             w = latest[window]
+            left = " (%s)" % left_text(sizes[window] * max(0.0, 100 - float(w["used"])), lang) \
+                if sizes.get(window) else ""
             parts.append("%s: %s" % (names[window], words % (
-                round(w["used"]), max(0, 100 - round(w["used"])), when(w["resets"], lang))))
+                round(w["used"]), max(0, 100 - round(w["used"])), left, when(w["resets"], lang))))
     newest = max(w["epoch"] for w in latest.values())
     age = (time.time() - newest) / 60
     stale = (" (letto alle %s)" if lang == "it" else " (read at %s)") % datetime.fromtimestamp(newest).strftime("%H:%M") \
@@ -4385,7 +4430,7 @@ def limits_every(cfg, busy=False):
     """1.1.6: how often the limits are read. While a job or an installment is open, every limits.job_every seconds (60):
     more points, so the size of the limit is learned in fewer uses; otherwise every limits.every seconds."""
     lim = cfg.get("limits") or {}
-    return float(lim.get("job_every", 60) if busy else lim.get("every", 600))
+    return float(lim.get("job_every", 60) if busy else lim.get("every", 60))
 
 
 def limits_due(every):
@@ -4446,7 +4491,7 @@ def refresh_limits(cfg=None, force=False, every=None):
     cfg = cfg or config()
     if not limits_live(cfg):
         return None
-    every = (cfg.get("limits") or {}).get("every", 600) if every is None else every
+    every = (cfg.get("limits") or {}).get("every", 60) if every is None else every
     if not force and not limits_due(every):
         return None      # read recently, or tried recently without an answer: Claude Code is not asked again yet
     state_path = os.path.join(home(), "limits-state.json")

@@ -112,7 +112,8 @@ class TestLimitsDuringAJob(Cli):
 
     def test_every_minute_during_a_job_every_ten_otherwise(self):
         cfg = pv.config()
-        self.assertEqual((pv.limits_every(cfg, busy=True), pv.limits_every(cfg)), (60, 600))
+        # 1.1.8: every minute with no job open too (it was every ten minutes)
+        self.assertEqual((pv.limits_every(cfg, busy=True), pv.limits_every(cfg)), (60, 60))
         pv.store(("limits", "job_every"), 30)
         self.assertEqual(pv.limits_every(pv.config(), busy=True), 30)
 
@@ -128,6 +129,7 @@ class TestLimitsDuringAJob(Cli):
             self.assertFalse(pv.limits_soon(cfg))                 # live readings off: never
 
     def test_a_reading_two_minutes_old_is_read_again_only_during_a_job(self):
+        pv.store(("limits", "every"), 600)   # 1.1.8: the default is 60; this test is about the two paces
         pv.record_limits({"five_hour": 10, "seven_day": 3}, "usage")
         rows = pv.read_jsonl(pv.limits_path())
         rows[-1]["epoch"] -= 120
