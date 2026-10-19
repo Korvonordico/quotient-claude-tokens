@@ -245,6 +245,14 @@ DEFAULTS = {
         "save_percent": 8,
         # 1.1.3: the time the quote proposes for the installments, when the user does not write one.
         "time": "03:00",
+        # 1.2.2: each installment is a new Claude Code session, and its first call writes the whole start (system,
+        # tools, rules: about 50k tokens) to the cache, about 100k wt before any work (19/10/2026: a 99k cap was spent
+        # just starting, 139k and nothing done). 1 = quotes and caps count that start once per installment, learned
+        # from the measured installments; 0 = the old way (re-reading as a share of the work only).
+        "start_fixed": 1,
+        # 1.2.2: an installment's cap is at least this many times that start, else it spends its cap just starting
+        # (rate new, rate apart, rate set; a week too full for it skips the installment). 0 = no floor.
+        "min_cap_starts": 1.5,
         "extra_args": [],
     },
     # 1.1.1: each finished job (and each installment) is set against how much the weekly limit rose meanwhile. A miss
@@ -2707,6 +2715,7 @@ def quote_numbers(cfg, options, kind="chat", context=None, wtype=None, factor=No
     latest = latest_limits()
     steps = steps_per_million(cfg, kind)
     overhead = installment_overhead(cfg) if kind == "rate" else 0.0
+    start = installment_start_cost(cfg) if kind == "rate" else 0.0   # 1.2.2: once per installment
     per_step = context * cfg["weights"]["cache_read"] if context and kind != "rate" else None
     wpc = work_per_call(cfg)[0]
     rows = []
@@ -2714,7 +2723,7 @@ def quote_numbers(cfg, options, kind="chat", context=None, wtype=None, factor=No
         f = factor_for(cfg, raw, {"factor": factor, "factor_mid": mid}) if mid else factor
         work = raw * f
         if kind == "rate":
-            chat = work * overhead
+            chat = work * overhead + start
         elif per_step is not None:
             chat = (steps[0] * work / 1e6 if steps else work / max(wpc, 1.0)) * per_step
         else:
@@ -2729,7 +2738,7 @@ def quote_numbers(cfg, options, kind="chat", context=None, wtype=None, factor=No
                 row[window + "_left"] = None if used is None else 100 - used - row[window]
         rows.append(row)
     return {"rows": rows, "factor": factor, "kind": kind, "five": five, "week": week, "steps": steps,
-            "overhead": overhead, "per_step": per_step}
+            "overhead": overhead, "start": start, "per_step": per_step}
 
 
 def pace_options(cfg, options, levels, kind="chat", new_chat=False, wtype=None):
@@ -2753,10 +2762,13 @@ def pace_options(cfg, options, levels, kind="chat", new_chat=False, wtype=None):
             option["cap"] = biggest["total"]
         elif key.startswith("days="):
             days = int(key[5:])
-            option.update(days=days, at=at, daily=[(r["name"], r["total"] / days) for r in rate["rows"]])
-            top = biggest["total"] / days
+            # 1.2.2: the rows count one start; each day's installment pays its own
+            start = rate["start"]
+            option.update(days=days, at=at, daily=[(r["name"], (r["total"] - start) / days + start)
+                                                   for r in rate["rows"]])
+            top = (biggest["total"] - start) / days + start
             if mpm:
-                option["seconds"] = top / (1 + rate["overhead"]) / 1e6 * mpm[0] * 60.0
+                option["seconds"] = (top - start) / (1 + rate["overhead"]) / 1e6 * mpm[0] * 60.0
             for window, c in (("five_hour", rate["five"]), ("seven_day", rate["week"])):
                 if c:
                     option[window] = top / c["per_point"]
@@ -2867,7 +2879,8 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
 
     lines = [("PREVENTIVO (unità: token pesati)" if it else "QUOTE (unit: weighted tokens)"), ""]
     head = ["Livello" if it else "Level", "Lavoro" if it else "Work",
-            ("Rilettura delle rate" if it else "Installments' re-reading") if kind == "rate" else
+            ((("Partenza e rilettura delle rate" if it else "Installments' start and re-reading") if nums.get("start")
+              else ("Rilettura delle rate" if it else "Installments' re-reading"))) if kind == "rate" else
             ("Parte della chat" if it else "Chat part"), "Totale" if it else "Total",
             "Tempo previsto" if it else "Expected time"]
     head += (["5 ore" if it else "5 hours"] if kind != "rate" else []) + ["Settimana" if it else "Week"]
@@ -2894,8 +2907,17 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
         lines.append(("Ancora senza numero (?): " if it else "No number yet (?): ") + "; ".join(unknown) + ".")
     if kind == "rate":
         lines.append("")
-        lines.append("Ogni rata rilegge solo il suo inizio, e il tetto di ogni giorno lo paga già." if it else
-                     "Each installment re-reads only its own start, and each day's cap already pays for it.")
+        if nums.get("start"):
+            # 1.2.2: the start is the larger part of a small installment: said, with its number
+            lines.append(("Ogni rata è una sessione nuova di Claude Code: paga circa %s token pesati solo per partire "
+                          "(regole e strumenti), una volta per rata, poi rilegge il suo inizio a ogni passo. Il tetto di "
+                          "ogni giorno paga già tutto questo." if it else
+                          "Each installment is a new Claude Code session: it pays about %s weighted tokens just to "
+                          "start (rules and tools), once per installment, then re-reads its start at each step. Each "
+                          "day's cap already pays for all of it.") % amount(nums["start"], lang))
+        else:
+            lines.append("Ogni rata rilegge solo il suo inizio, e il tetto di ogni giorno lo paga già." if it else
+                         "Each installment re-reads only its own start, and each day's cap already pays for it.")
 
     lines += ["", ("RITMO (al massimo 4 scelte):" if it else "PACE (4 options at most):")]
     for i, o in enumerate(pace_options(cfg, options, levels, kind, new_chat, wtype), 1):
@@ -3211,7 +3233,9 @@ def installment_seconds(cfg, job, cap=None):
     cap = cap or job.get("daily_cap")
     if not mpm or not cap:
         return None
-    return cap / (1 + (job.get("overhead_at_quote") or 0)) / 1e6 * mpm[0] * 60.0
+    # 1.2.2: the start an installment pays at its first call is not working time
+    return max(0.0, cap - (job.get("start_at_quote") or 0)) / (1 + (job.get("overhead_at_quote") or 0)) / 1e6 \
+        * mpm[0] * 60.0
 
 
 def remaining(job, runs):
@@ -3238,7 +3262,8 @@ def rate_requote(cfg, job, runs):
     rq = merge(DEFAULTS["requote"], cfg.get("requote") or {})
     spent = sum(r.get("wt") or 0 for r in runs)
     plan = (job.get("requotes") or [{}])[-1].get("total") or \
-        job["quote"] * (job.get("factor_at_quote") or 1.0) * (1 + (job.get("overhead_at_quote") or 0))
+        job["quote"] * (job.get("factor_at_quote") or 1.0) * (1 + (job.get("overhead_at_quote") or 0)) + \
+        (job.get("start_at_quote") or 0) * (job.get("days") or 1)   # 1.2.2: each planned installment's start
     plan_rest = max(0.0, plan - spent)
     if left[1] <= plan_rest * (1 + float(rq["percent"]) / 100.0) + 1:
         return None
@@ -5723,7 +5748,13 @@ def rate_set(args):
     if not job:
         sys.exit("quotient: no job named '%s'" % args.name)
     if args.daily:
-        job["daily_cap"] = int(args.daily)
+        cfg = config()
+        floor = cap_floor(cfg)
+        if floor and args.daily < floor:
+            out("Cap raised from %s to %s wt: an installment spends up to about %s wt just to start, so a smaller cap "
+                "could end before any work.\n" % (fmt(args.daily), fmt(math.ceil(floor)),
+                                                  fmt(installment_start_cost(cfg, highest=True))))
+        job["daily_cap"] = int(max(args.daily, math.ceil(floor)))
     if args.per_day:
         job["per_day"] = int(args.per_day)
     if args.days:
@@ -7090,17 +7121,59 @@ def installment_toast(name, job, runs, cfg, page=None):
     return title, body + where
 
 
-def installment_overhead(cfg):
-    """Re-reading an installment's own start, as a share of its work: learned from the installments that
-    measured it (median of the last 10), or worked out from the settings until there are 2."""
+def installment_runs(last=10):
+    """The last installments of every job that measured their re-reading, oldest first."""
     runs = []
     base = os.path.join(home(), "rate")
     if os.path.isdir(base):
         for name in os.listdir(base):
             runs += read_jsonl(os.path.join(base, name, "runs.jsonl"))
+    runs = [r for r in runs if r.get("chat") and r.get("wt") and r["wt"] > r["chat"]]
     runs.sort(key=lambda r: r.get("started") or "")
-    shares = [r["chat"] / (r["wt"] - r["chat"]) for r in runs[-10:]
-              if r.get("chat") and r.get("wt") and r["wt"] > r["chat"]]
+    return runs[-last:]
+
+
+def run_start_cost(cfg, run):
+    """1.2.2: what an installment paid at its first call for its start (system, tools, rules), which a new Claude Code
+    session writes to the cache: recorded since 1.2.2; for older runs, the re-reading of the start minus reading it
+    from the cache at each later call. None when the run did not measure it."""
+    if run.get("start_wt") is not None:
+        return float(run["start_wt"])
+    if run.get("chat") and run.get("fresh") and run.get("calls"):
+        return max(0.0, run["chat"] - cfg["weights"]["cache_read"] * run["fresh"] * (run["calls"] - 1))
+    return None
+
+
+def installment_start_cost(cfg, highest=False):
+    """1.2.2: the fixed cost of starting one installment, in wt: the median of the last 10 installments that measured
+    it (highest: the largest of them, a start that found nothing in the cache), or the start in tokens written to the
+    one-hour cache until there are 2. 0 with rate.start_fixed off."""
+    if not (cfg.get("rate") or {}).get("start_fixed"):
+        return 0.0
+    starts = [s for s in (run_start_cost(cfg, r) for r in installment_runs()) if s is not None]
+    if len(starts) >= 2:
+        return float((max(starts) if highest else median(starts)) or 0.0)
+    return cfg["chat"]["installment_start"] * cfg["weights"]["cache_write_1h"]
+
+
+def cap_floor(cfg):
+    """1.2.2: the smallest cap an installment can do something with: rate.min_cap_starts times the largest recent start
+    (0: no floor), since a cap must get past a start that finds nothing in the cache."""
+    return installment_start_cost(cfg, highest=True) * float((cfg.get("rate") or {}).get("min_cap_starts") or 0)
+
+
+def installment_overhead(cfg):
+    """Re-reading an installment's own start, as a share of its work: learned from the installments that
+    measured it (median of the last 10), or worked out from the settings until there are 2. 1.2.2: with
+    rate.start_fixed the first call's start is counted apart (installment_start_cost) and left out of the share
+    (backtest on 48 measured installments, each from the 10 before it: typical miss of the whole cost 8.9% -> 6.7%,
+    within 30% 40 -> 48; installments under 500k of work 36% -> 12%)."""
+    fixed = (cfg.get("rate") or {}).get("start_fixed")
+    shares = []
+    for r in installment_runs():
+        start = run_start_cost(cfg, r) if fixed else 0.0
+        if start is not None:
+            shares.append(max(0.0, r["chat"] - start) / (r["wt"] - r["chat"]))
     if len(shares) >= 2:
         return median(shares)
     wpc, _ = work_per_call(cfg)
@@ -7156,18 +7229,25 @@ def rate_new(args):
     want_daily = args.daily or plan.get("daily")
     at = getattr(args, "at", None)
     at = check_time(at) if isinstance(at, str) and at else plan.get("at")
-    # The daily cap is real spending: the corrected work plus re-reading each installment's start.
+    # The daily cap is real spending: the corrected work plus re-reading each installment's start, and (1.2.2) the
+    # start itself once per installment.
     reread = installment_overhead(cfg)
+    start = installment_start_cost(cfg)
     total = args.quote * factor * (1 + reread) if args.quote else None
     if want_daily:
         daily = want_daily
-        days = want_days or (max(1, math.ceil(total / daily)) if total else None)
     elif total and want_days:
-        daily = math.ceil(total / want_days)
-        days = want_days
+        daily = math.ceil(total / want_days + start)
     else:
         sys.exit("quotient: give --daily (weighted tokens per installment), or --quote with --days (or --pace with "
                  "the user's words, e.g. --pace \"5 giorni alle 2:00\")")
+    floor = cap_floor(cfg)
+    if floor and daily < floor:
+        out("Cap raised from %s to %s wt: each installment is a new Claude Code session that spends up to about %s wt "
+            "just to start (rules and tools), so a smaller cap could end before any work.\n" % (
+                fmt(daily), fmt(math.ceil(floor)), fmt(installment_start_cost(cfg, highest=True))))
+        daily = math.ceil(floor)
+    days = want_days or (max(1, math.ceil(total / max(1.0, daily - start))) if total else None)
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, "TASK.md"), "w", encoding="utf-8") as f:
         f.write(task.strip() + "\n")
@@ -7176,6 +7256,7 @@ def rate_new(args):
     job = {
         "name": args.name, "dir": os.path.abspath(args.dir), "daily_cap": int(daily),
         "days": days, "quote": args.quote, "factor_at_quote": round(factor, 4), "overhead_at_quote": round(reread, 3),
+        "start_at_quote": round(start),
         "created": now_iso(),
         "status": "open", "model": args.model, "usd_per_wt": None,
         "after": args.after or cfg["rate"]["after"], "template": template,
@@ -7430,7 +7511,8 @@ def run_installment(args):
     cap = job["daily_cap"]
     room = week_room(cfg, job)
     if room is not None and room < cap:
-        if room < cap * 0.1:
+        # 1.2.2: nor when the room left is under the smallest cap an installment can work with
+        if room < cap * 0.1 or room < cap_floor(cfg):
             job["last_skip"] = {"at": now_iso(), "why": "week", "room": round(room)}
             save_json(os.path.join(folder, "job.json"), job)
             notify(("Quotient · rata di «%s» saltata" if it else "Quotient · installment of '%s' skipped") % args.name,
@@ -7484,14 +7566,17 @@ def run_installment(args):
     sid = result.get("session_id")
     transcript = find_transcript(sid) if sid else None
     families = {}
-    chat, fresh = None, None
+    chat, fresh, start_wt = None, None, None
     if transcript:
         entries = read_jsonl(transcript) + subagent_entries(transcript, None)
         wt, calls = cost_of(entries, cfg["weights"])
         families = families_of(entries, cfg["weights"])
         # an installment starts in a new chat: its chat part is re-reading that start at every call
         fresh = first_context(transcript)
-        chat = chat_part(ordered_calls(entries), 0, fresh, cfg["weights"])
+        main_calls = ordered_calls(entries)
+        chat = chat_part(main_calls, 0, fresh, cfg["weights"])
+        # 1.2.2: what its first call paid for that start (written to the cache), learned for the next quotes
+        start_wt = round(span_cost(main_calls[0]["usage"], 0, fresh, cfg["weights"])) if main_calls else None
     else:
         wt, calls = round(weigh(result.get("usage"), cfg["weights"])), result.get("num_turns")
         if job.get("model"):
@@ -7516,7 +7601,8 @@ def run_installment(args):
     expected_run = installment_seconds(cfg, job, cap)
     run = {"started": started, "finished": finished_at, "session": sid, "wt": wt, "calls": calls,
            "found_asleep": getattr(args, "woke", None) if isinstance(getattr(args, "woke", None), bool) else None,
-           "chat": chat, "fresh": fresh, "usd": usd, "tokens": tokens or None, "error": error, "done": done, "cap": cap,
+           "chat": chat, "fresh": fresh, "start_wt": start_wt, "usd": usd, "tokens": tokens or None, "error": error,
+           "done": done, "cap": cap,
            "progress": 100.0 if done else parse_progress(handoff),
            "pieces": run_pieces(args.name, sid),   # 1.2.0: the PROGRESS lines inside the run
            # 1.1.0: an installment works alone, so its time is its whole run

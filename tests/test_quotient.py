@@ -92,6 +92,11 @@ class Base(unittest.TestCase):
         self.v118_top = mock.patch.dict(pv.DEFAULTS["limits"], {"show_top": 0})   # 1.2.0: the ceiling in the line
         self.v118_top.start()
         self.addCleanup(self.v118_top.stop)
+        # 1.2.2: the tests written before it keep an installment's start inside the re-reading share, with no floor
+        # for the cap; tests/test_v122.py turns both on as they are by default
+        self.v121_start = mock.patch.dict(pv.DEFAULTS["rate"], {"start_fixed": 0, "min_cap_starts": 0})
+        self.v121_start.start()
+        self.addCleanup(self.v121_start.stop)
         self.v118_learning.start()
         self.addCleanup(self.v118_learning.stop)
         # tests do not see the numbers shipped with the plugin unless they ask for them

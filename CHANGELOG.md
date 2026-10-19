@@ -2,6 +2,13 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [Unreleased]
+
+### Fixed
+
+- **An installment's start is counted** (on for everyone; `rate.start_fixed` 1, `rate.min_cap_starts` 1.5). Each installment is a new Claude Code session, and its first call writes the whole start (system, tools, rules: about 50k tokens) to the one-hour cache: on the author's PC about 94k weighted tokens before any work. Quotient counted only the re-reading of that start, as a share of the work, so small installments were quoted far too low: on 19/10/2026 a job run apart was given a 99k cap, spent 139k just starting and did nothing. Now each installment's start is counted once (the median of the last 10 installments, recorded as `start_wt` in each run from now on, worked out for the older ones), the re-reading share leaves it out, and each day of a plan in days pays its own. Backtest on the 48 measured installments, each predicted from the 10 before it: typical miss of an installment's whole cost 8.9% -> 6.7%, within 30% 40 -> 48; installments under 500k of work 36% -> 12%.
+- **A cap too small to start is raised**: `rate new`, `rate apart` and `rate set` raise a cap under 1.5 times the largest recent start (155k on the author's PC) and say so, and an installment whose week has less room than that is skipped instead of spending what is left just starting. The quote table says what the start costs. `config rate.start_fixed 0` and `config rate.min_cap_starts 0` bring back the old way.
+
 ## [1.2.1] - 2026-10-19
 
 ### Changed
