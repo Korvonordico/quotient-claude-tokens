@@ -39,7 +39,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.1.10"
+VERSION = "1.2.0"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -200,7 +200,7 @@ DEFAULTS = {
         # left times how much 1% holds (the user's own estimate, or the plan's shared one until there is one), e.g.
         # "81% left (~26M wt)". It falls as the window is used and follows the same sizes as the quotes. 0: off.
         "show_left": 1,
-        # 1.1.10 (the user's request): with show_left, the ceiling of the window too: "81% left (~26M of ~32M wt)".
+        # 1.2.0 (the user's request): with show_left, the ceiling of the window too: "81% left (~26M of ~32M wt)".
         # 0: the tokens left alone, as in 1.1.8.
         "show_top": 1,
         # 1.1.6: while a job or an installment is open, at most once every this many seconds (in the background, the
@@ -4454,7 +4454,7 @@ def left_text(wt, lang, top=None):
     wt = max(0.0, float(wt))
     left = "0" if wt < 500 else "~" + short(wt)
     if top:
-        # 1.1.10 (the user's request): the ceiling too, "~26M of ~32M wt", so the number falls toward 0 of a known whole
+        # 1.2.0 (the user's request): the ceiling too, "~26M of ~32M wt", so the number falls toward 0 of a known whole
         return "%s %s ~%s wt" % (left, "su" if lang == "it" else "of", short(top))
     return "0 wt" if wt < 500 else "%s wt" % left
 

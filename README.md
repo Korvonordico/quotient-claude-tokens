@@ -223,7 +223,7 @@ It takes these numbers from what Claude Code passes to the status line, and also
 
 Over time it also estimates how many tokens 1% of each limit holds, so a quote can say "this takes about 8% of your week". Anthropic does not publish the limits in tokens, so this is an estimate, with its margin.
 
-Since 1.1.8 the line also says how many weighted tokens are left in each limit (`~22M wt` above): the share left times how much 1% holds, measured on your PC or, until then, the shared size of your plan. It falls as you use the limit, and the quotes use the same sizes. It is rounded because it is an estimate; it shows up once a size is known. Off with `config limits.show_left 0`. Since 1.1.10 the line also says the ceiling, `~22M of ~32M wt` (100 times how much 1% holds), so the number falls toward zero of a whole you can see; `config limits.show_top 0` leaves the tokens left alone.
+Since 1.1.8 the line also says how many weighted tokens are left in each limit (`~22M wt` above): the share left times how much 1% holds, measured on your PC or, until then, the shared size of your plan. It falls as you use the limit, and the quotes use the same sizes. It is rounded because it is an estimate; it shows up once a size is known. Off with `config limits.show_left 0`. Since 1.2.0 the line also says the ceiling, `~22M of ~32M wt` (100 times how much 1% holds), so the number falls toward zero of a whole you can see; `config limits.show_top 0` leaves the tokens left alone.
 
 ![Two bars, the 5-hour limit and the week, each with the share left and the weighted tokens left (~26M of ~32M wt, ~276M of ~291M wt), and the line Quotient shows at each message with the tokens left in brackets, new in 1.1.8](docs/limits-left.svg)
 
@@ -290,7 +290,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.1.10","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.2.0","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - `plan` only if you chose your plan; `per_point` and `per_point_5h` (how many weighted tokens 1% of your week and 1% of your 5 hours hold, 3 digits) only when Quotient has learned them from your own readings.

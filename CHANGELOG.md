@@ -2,7 +2,9 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
-## [1.1.10] - 2026-10-19
+## [1.2.0] - 2026-10-19
+
+Published for a few minutes as 1.1.10 and renamed: the versions go up to 9 in each place, so after 1.1.9 comes 1.2.0 (and after 1.9.9, 2.0.0). Nothing else changed.
 
 ### Added
 
@@ -418,7 +420,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
-[1.1.10]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.10
+[1.2.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.0
 [1.1.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.9
 [1.1.8]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.8
 [1.1.7]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.7

@@ -1,4 +1,4 @@
-"""1.1.10: the ceiling of each window in the line, "81% left (~26M of ~32M wt)" (limits.show_top, on).
+"""1.2.0 (published first as 1.1.10, renamed: after 1.1.9 comes 1.2.0): the ceiling of each window in the line, "81% left (~26M of ~32M wt)" (limits.show_top, on).
 Run: python -m unittest discover tests"""
 
 import unittest
@@ -31,7 +31,7 @@ class TestCeiling(Base):
     def test_small_numbers(self):
         self.assertEqual(pv.left_text(4.51e6, "it", 9e6), "~4,5M su ~9,0M wt")
         self.assertEqual(pv.left_text(0, "en", 3.2e7), "0 of ~32M wt")
-        self.assertEqual(pv.VERSION, "1.1.10")
+        self.assertEqual(pv.VERSION, "1.2.0")
 
 
 if __name__ == "__main__":
