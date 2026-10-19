@@ -185,14 +185,14 @@ footer a:hover{color:var(--text)}
         <a class="btn primary" href="#install">Install</a>
         <a class="btn" href="https://github.com/Korvonordico/quotient-claude-tokens">GitHub</a>
       </div>
-      <p class="meta">MIT licensed · version 1.1.9 · needs Python 3.8 or newer</p>
+      <p class="meta">MIT licensed · version 1.1.10 · needs Python 3.8 or newer</p>
     </div>
   </div>
 
   <div class="wrap demo">
     <figure>
-      <img src="demo.svg" width="900" height="600" alt="Animated terminal. The user asks Claude Code for a big job. Quotient shows a quote with three levels, essential, good and max, each with its work, chat part and total, its expected time and its share of the 5-hour and weekly limits; the user picks good, Quotient counts the working time against the expected one, and Quotient reports the real cost and time against the estimate. Then a job too big for one day is paced over 4 days, about 400k and 20 minutes a night: each night at 03:00 the PC wakes, works up to the day's cap and goes back to sleep, and the report waits in the chat.">
-      <figcaption>One loop: a quote before the job, your choice, the real cost after, and a job too big for this week split into nightly installments. Estimates are not guaranteed: at the start they can be quite far off, and they get closer with each finished job.</figcaption>
+      <img src="demo.svg" width="900" height="600" alt="Animated terminal in three phases. 1, the quote: the user asks Claude Code for a big job; Quotient's choice window shows three levels, essential, good and max, each with its total, time and share of the 5-hour and weekly limits, the user picks good and then a pace of 4 nights at 03:00. 2, the installments: each night the PC wakes, works up to the night's cap and sleeps again. 3, the bill: the real cost and time against the quote, and what is left of the 5 hours and of the week in percent and in tokens of each ceiling.">
+      <figcaption>Three phases: the quote and your choice, the nightly installments, the bill with what is left of your limits. Estimates are not guaranteed: at the start they can be quite far off, and they get closer with each finished job.</figcaption>
     </figure>
   </div>
 
@@ -246,7 +246,7 @@ footer a:hover{color:var(--text)}
           <span class="label">All week</span>
           <h3>Your limits at a glance</h3>
           <p>How much of the 5-hour and weekly limits you have used, and what is left, in percent and in tokens, right in Claude Code's status line. Several jobs together never eat the share of the week you keep for yourself.</p>
-          <div class="line"><span class="acc">5-hour:</span> 31% used, 69% left (~22M wt)<br><span class="acc">week:</span> 70% used, 30% left (~87M wt)</div>
+          <div class="line"><span class="acc">5-hour:</span> 31% used, 69% left (~22M of ~32M wt)<br><span class="acc">week:</span> 70% used, 30% left (~87M of ~287M wt)</div>
         </article>
       </div>
     </div>
@@ -302,7 +302,7 @@ footer a:hover{color:var(--text)}
       <div class="privacy">
         <div>
           <p>Everything Quotient records stays on your computer, in <code>~/.quotient</code>. After each finished job it sends one line of numbers for the shared average, so new users start from real jobs instead of from zero. Exactly this line, and nothing else:</p>
-          <pre class="term" tabindex="0" role="region" aria-label="The exact line that is shared"><code>{"v":1,"q":"1.1.9","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}</code></pre>
+          <pre class="term" tabindex="0" role="region" aria-label="The exact line that is shared"><code>{"v":1,"q":"1.1.10","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}</code></pre>
           <p>The plan only if you chose it; <code>per_point</code> and <code>per_point_5h</code> (how many weighted tokens 1% of your week and 1% of your 5 hours hold) only once Quotient has learned them from your own readings. No dates, no names, no text, no paths, no session or user ids. Turn it off with <code>/token-quotient:share off</code>; you still get the shared average.</p>
           <p><a href="https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md">Read the full privacy note (PRIVACY.md)</a></p>
         </div>

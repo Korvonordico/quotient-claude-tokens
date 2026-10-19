@@ -216,16 +216,16 @@ Due o tre lavori possono stare ognuno nella settimana e non starci insieme. Quot
 Quotient registra quanto hai usato del limite delle 5 ore e di quello settimanale e quando si azzerano, e può mostrarlo nella riga di stato di Claude Code (`setup-statusline --write`):
 
 ```
-Quotient · 5 ore: usato 31%, resta 69% (~22M wt), si azzera 19:30 · settimana: usato 6%, resta 94% (~270M wt), si azzera lun 12 07:00
+Quotient · 5 ore: usato 31%, resta 69% (~22M su ~32M wt), si azzera 19:30 · settimana: usato 6%, resta 94% (~270M su ~287M wt), si azzera lun 12 07:00
 ```
 
 Prende questi numeri da quello che Claude Code passa alla riga di stato, e anche dal comando `/usage` di Claude Code stesso, fatto girare in sottofondo senza spendere token (al massimo ogni minuto dalla 1.1.8, prima ogni 10 minuti; si spegne con `config limits.live false`). Così i limiti ci sono anche nell'app desktop di Claude, dove la riga di stato non c'è. `tick` li legge subito, per un'attività pianificata.
 
 Col tempo stima anche quanti token vale l'1% di ogni limite, così un preventivo può dire «questo prende circa l'8% della tua settimana». Anthropic non pubblica i limiti in token, quindi è una stima, con il suo margine.
 
-Dalla 1.1.8 la riga dice anche quanti token pesati restano in ogni limite (`~22M wt` qui sopra): la parte che resta per quanto vale l'1%, misurato sul tuo PC o, finché non c'è, quello comune del tuo piano. Scende man mano che usi il limite, e i preventivi usano gli stessi numeri. È arrotondato perché è una stima; compare quando quanto vale l'1% è noto. Si spegne con `config limits.show_left 0`.
+Dalla 1.1.8 la riga dice anche quanti token pesati restano in ogni limite (`~22M wt` qui sopra): la parte che resta per quanto vale l'1%, misurato sul tuo PC o, finché non c'è, quello comune del tuo piano. Scende man mano che usi il limite, e i preventivi usano gli stessi numeri. È arrotondato perché è una stima; compare quando quanto vale l'1% è noto. Si spegne con `config limits.show_left 0`. Dalla 1.1.10 la riga dice anche il tetto, `~22M su ~32M wt` (100 volte quanto vale l'1%), così il numero scende verso zero di un totale che vedi; `config limits.show_top 0` lascia solo i token che restano.
 
-![Due barre, il limite delle 5 ore e la settimana, ognuna con la parte che resta e i token pesati che restano (~26M wt, ~277M wt), e la riga che Quotient mostra a ogni messaggio con i token che restano tra parentesi, novità della 1.1.8](docs/limits-left.it.svg)
+![Due barre, il limite delle 5 ore e la settimana, ognuna con la parte che resta e i token pesati che restano (~26M su ~32M wt, ~276M su ~291M wt), e la riga che Quotient mostra a ogni messaggio con i token che restano tra parentesi, novità della 1.1.8](docs/limits-left.it.svg)
 
 *I numeri dell'immagine vengono dal piano Max 5x dell'autore, il 19/10/2026: i tuoi dipendono dal tuo piano. Anthropic non pubblica i limiti in token e può cambiarli in qualsiasi momento senza avvisare (il 6 maggio 2026 ha raddoppiato quelli delle 5 ore di Claude Code), per questo Quotient continua a misurarli.*
 
@@ -290,7 +290,7 @@ Tutto quello che Quotient registra resta sul tuo computer, in `~/.quotient/` (o 
 Una sola cosa esce dal tuo computer, e la puoi spegnere: dopo ogni lavoro finito, una riga di numeri per la media condivisa, esattamente questa:
 
 ```json
-{"v":1,"q":"1.1.9","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.1.10","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - `plan` solo se hai scelto il tuo piano; `per_point` e `per_point_5h` (quanti token pesati tengono l'1% della tua settimana e l'1% delle tue 5 ore, 3 cifre) solo quando Quotient li ha imparati dalle tue letture.

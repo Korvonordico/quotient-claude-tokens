@@ -216,16 +216,16 @@ Two or three jobs can each fit in the week and still not fit together. Quotient 
 Quotient records how much of the 5-hour and weekly limits you have used and when they reset, and can show it in Claude Code's status line (`setup-statusline --write`):
 
 ```
-Quotient · 5-hour: 31% used, 69% left (~22M wt), resets 19:30 · week: 6% used, 94% left (~270M wt), resets Mon 12 07:00
+Quotient · 5-hour: 31% used, 69% left (~22M of ~32M wt), resets 19:30 · week: 6% used, 94% left (~270M of ~287M wt), resets Mon 12 07:00
 ```
 
 It takes these numbers from what Claude Code passes to the status line, and also from Claude Code's own `/usage` command, run in the background with no tokens spent (at most every minute since 1.1.8, every 10 minutes before; off with `config limits.live false`). So the limits are there in the Claude desktop app too, where there is no status line. `tick` reads them now, for a scheduled task.
 
 Over time it also estimates how many tokens 1% of each limit holds, so a quote can say "this takes about 8% of your week". Anthropic does not publish the limits in tokens, so this is an estimate, with its margin.
 
-Since 1.1.8 the line also says how many weighted tokens are left in each limit (`~22M wt` above): the share left times how much 1% holds, measured on your PC or, until then, the shared size of your plan. It falls as you use the limit, and the quotes use the same sizes. It is rounded because it is an estimate; it shows up once a size is known. Off with `config limits.show_left 0`.
+Since 1.1.8 the line also says how many weighted tokens are left in each limit (`~22M wt` above): the share left times how much 1% holds, measured on your PC or, until then, the shared size of your plan. It falls as you use the limit, and the quotes use the same sizes. It is rounded because it is an estimate; it shows up once a size is known. Off with `config limits.show_left 0`. Since 1.1.10 the line also says the ceiling, `~22M of ~32M wt` (100 times how much 1% holds), so the number falls toward zero of a whole you can see; `config limits.show_top 0` leaves the tokens left alone.
 
-![Two bars, the 5-hour limit and the week, each with the share left and the weighted tokens left (~26M wt, ~277M wt), and the line Quotient shows at each message with the tokens left in brackets, new in 1.1.8](docs/limits-left.svg)
+![Two bars, the 5-hour limit and the week, each with the share left and the weighted tokens left (~26M of ~32M wt, ~276M of ~291M wt), and the line Quotient shows at each message with the tokens left in brackets, new in 1.1.8](docs/limits-left.svg)
 
 *The numbers in the picture come from the author's Max 5x plan on 19/10/2026: yours depend on your plan. Anthropic does not publish the limits in tokens and can change them at any time without notice (it doubled Claude Code's 5-hour limits on 6 May 2026), so Quotient keeps measuring them.*
 
@@ -290,7 +290,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.1.9","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.1.10","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - `plan` only if you chose your plan; `per_point` and `per_point_5h` (how many weighted tokens 1% of your week and 1% of your 5 hours hold, 3 digits) only when Quotient has learned them from your own readings.

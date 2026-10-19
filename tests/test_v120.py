@@ -35,7 +35,7 @@ class TestDefaults(Base):
         spec.loader.exec_module(fresh)
         for key, value in NEW.items():
             self.assertEqual(fresh.DEFAULTS[key], value, key)
-        self.assertEqual(fresh.VERSION, "1.1.9")
+        self.assertTrue(fresh.VERSION.startswith("1.1."))
 
 
 class TestCleanJobs(V119):

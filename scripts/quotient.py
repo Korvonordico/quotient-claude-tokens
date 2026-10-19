@@ -39,7 +39,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.1.9"
+VERSION = "1.1.10"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -200,6 +200,9 @@ DEFAULTS = {
         # left times how much 1% holds (the user's own estimate, or the plan's shared one until there is one), e.g.
         # "81% left (~26M wt)". It falls as the window is used and follows the same sizes as the quotes. 0: off.
         "show_left": 1,
+        # 1.1.10 (the user's request): with show_left, the ceiling of the window too: "81% left (~26M of ~32M wt)".
+        # 0: the tokens left alone, as in 1.1.8.
+        "show_top": 1,
         # 1.1.6: while a job or an installment is open, at most once every this many seconds (in the background, the
         # message does not wait): more readings, so the size of the limit is learned in fewer uses.
         "job_every": 60,
@@ -4435,19 +4438,32 @@ def window_sizes(cfg=None):
         return {}
 
 
-def left_text(wt, lang):
+def left_text(wt, lang, top=None):
     """1.1.8: the weighted tokens left in a window, rounded as an estimate: ~26M from 10 million, ~4.5M from one
     million, ~800k below (Italian: decimal comma)."""
+    def short(n):
+        n = max(0.0, float(n))
+        if n >= 1e7:
+            text = "%.0fM" % (n / 1e6)
+        elif n >= 1e6:
+            text = "%.1fM" % (n / 1e6)
+        else:
+            text = "%.0fk" % (n / 1e3)
+        return text.replace(".", ",") if lang == "it" else text
+
     wt = max(0.0, float(wt))
-    if wt < 500:
-        return "0 wt"
-    if wt >= 1e7:
-        text = "%.0fM" % (wt / 1e6)
-    elif wt >= 1e6:
-        text = "%.1fM" % (wt / 1e6)
-    else:
-        text = "%.0fk" % (wt / 1e3)
-    return "~%s wt" % (text.replace(".", ",") if lang == "it" else text)
+    left = "0" if wt < 500 else "~" + short(wt)
+    if top:
+        # 1.1.10 (the user's request): the ceiling too, "~26M of ~32M wt", so the number falls toward 0 of a known whole
+        return "%s %s ~%s wt" % (left, "su" if lang == "it" else "of", short(top))
+    return "0 wt" if wt < 500 else "%s wt" % left
+
+
+def cfg_limits():
+    try:
+        return config().get("limits") or {}
+    except Exception:
+        return {}
 
 
 def limits_line(lang, sizes=None):
@@ -4465,7 +4481,8 @@ def limits_line(lang, sizes=None):
     for window in WINDOWS:
         if window in latest:
             w = latest[window]
-            left = " (%s)" % left_text(sizes[window] * max(0.0, 100 - float(w["used"])), lang) \
+            left = " (%s)" % left_text(sizes[window] * max(0.0, 100 - float(w["used"])), lang,
+                                       sizes[window] * 100 if (cfg_limits().get("show_top", 1)) else None) \
                 if sizes.get(window) else ""
             parts.append("%s: %s" % (names[window], words % (
                 round(w["used"]), max(0, 100 - round(w["used"])), left, when(w["resets"], lang))))

@@ -2,6 +2,17 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.1.10] - 2026-10-19
+
+### Added
+
+- **The ceiling of each limit in the line** (`limits.show_top`, on; the user's request): after the share left, the tokens left of the whole window, `81% left (~26M of ~32M wt)`, Italian `resta 81% (~26M su ~32M wt)`, in Hermes' line and in Claude Code's status line. The ceiling is 100 times how much 1% holds, the same estimate the quotes use; the number falls toward zero as the window is used. `config limits.show_top 0` shows the tokens left alone, as in 1.1.8.
+
+### Changed
+
+- **A clearer demo** (`docs/demo.svg`, Italian `docs/demo.it.svg`; the user found the old one not clear enough): one big job in three phases named at the top: 1 the quote, in a choice window with three levels (total, time, share of the 5 hours and of the week) and then the pace, with the second window of installments; 2 the installments, night by night; 3 the bill, real cost and time against the quote and what is left of the 5 hours and of the week, in percent and in tokens of each ceiling.
+- The picture of the limits (`docs/limits-left.svg`) writes the share left and the tokens left of the ceiling inside the bars. README EN/IT, site.
+
 ## [1.1.9] - 2026-10-19
 
 ### Changed
@@ -407,6 +418,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.1.10]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.10
 [1.1.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.9
 [1.1.8]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.8
 [1.1.7]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.1.7
