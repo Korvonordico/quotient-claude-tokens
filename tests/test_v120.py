@@ -9,7 +9,8 @@ from unittest import mock
 
 from test_quotient import Base, pv
 
-NEW = {"learn_clean_only": 1, "start_factor": 0.58, "requote_on_addition": 1, "clean_max_turns": 1}
+NEW = {"learn_clean_only": 1, "start_factor": 0.58, "requote_on_addition": 1, "clean_max_turns": 1,
+       "writing_wt_per_word": 27, "start_factors": {"code": 0.70, "research": 0.35, "writing": 1.0, "other": 0.58}}
 
 
 class V119(Base):
@@ -88,6 +89,39 @@ class TestCleanJobs(V119):
 class TestAdditionsOn(V119):
     def test_the_protocol_says_additions(self):
         self.assertIn("ADDITIONS:", pv.protocol(pv.config(), 1.0))
+
+
+
+class TestStartByType(V119):
+    """19/10/2026: 64 clean jobs (docs/evidence and 15 new ones through the API): code x0.70, research x0.34, texts
+    with the rule for texts about right, all x0.59."""
+
+    def test_each_type_starts_from_its_own(self):
+        cfg = pv.config()
+        for wtype, factor in (("code", 0.70), ("research", 0.35), ("writing", 1.0), ("other", 0.58)):
+            learned = pv.learning(cfg, "chat", wtype)
+            self.assertAlmostEqual(learned["factor"], factor, places=3, msg=wtype)
+            self.assertTrue(learned["typed"])
+        self.assertAlmostEqual(pv.learning(cfg)["factor"], 0.58, places=3)       # no type: the general start
+
+    def test_a_type_learns_its_own_jobs(self):
+        for i in range(5):
+            self.add("r%d" % i, 1000000, 200000, turns=1, type="research")    # x0.2
+            self.add("c%d" % i, 1000000, 900000, turns=1, type="code")        # x0.9
+        cfg = pv.config()
+        self.assertAlmostEqual(pv.learning(cfg, "chat", "research")["factor"], 0.2, places=3)
+        self.assertAlmostEqual(pv.learning(cfg, "chat", "code")["factor"], 0.9, places=3)
+
+    def test_two_jobs_of_a_type_and_three_start_rows(self):
+        for i in range(2):
+            self.add("r%d" % i, 1000000, 200000, turns=1, type="research")
+        learned = pv.learning(pv.config(), "chat", "research")
+        self.assertEqual(learned["start_rows"], 3)
+        self.assertAlmostEqual(learned["factor"], 0.35, places=3)             # 0.2, 0.2, 0.35, 0.35, 0.35
+
+    def test_the_rule_for_texts_is_on(self):
+        text = pv.protocol(pv.config(), 1.0)
+        self.assertIn("TEXTS (kind=writing): count about 27 wt per word", text)
 
 
 if __name__ == "__main__":

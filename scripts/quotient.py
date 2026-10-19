@@ -116,7 +116,9 @@ DEFAULTS = {
     # word through the Write tool), then goes back into the context and is re-read at every call after it. On 17/10/2026,
     # with the rule on, 13 more texts cost 23 to 49 wt a word (about 28): 50 quoted them high, 30 to 35 may fit better
     # (docs/evidence/quote-accuracy.md).
-    "writing_wt_per_word": 0,
+    # 1.1.9: on for everyone at 27 (it was off in 1.1.8). Measured since: 16 texts of docs/evidence 23 to 56 wt a word,
+    # and 4 new texts done as a new user through the API (19/10/2026) 20 to 39: the median of the 20 is about 27.
+    "writing_wt_per_word": 27,
     # note_web_haiku (1 = on): Claude Code's web searches also run a small model (haiku) that is not in the session's
     # log, so its cost is not in the measure; the report at the end of a research job says so in one line (on the one
     # research job measured: about 12% of the session at list prices, some 14,000 haiku input tokens a search).
@@ -145,6 +147,12 @@ DEFAULTS = {
     # start_factor (1.1.9): until there are min_jobs clean chat jobs, rows at this factor fill the gap (instead of the
     # shared average): the 49 clean jobs of docs/evidence cost x0.58 their raw quote. 0 = the shared average as before.
     "start_factor": 0.58,
+    # start_factors (1.1.9): the start of each type of work, for a quote with kind=<type>, until there are min_jobs clean
+    # jobs of that type: what the clean jobs of that type cost against their raw quotes, the 49 of docs/evidence and 15
+    # new ones done as a new user through the API on 19/10/2026 (code 27 jobs x0.70, research 14 x0.34, other 3 x0.48,
+    # all 64 x0.59). Texts: 1.0, because their raw quote follows the rule for texts (writing_wt_per_word), already
+    # measured. A type not listed starts from start_factor.
+    "start_factors": {"code": 0.70, "research": 0.35, "writing": 1.0, "other": 0.58},
     # Claude Code runs (claude -p) a Hermes chat starts, counted in its quoted jobs (hermes branch; 1 = on). A SessionStart
     # hook records which Hermes chat started each Claude Code session (Hermes gives HERMES_SESSION_ID to all it
     # starts); when a job closes, what those sessions spent while it was open is added to its cost.
@@ -1401,13 +1409,18 @@ def learning(cfg, kind="chat", wtype=None):
         """1.1.9: the clean chat jobs that teach (learn_clean_only)."""
         return [j for j in done if kind_of(j) == "chat" and teaches(j, cfg) and is_clean(j, cfg)]
 
-    def prior(k, done):
-        """What stands for jobs not there yet: 1.1.9, with learn_clean_only and start_factor, rows at start_factor up
-        to min_jobs clean chat jobs; otherwise the shared average while there are fewer than min_jobs jobs in all."""
+    starts = cfg.get("start_factors") or {}
+
+    def prior(k, done, t=None):
+        """What stands for jobs not there yet: 1.1.9, with learn_clean_only and start_factor, rows at the start of the
+        type (start_factors, else start_factor) up to min_jobs clean chat jobs of that type (of any type without one);
+        otherwise the shared average while there are fewer than min_jobs jobs in all."""
         if clean_on and start > 0 and k == "chat":
-            row = {"raw_estimate": 1000000, "actual": round(1000000 * start), "finished": "", "choice": "start",
+            base = float(starts.get(t) or start) if t else start
+            have = [j for j in tidy(done) if not t or job_type(j) == t]
+            row = {"raw_estimate": 1000000, "actual": round(1000000 * base), "finished": "", "choice": "start",
                    "shared": True}
-            return [dict(row) for _ in range(max(0, cfg["min_jobs"] - len(tidy(done))))]
+            return [dict(row) for _ in range(max(0, cfg["min_jobs"] - len(have)))]
         return shared if len(done) < cfg["min_jobs"] else []
 
     def since(at):
@@ -1419,6 +1432,8 @@ def learning(cfg, kind="chat", wtype=None):
             return list(done)   # v118: every finished job teaches the installments (learn_rate_all)
         if clean_on and k == "chat":
             done = tidy(done)   # 1.1.9 (learn_clean_only): the chat factor learns from the clean chat jobs only
+            if t and start > 0:
+                return [j for j in done if job_type(j) == t]   # its own type, the start rows fill the rest (prior)
             if t:
                 typed = [j for j in done if job_type(j) == t]
                 if len(typed) >= least:
@@ -1438,7 +1453,7 @@ def learning(cfg, kind="chat", wtype=None):
     rows = []
     for i, job in enumerate(jobs):
         at = ts_epoch(job.get("started")) or ts_epoch(job.get("finished"))
-        before = factor(prior(kind_of(job), jobs[:i]) + own(kind_of(job), jobs[:i], job.get("type")), at)
+        before = factor(prior(kind_of(job), jobs[:i], job.get("type")) + own(kind_of(job), jobs[:i], job.get("type")), at)
         corrected = job["raw_estimate"] * before
         work = max(work_of(job), 1)
         rows.append({
@@ -1450,7 +1465,7 @@ def learning(cfg, kind="chat", wtype=None):
             "miss_raw": miss(work / job["raw_estimate"]),
             "miss_corrected": miss(work / corrected),
         })
-    start_rows = prior(kind, jobs) if clean_on and start > 0 and kind == "chat" else []
+    start_rows = prior(kind, jobs, wtype) if clean_on and start > 0 and kind == "chat" else []
     use_shared = len(jobs) < cfg["min_jobs"] and not (clean_on and start > 0 and kind == "chat")
     basis = (start_rows or (shared if use_shared else [])) + own(kind, jobs, wtype)
     every = kind == "rate" and rate_all
@@ -1461,7 +1476,8 @@ def learning(cfg, kind="chat", wtype=None):
             "kind_jobs": len(jobs) if every else (len(tidy(jobs)) if clean else
                                                   sum(1 for j in jobs if kind_of(j) == kind and teaches(j, cfg))),
             "clean": clean, "start_rows": len(start_rows),
-            "type": wtype, "type_jobs": type_jobs, "typed": bool(wtype) and type_jobs >= least, "all": every,
+            "type": wtype, "type_jobs": type_jobs, "all": every,
+            "typed": bool(wtype) and (type_jobs >= least or bool(clean and start > 0 and starts.get(wtype))),
             "shared": shared_n if use_shared and shared else 0}
 
 

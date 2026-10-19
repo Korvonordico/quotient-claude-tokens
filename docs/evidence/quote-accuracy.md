@@ -193,3 +193,30 @@ machine-readable quote (the model quoted by hand, "40-60k", without the quote co
   and the checks of the result; and the summaries above.
 - The settings these tests led to are in the [README](../../README.md) (`writing_wt_per_word`, `note_web_haiku`,
   `small_quote_line`, `margin_percent`, `requote_on_addition`) and in the [CHANGELOG](../../CHANGELOG.md).
+
+
+## 1.1.9: new tasks, paid with API credits (19 October 2026)
+
+The 50 jobs above taught 1.1.9 where the misses come from: a job where nobody writes during the work costs about x0.58
+its raw quote, and a task added halfway makes it cost more than any quote made before. So 1.1.9 learns only from clean
+jobs, starts new users from what these jobs cost, and quotes an added task on its own. Then it was checked on tasks it
+had never seen, each in a fresh session as a new user, paid with API credits so the author's plan was not touched
+(`results-1.1.9.json`: task texts and numbers only).
+
+| | Jobs | Typical miss | Within 30% | Lean |
+|---|---|---|---|---|
+| Batch A, 1.1.8's start (the shared average, x1.15) | 15 | 96% | 2 | x0.51 |
+| Batch A, 1.1.9 first version (x0.58 for every type) | 15 | 49% | 7 | x1.01 |
+| Batch B, 1.1.8's start (x1.15) | 12 | 136% | 4 | x0.42 |
+| Batch B, 1.1.9 as released (start by type, rule for texts) | 12 | 12% | 7 | x0.94 |
+
+Batch A showed that one factor for every type was not enough: texts cost about twice their quote, research about half.
+1.1.9 then got a start by type, from the 64 clean jobs so far (code x0.70, research x0.35, other x0.58) and the rule for
+texts at 27 weighted tokens per final word (20 measured texts: 20 to 56 a word, median about 27). Batch B, 12 tasks never
+used to set them: texts within 4% on the median (3 of 4 within 30%), code 8%, research 41%, and the two "other" tasks,
+which the agent quoted as code, about twice too high.
+
+What this does not say: 12 jobs are few, and a 12% median is partly luck; they are small jobs (11,000 to 350,000 raw)
+in fresh sessions, where nothing is added halfway. In a long chat, and when the user adds tasks during the work, real
+jobs miss more: on the author's own clean chat jobs 1.1.9's learning gave a 43% typical miss (11 jobs). One job of 16
+in batch A went unmeasured: the agent closed it without writing its choice. API cost of the two batches: about 11 dollars.
