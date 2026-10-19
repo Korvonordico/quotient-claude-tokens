@@ -223,6 +223,8 @@ Over time it also estimates how many tokens 1% of each limit holds, so a quote c
 
 Since 1.1.8 the line also says how many weighted tokens are left in each limit (`~22M wt` above): the share left times how much 1% holds, measured on your PC or, until then, the shared size of your plan. It falls as you use the limit, and the quotes use the same sizes. It is rounded because it is an estimate; it shows up once a size is known. Off with `config limits.show_left 0`.
 
+![Two bars, the 5-hour limit and the week, each with the share left and the weighted tokens left (~26M wt, ~277M wt), and the line Quotient shows at each message with the tokens left in brackets, new in 1.1.8](docs/limits-left.svg)
+
 **Learned for your plan.** Each user learns the size of their own limits, on their own PC, from their own readings: Pro, Max and the other plans have different limits, and no size is assumed or shared. Heavier models (Opus more than Sonnet) spend the limits faster for the same tokens, so the estimate also moves with the models you use.
 
 **The week checked against the 5 hours (1.1.2).** The week rises slowly, so its own estimate has few points. Both percentages rise with the same use, though: within one 5-hour window and one week, Quotient sets how many points the 5 hours rose against how many points the week rose. That ratio, times the size of 1% of the 5 hours (which has many points), is a second estimate of the week. The report shows the two side by side and says when they are more than 1.5 times apart (`config ratio.factor`). When the week's own estimate has fewer than 3 points and the ratio has them, the ratio is used in its place, and the report says so. The percentages are whole numbers, so the ratio has a margin too.
