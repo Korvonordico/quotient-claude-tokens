@@ -416,7 +416,7 @@ Quotient is free and MIT licensed. If it saves you a week of limits:
 
 - star the repository, and tell people who keep hitting the limits;
 - open an issue when a quote was far off: real cases are what make it better;
-- sponsor the work: GitHub Sponsors <!-- TODO: add link --> · Ko-fi <!-- TODO: add link -->
+- sponsor the work: [PayPal](https://paypal.me/Khrosms)
 
 ## Author
 
