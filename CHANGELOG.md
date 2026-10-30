@@ -4,6 +4,12 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-10-30
+
+### Added
+
+- **Hermes: a line when a pause made the cache expire (off by default).** Anthropic keeps a chat in its cache for 5 minutes (1 hour with the 1-hour cache); after a longer pause the next message writes the whole chat again at the write price instead of reading it at a tenth. With `config chat.cache_warn 1`, Quotient tells you in one line, with both numbers, but only when each step re-reads at least `chat.cache_warn_min` tokens (100,000). The lifetimes are settings too (`chat.cache_life_5m`, `chat.cache_life_1h`, in seconds).
+
 ## [1.2.5] - 2026-10-30
 
 ### Added
@@ -466,6 +472,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.2.6]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.6
 [1.2.5]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.5
 [1.2.4]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.4
 [1.2.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.3

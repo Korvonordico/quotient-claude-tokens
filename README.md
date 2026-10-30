@@ -105,7 +105,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.2.5","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.2.6","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - No dates, no times, no names, no text, no paths, no session or user ids. The service that collects the lines ([code in `server/`](server/)) does not keep IP addresses.
@@ -233,6 +233,7 @@ Run them as `python scripts/quotient.py <command>` from the plugin's folder or a
 | `setup --threshold N --reserve N --lang it\|en --after sleep\|hibernate\|nothing` | save the settings (also `--wake yes\|no` and `--share yes\|no`) |
 | `setup --compact keep\|auto\|<tokens>` | long chats: keep them as they are, or let them compact themselves at a size |
 | `setup --hermes-copy yes\|no` | Hermes: save the whole chat to `~/.quotient/chats/` before each automatic summary |
+| `config chat.cache_warn 1` | Hermes: one line when a pause was longer than the cache keeps the chat (off by default) |
 | `config [key [value]]` | show every setting, or change one |
 | `share status\|on\|off\|send` | sharing, from a terminal (`send`: send the waiting lines now) |
 | `export` | the exact line sharing sends for each finished job |

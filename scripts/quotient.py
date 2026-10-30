@@ -40,7 +40,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.2.5"
+VERSION = "1.2.6"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -78,6 +78,14 @@ DEFAULTS = {
         # None = not asked yet; True = each time it does, Quotient first writes the whole chat to a file in
         # ~/.quotient/chats (nothing of it is lost); False = it just summarizes. Set with: setup --hermes-copy yes|no
         "hermes_copy": None,
+        # 1.2.6: a pause longer than the cache keeps the chat (Anthropic's documented lifetimes: 5 minutes, 1 hour for
+        # the 1-hour cache) makes the next message write the whole chat again at the write price (1.25 or 2) instead of
+        # reading it at 0.1. cache_warn 1: Hermes's line tells the user, when each step re-reads at least
+        # cache_warn_min tokens. 0 (the default): no line.
+        "cache_warn": 0,
+        "cache_warn_min": 100000,
+        "cache_life_5m": 300,
+        "cache_life_1h": 3600,
     },
     # Long chats. "keep" (the default): Quotient leaves Claude Code's compaction as it is and, when a chat has
     # grown long, offers a new chat. "auto": the chat compacts itself at the size Quotient recommends from your

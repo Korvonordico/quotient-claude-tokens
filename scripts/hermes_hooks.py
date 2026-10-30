@@ -157,6 +157,30 @@ HERMES_COPY_TIP = (
     "lost) / just summarize. Save the answer with: %s setup --hermes-copy yes|no")
 
 
+def cache_note(q, cfg, chat, ctx, now):
+    """1.2.6 (Francesco, 30/10/2026): with chat.cache_warn on, a line for the user when the pause since the end of the
+    last reply was longer than the cache Hermes writes keeps the chat (5 minutes, or 1 hour with its prompt_caching
+    cache_ttl "1h": chat.cache_life_5m and chat.cache_life_1h, from Anthropic's documentation) and each step re-reads at
+    least chat.cache_warn_min tokens: this message then writes the whole chat to the cache again, at the write price
+    instead of the read price. The pause counts from the end of the reply while the cache counts from the last request,
+    a little earlier: a pause just under the lifetime may have expired it too, untold."""
+    opts = cfg.get("chat") or {}
+    last = chat.get("last_end")
+    if not opts.get("cache_warn") or not last or ctx < (opts.get("cache_warn_min") or 0):
+        return ""
+    hour = hs.cache_ttl() == "1h"
+    life = opts.get("cache_life_1h" if hour else "cache_life_5m") or (3600 if hour else 300)
+    pause = now - float(last)
+    if pause <= life:
+        return ""
+    w = cfg["weights"]
+    write = w.get("cache_write_1h" if hour else "cache_write_5m") or w["cache_write_5m"]
+    return (" CACHE EXPIRED: the pause since the last reply (%s) was longer than the cache keeps the chat (%s), so this "
+            "message writes the whole chat to the cache again: about %s wt instead of %s. Tell the user in one line, in "
+            "their language." % (q.fmt_duration(pause), q.fmt_duration(life), q.fmt(ctx * write),
+                                 q.fmt(ctx * w["cache_read"])))
+
+
 def pre_llm_call(q, payload):
     cfg = q.config()
     sid = payload.get("session_id") or ""
@@ -205,6 +229,7 @@ def pre_llm_call(q, payload):
         if (cfg.get("chat") or {}).get("hermes_copy") is None and not chat.get("copy_asked"):
             chat["copy_asked"] = True
             text += HERMES_COPY_TIP % q.run_cmd()
+    text += cache_note(q, cfg, chat, ctx, time.time())    # 1.2.6: a pause longer than the cache
     if open_job:
         spent = hs.weigh_hermes(_grow(totals, open_job["start"]), cfg["weights"])
         text += " Open job: %s, about %s wt spent of %s (raw)" % (open_job["choice"], q.fmt(spent),
@@ -455,6 +480,7 @@ def post_llm_call(q, payload):
         q.timer_put(cfg, "pause", job["seconds"], job.get("predicted_seconds"), job["choice"],
                     start=created and not by_command)
     chat.pop("turn_start", None)
+    chat["last_end"] = now           # 1.2.6: when this reply ended (cache_note)
     try:
         save_copies(q, cfg, sid, chat, now)
     except Exception:              # a copy that cannot be written must never break a turn
