@@ -40,7 +40,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.2.6"
+VERSION = "1.2.7"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -272,6 +272,13 @@ DEFAULTS = {
         # 1.2.2: an installment's cap is at least this many times that start, else it spends its cap just starting
         # (rate new, rate apart, rate set; a week too full for it skips the installment). 0 = no floor.
         "min_cap_starts": 1.5,
+        # 1.2.7: before a job starts (rate new, rate apart), a few lines when its task looks vague (short, no file
+        # named, no way to check the work, no goal) or when the CLAUDE.md rules Claude Code loads for its folder are
+        # missing or big (every step of every installment re-reads them). Simple word checks, so they only advise.
+        # 1 = on, 0 = off; the two numbers are where "short" and "big" start.
+        "task_check": 0,
+        "task_min_words": 60,
+        "rules_warn_tokens": 10000,
         "extra_args": [],
     },
     # 1.1.1: each finished job (and each installment) is set against how much the weekly limit rose meanwhile. A miss
@@ -7356,6 +7363,78 @@ def rate_templates(args):
         "".join("  %-12s %s\n" % (k, v) for k, v in templates().items()))
 
 
+# 1.2.7 (improvement 12): signs that a task says what the job needs. Plain word checks in English and Italian:
+# they can miss a vague task written with the right words, or flag a clear one, so they only advise.
+TASK_FILE_RE = re.compile(r"[\w-]+\.[A-Za-z][A-Za-z0-9]{0,4}\b|\w[\\/]\w|\b[A-Za-z]:[\\/]")
+TASK_CHECK_RE = re.compile(r"\b(?:test|prov[aeio]|verif|check|controll|compil|build|lint|confront|compar|assert|"
+                           r"misur|measur)", re.I)
+TASK_GOAL_RE = re.compile(r"\b(?:obiettiv|scopo|goal|aim\b|done\b|finit|finisc|finish|complet|alla fine|job done|"
+                          r"risultat|result|criteri|accettazion|acceptance|success|fermati|fermarti|stop|finché|"
+                          r"until|deliverable|consegn|tutt[ie]\b|ogni\b|every\b|each\b|all\b)", re.I)
+IMPORT_RE = re.compile(r"(?<![\w`])@(~?[\w./\\:-]+)")
+
+
+def rules_files(folder):
+    """The CLAUDE.md files Claude Code loads for a session in `folder`, with the files they import (@path, up to 5
+    levels deep, not inside code): (the user's own, those of the folder and of the folders above it, the drive root
+    excluded). Two lists of paths."""
+    seen = set()
+
+    def take(path, found, depth=0):
+        path = os.path.abspath(path)
+        if os.path.normcase(path) in seen or not os.path.isfile(path):
+            return
+        seen.add(os.path.normcase(path))
+        found.append(path)
+        if depth >= 5:
+            return
+        text = re.sub(r"```.*?```|`[^`\n]*`", "", load_text(path) or "", flags=re.S)
+        for ref in IMPORT_RE.findall(text):
+            ref = os.path.expanduser(ref.rstrip(".:,;"))
+            take(ref if os.path.isabs(ref) else os.path.join(os.path.dirname(path), ref), found, depth + 1)
+
+    user, project, chain, here = [], [], [], os.path.abspath(folder)
+    take(os.path.join(claude_dir(), "CLAUDE.md"), user)
+    while os.path.dirname(here) != here:
+        chain.append(here)
+        here = os.path.dirname(here)
+    for d in reversed(chain):
+        for name in ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md"), "CLAUDE.local.md"):
+            take(os.path.join(d, name), project)
+    return user, project
+
+
+def task_check(task, folder, cfg):
+    """1.2.7 (improvement 12): what may be missing before a job runs, as short lines for the chat; [] when all looks
+    fine or the check is off (rate.task_check)."""
+    r = cfg["rate"]
+    if not r.get("task_check"):
+        return []
+    notes = []
+    words = len(re.findall(r"\w+", task))
+    if words < int(r.get("task_min_words") or 0):
+        notes.append("it is short (%d words): the job knows only what the task says" % words)
+    if not TASK_FILE_RE.search(task):
+        notes.append("it names no file or folder: say which files the job reads first")
+    if not TASK_CHECK_RE.search(task):
+        notes.append("it gives no way to check the work (tests, a command to run, a comparison)")
+    if not TASK_GOAL_RE.search(task):
+        notes.append("it does not say when the job is finished (the goal, what counts as done)")
+    user, project = rules_files(folder)
+    if notes and not project:   # only with a thin task: a detailed one does without (19 of 65 of the author's did)
+        notes.append("there is no CLAUDE.md in %s or in the folders above it: the job knows only its task, so the "
+                     "task must also give the project's commands and rules" % os.path.abspath(folder))
+    chars = sum(len(load_text(p) or "") for p in user + project)
+    tokens = chars / float(cfg.get("chars_per_token") or 3.5)
+    if r.get("rules_warn_tokens") and tokens > r["rules_warn_tokens"]:
+        notes.append("the rules Claude Code loads for this folder (%s) are about %s tokens, and every step of every "
+                     "installment re-reads them (about %s wt a step, from the cache; counted from the characters, an "
+                     "estimate): what the jobs here do not "
+                     "need could move to files read only when needed" % (
+                         ", ".join(user + project), fmt(tokens), fmt(tokens * cfg["weights"]["cache_read"])))
+    return notes
+
+
 def rate_new(args):
     folder = rate_dir(args.name)
     if os.path.exists(os.path.join(folder, "job.json")):
@@ -7430,6 +7509,14 @@ def rate_new(args):
     job["predicted_seconds"] = round(whole) if whole else None
     each = installment_seconds(cfg, job)
     save_json(os.path.join(folder, "job.json"), job)
+    notes = task_check(task, job["dir"], cfg)
+    if notes:
+        out("Task check (rate.task_check; simple word checks, they may be wrong):\n" +
+            "".join("- %s.\n" % n for n in notes) +
+            ("The job starts anyway: these points are for the next task.\n" if apart else
+             "The job is created anyway: to improve the task before it runs, edit %s (the job's own copy).\n"
+             % os.path.join(folder, "TASK.md")) +
+            "Tell the user these points in a line or two.\n")
     if apart:
         return job
     timing = ("Expected time: about %s per installment%s (from the installments timed so far).\n" % (

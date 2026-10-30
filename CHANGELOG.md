@@ -4,6 +4,12 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-10-30
+
+### Added
+
+- **A look at a job's task before it starts (off by default).** With `config rate.task_check 1`, `rate new` and `rate apart` add a few lines when the task looks vague: it is short, names no file or folder, gives no way to check the work, or does not say when the job is finished. With such a thin task they also say when there is no CLAUDE.md for the job's folder, since the job then knows only its task. And they say when the CLAUDE.md rules Claude Code loads for the folder (the user's own, the folder's and those of the folders above it, with the files they import) are over about 10,000 tokens (counted from the characters), since every step of every installment re-reads them. These are plain word checks in English and Italian: they only advise, and the job is created anyway. Tried on the author's 65 real tasks: only a 41-word test job was called short, and the rules line came up for the 36 jobs under a 45 KB CLAUDE.md. `rate.task_min_words` (60) and `rate.rules_warn_tokens` (10000) set where "short" and "big" start.
+
 ## [1.2.6] - 2026-10-30
 
 ### Added
