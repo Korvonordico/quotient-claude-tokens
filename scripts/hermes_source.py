@@ -327,6 +327,31 @@ def active_seconds(sid, since, until, home=None):
     return total + max(0.0, until - prev)
 
 
+def chat_text(sid, until, home=None):
+    """The whole chat up to a moment (epoch seconds), as text for a person: the messages Hermes keeps, the ones a
+    summary replaced included. "" when Hermes or its messages are not there."""
+    path = db_path(home)
+    if not os.path.isfile(path):
+        return ""
+    try:
+        con = sqlite3.connect("file:" + path.replace("\\", "/") + "?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return ""
+    try:
+        rows = con.execute("select role, content, timestamp from messages where session_id = ? and timestamp < ? "
+                           "and role in ('user', 'assistant') and content is not null and content != '' "
+                           "order by timestamp", (sid, until)).fetchall()
+    except sqlite3.Error:
+        return ""
+    finally:
+        con.close()
+    parts = []
+    for role, content, when in rows:
+        stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(when)))
+        parts.append("## %s, %s\n\n%s\n" % ("You" if role == "user" else "Assistant", stamp, content))
+    return "\n".join(parts)
+
+
 def compressions(sid, since, until, home=None):
     """When Hermes compressed a chat between two moments (epoch seconds): for each summary it put in the chat's place,
     (its time, the time of the first answer after it). [] when Hermes or its messages are not there."""

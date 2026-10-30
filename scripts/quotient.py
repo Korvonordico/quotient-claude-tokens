@@ -40,7 +40,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.2.4"
+VERSION = "1.2.5"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -74,6 +74,10 @@ DEFAULTS = {
         "new_chat_percent": 25,
         # An open job in another chat is offered for this many days, then forgotten.
         "open_days": 7,
+        # Hermes summarizes a long chat by itself (its own "compression" setting, which Quotient never changes).
+        # None = not asked yet; True = each time it does, Quotient first writes the whole chat to a file in
+        # ~/.quotient/chats (nothing of it is lost); False = it just summarizes. Set with: setup --hermes-copy yes|no
+        "hermes_copy": None,
     },
     # Long chats. "keep" (the default): Quotient leaves Claude Code's compaction as it is and, when a chat has
     # grown long, offers a new chat. "auto": the chat compacts itself at the size Quotient recommends from your
@@ -3668,8 +3672,17 @@ def cmd_setup(args):
             values[("compact", "at")] = max(COMPACT_MIN, min(COMPACT_MAX, int(choice)))
         else:
             sys.exit("quotient: --compact takes keep, auto, or a size in tokens (100000 to 1000000)")
+    copy = getattr(args, "hermes_copy", None)
+    if copy in ("yes", "no"):
+        values[("chat", "hermes_copy")] = to_bool(copy)
+        values[("chat", "hermes_copy_since")] = int(time.time())
     save_settings(values)
     cfg = config()
+    if copy == "yes":
+        out("Hermes chats: each time Hermes summarizes a long chat, Quotient first saves the whole chat in %s.\n"
+            % os.path.join(home(), "chats"))
+    elif copy == "no":
+        out("Hermes chats: Hermes summarizes long chats and Quotient saves no copy.\n")
     if compact:
         out(apply_compact(cfg) + "\n")
     out("Quotient is set up: threshold %s wt, reserve %d%% of the week, report in %s, wake the PC for installments: %s, "
@@ -8189,6 +8202,8 @@ def main(argv=None):
     p.add_argument("--share", choices=("yes", "no"), help="share anonymous numbers of finished jobs")
     p.add_argument("--compact", help="long chats: keep, auto (the size Quotient recommends), or a size in tokens")
     p.add_argument("--plan", help="your subscription: pro, max5, max20, other, or unknown (I don't know)")
+    p.add_argument("--hermes-copy", dest="hermes_copy", choices=("yes", "no"),
+                   help="Hermes: save the whole chat to a file before each automatic summary")
     p = sub.add_parser("setup-statusline", help="show the plan limits in the status line and record them")
     p.add_argument("--write", action="store_true", help="write the setting in ~/.claude/settings.json")
     p.add_argument("--force", action="store_true", help="replace a status line that is already set")

@@ -4,6 +4,12 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-10-30
+
+### Added
+
+- **Hermes: a full copy of the chat before each summary, if you want it.** Hermes can summarize a long chat by itself (its own `compression` setting, which Quotient never changes); the model then sees fewer details of what came before. The first time a chat gets long, Quotient asks once: save the whole chat first, or just summarize. With yes, each time Hermes summarizes a chat Quotient writes the whole chat as it was just before, in `~/.quotient/chats/`. Change it any time with `setup --hermes-copy yes|no`.
+
 ## [1.2.4] - 2026-10-30
 
 ### Fixed
@@ -460,6 +466,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.2.5]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.5
 [1.2.4]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.4
 [1.2.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.3
 [1.2.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.2

@@ -149,6 +149,14 @@ def hermes_protocol(q, cfg, factor):
                    "Their reports come back to this chat.\n")
 
 
+HERMES_COPY_TIP = (
+    " TIP, once (the user has not chosen yet): Hermes can summarize a long chat by itself (its own `compression` "
+    "setting; Quotient never changes it). Ask with the clarify tool, in the user's language, 'Riassunto delle chat'/"
+    "'Chat summaries': a summary makes every next step cheaper but the model then sees fewer details of what came "
+    "before. Options: save the whole chat first (Quotient writes it to a file before each summary, so nothing is "
+    "lost) / just summarize. Save the answer with: %s setup --hermes-copy yes|no")
+
+
 def pre_llm_call(q, payload):
     cfg = q.config()
     sid = payload.get("session_id") or ""
@@ -194,6 +202,9 @@ def pre_llm_call(q, payload):
         text += (" LONG CHAT: each step re-reads about %s tokens (%s wt). Tell the user once, in one line, that "
                  "/compress (or a new chat with a summary) would make every next step cheaper." % (
                      q.fmt(ctx), q.fmt(ctx * cfg["weights"]["cache_read"])))
+        if (cfg.get("chat") or {}).get("hermes_copy") is None and not chat.get("copy_asked"):
+            chat["copy_asked"] = True
+            text += HERMES_COPY_TIP % q.run_cmd()
     if open_job:
         spent = hs.weigh_hermes(_grow(totals, open_job["start"]), cfg["weights"])
         text += " Open job: %s, about %s wt spent of %s (raw)" % (open_job["choice"], q.fmt(spent),
@@ -296,6 +307,29 @@ def _close(q, cfg, chat, totals, calls, how):
     q.close_job(row, cfg)
     chat["last_closed"] = q.closed_note(row, cfg)
     return row
+
+
+def save_copies(q, cfg, sid, chat, now):
+    """With chat.hermes_copy on: for each summary Hermes made in this chat since the last look, write the whole chat
+    as it was just before it to ~/.quotient/chats/<chat>-<time>.md (Hermes keeps the replaced messages, so the copy
+    is complete). Returns the files written."""
+    opts = cfg.get("chat") or {}
+    if not opts.get("hermes_copy") or not sid:
+        return []
+    since = float(chat.get("copied_until") or opts.get("hermes_copy_since") or now)
+    written = []
+    for when, _ in hs.compressions(sid, since, now):
+        text = hs.chat_text(sid, when)
+        if text:
+            folder = os.path.join(q.home(), "chats")
+            os.makedirs(folder, exist_ok=True)
+            name = "%s-%s.md" % ("".join(c for c in sid if c.isalnum() or c in "_-") or "chat",
+                                 time.strftime("%Y%m%d-%H%M%S", time.localtime(when)))
+            with open(os.path.join(folder, name), "w", encoding="utf-8") as f:
+                f.write("# The whole chat before Hermes summarized it\n\n" + text)
+            written.append(name)
+        chat["copied_until"] = when
+    return written
 
 
 def post_llm_call(q, payload):
@@ -421,6 +455,10 @@ def post_llm_call(q, payload):
         q.timer_put(cfg, "pause", job["seconds"], job.get("predicted_seconds"), job["choice"],
                     start=created and not by_command)
     chat.pop("turn_start", None)
+    try:
+        save_copies(q, cfg, sid, chat, now)
+    except Exception:              # a copy that cannot be written must never break a turn
+        pass
     _save(q, state)
     return {"closed": closed} if closed else {}
 
