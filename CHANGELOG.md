@@ -2,6 +2,12 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [Unreleased]
+
+### Docs
+
+- README rewritten (shorter main page, details folded), new demo, feature images made by `docs/make_images.py`, logo for the light theme.
+
 ## [1.2.3] - 2026-10-30
 
 ### Added
