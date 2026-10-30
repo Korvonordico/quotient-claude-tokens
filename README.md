@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" width="45%" alt="Token Quotient">
+  <img src="docs/logo.png" width="75%" alt="Token Quotient">
 </p>
 
 <h1 align="center">Token Quotient: cost quotes and usage limits for Claude Code</h1>
@@ -10,7 +10,6 @@ Know what a [Claude Code](https://code.claude.com) job will cost before it start
 [![version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FKorvonordico%2Fquotient-claude-tokens%2Fmain%2F.claude-plugin%2Fplugin.json&query=%24.version&label=version)](CHANGELOG.md)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-*[Leggi in italiano](README.it.md)*
 
 ![Token Quotient demo](docs/demo.svg)
 

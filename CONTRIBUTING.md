@@ -50,7 +50,7 @@ GitHub Actions runs both at every push and pull request: the Python tests on Ubu
 - **Follow the code around you.** Functions have a docstring that says what they do; comments say why, often with the real case that led to the change.
 - **A fix comes with a test** that fails without it. Tests describe the case they protect in their docstring.
 - **Every token Quotient adds to a chat is paid by every user**, at every step: its rules at the start of a session and its line at each message are re-read all the time. Keep any text added there as short as you can, and check its weight in the report.
-- **Two languages.** User-facing text exists in English and Italian (the report strings in `quotient.py`, README.md and README.it.md). Change both.
+- **Two languages.** User-facing text exists in English and Italian (the report strings in `quotient.py`; the README is English only). Change both.
 - **Plain words for users.** Short sentences, numbers with their unit, no jargon where a common word works.
 - **Privacy is part of the change.** If a change touches what Quotient reads, keeps, sends or fetches, update [PRIVACY.md](PRIVACY.md) (both languages) and the "Everything Quotient runs, sends and fetches" list in both READMEs in the same pull request. The shared line (`v`, `q`, `family`, `estimate`, `actual`) is fixed: the service refuses anything else, so changing it needs an issue first.
 
@@ -59,7 +59,7 @@ GitHub Actions runs both at every push and pull request: the Python tests on Ubu
 1. Fork the repository and branch from `main`.
 2. Keep one change per pull request, as small as it can be.
 3. Run the tests.
-4. Update README.md and README.it.md if behavior or commands change, and add a line under "Unreleased" in [CHANGELOG.md](CHANGELOG.md).
+4. Update README.md if behavior or commands change, and add a line under "Unreleased" in [CHANGELOG.md](CHANGELOG.md).
 5. Open the pull request and fill in the template.
 
 Commit messages are one line that says what changes for the user, like the history: `Quotient 0.9.7: the PC goes back to sleep only if the installment woke it`.

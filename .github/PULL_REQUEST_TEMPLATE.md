@@ -13,7 +13,7 @@
 
 - [ ] A bug fix comes with a test that fails without it
 - [ ] Python standard library only, still working on Python 3.8
-- [ ] README.md and README.it.md updated, if behavior or commands changed
+- [ ] README.md updated, if behavior or commands changed
 - [ ] PRIVACY.md updated, if this changes what Quotient reads, keeps, sends or fetches
 - [ ] Any text added to every chat (the rules or the per-message line) is as short as it can be
 - [ ] A line under "Unreleased" in CHANGELOG.md
