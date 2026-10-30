@@ -169,6 +169,9 @@ class TestHermesTime(unittest.TestCase):
     def setUp(self):
         self.q = tempfile.mkdtemp()
         self.h = fake_hermes_db()
+        # 1.2.3: this test's own jobs alone make the factor x1, without the shared average shipped with the plugin
+        with open(os.path.join(self.q, "config.json"), "w", encoding="utf-8") as f:
+            json.dump({"shared_min_weight": 0}, f)
 
     def hook(self, event, response=""):
         payload = {"hook_event_name": event, "session_id": "chat1",

@@ -26,7 +26,7 @@ Since 1.1.6, Quotient sets its measures against others. These stay on your compu
 To help everyone start from real numbers instead of from zero, Quotient shares **one line of numbers for each finished job**. Exactly this, and nothing else:
 
 ```json
-{"v":1,"q":"1.2.2","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.2.3","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 | Field | What it is |
@@ -66,7 +66,7 @@ It is a best-effort average: anyone can send numbers. The service refuses ratios
 
 ## What is downloaded
 
-Once a day, at the start of a session, Quotient downloads `average.json` from the quotient-data repository on GitHub (`raw.githubusercontent.com`), or, if GitHub does not answer, the same file from the service. As with any download, GitHub or Cloudflare see the connection. Nothing else is sent with it, and only its numbers are kept. To stop the download too: `quotient config share.average_url ""` and `quotient config share.endpoint ""`.
+Once a day, at the start of a session, Quotient downloads `average.json` from the quotient-data repository on GitHub (`raw.githubusercontent.com`), or, if GitHub does not answer, the same file from the service. As with any download, GitHub or Cloudflare see the connection. Nothing else is sent with it, and only its numbers are kept. To stop the download too: `quotient config share.average_url ""` and `quotient config share.endpoint ""`. Only if you run `quotient prices update`, Quotient also downloads a public price table from GitHub; nothing is sent with it.
 
 ## What is read from Anthropic
 
@@ -104,7 +104,7 @@ Dalla 1.1.6 Quotient mette le sue misure accanto ad altre. Anche queste restano 
 **Cosa viene condiviso**: una riga di numeri per ogni lavoro finito, esattamente questa e nient'altro:
 
 ```json
-{"v":1,"q":"1.2.2","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.2.3","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e il costo vero del lavoro in token pesati (dalla 0.9.5 senza la rilettura di quello che la chat conteneva quando il lavoro è cominciato, che la stima non riguarda), arrotondati a 3 cifre. Dalla 1.1.6, solo quando si sanno: il piano (`plan`), solo se l'hai scelto nelle impostazioni di Quotient, e quanti token pesati tiene l'1% della tua settimana (`per_point`, arrotondato a 3 cifre), solo quando Quotient l'ha imparato dalle tue letture dei limiti; dalla 1.1.7 lo stesso per la finestra di 5 ore (`per_point_5h`). Servono perché un utente nuovo dello stesso piano parta dalla misura vera dell'1% della settimana e delle 5 ore di quel piano invece che da zero, e perché i limiti di ogni piano li confermino altre persone. Quello che riceve l'utente nuovo è una stima di partenza presa da altri utenti, con il suo margine, non una certezza: Anthropic non pubblica i limiti in token e li cambia. Senza, la riga resta di cinque campi come prima. Niente date né orari, niente nomi, testi, percorsi, codici di sessione o di persona, niente account. La riga parte all'inizio della sessione successiva, mai a metà di una risposta, e niente parte prima che tu sia avvisato: la prima volta Claude Code ti mostra un messaggio che dice cosa viene condiviso e come spegnerlo. Va a un piccolo servizio su Cloudflare Workers, il cui codice è pubblico in [`server/`](server/), che accetta solo righe di quella forma.

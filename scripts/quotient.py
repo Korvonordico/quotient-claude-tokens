@@ -16,6 +16,7 @@ Commands:
   config [KEY [VALUE]] show or change the settings
   export               the exact lines that sharing sends (numbers only)
   share [status|on|off] the shared average: what is sent, and turning it on or off
+  prices [update]    the price table of the Claude models; update downloads it again
   plan-changed [--undo] [--plan P] you changed subscription: learn the size of the limit again from now
   telemetry [status|on|off] [--write] Claude Code's own telemetry as a second measure
   rate ...           the work in installments (see `rate --help`)
@@ -39,7 +40,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.2.2"
+VERSION = "1.2.3"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -169,6 +170,12 @@ DEFAULTS = {
     "claude_runs_marker": "",
     # Below this many measured jobs the factor is shown as uncertain.
     "min_jobs": 5,
+    # 1.2.3 (Francesco's rule): the shared average stays a part of the factor for good: it weighs k/(k+n) with n your jobs
+    # that teach and k = min_jobs, never under this. With start rows (start_factor) it weighs just this, since those rows
+    # are what the first jobs measured. The two are mixed on a log scale. 0 = before 1.2.3: gone after min_jobs jobs.
+    # Off (0) by default in 1.2.3: the shared average still holds mostly jobs measured by older versions, and mixing it
+    # in made the author's quotes less accurate; turn it on (e.g. 0.1) once it counts only recent versions.
+    "shared_min_weight": 0,
     # 1.1.4: a type of work (code, writing, research, other) has its own factor from this many jobs of its own on;
     # before that it uses the factor of all the jobs of its kind (chat or installments).
     "type_min_jobs": 3,
@@ -1226,22 +1233,44 @@ def shared_average():
     return None
 
 
+def shared_factor(jobs):
+    """The shared average's factor and how many real jobs are behind it, or None: the one of your model family if it
+    has one, else of all jobs, held between x0.25 and x4: anyone can send numbers, so it is not trusted further."""
+    avg = shared_average()
+    if not avg:
+        return None
+    family = jobs[-1].get("family") if jobs else None
+    stats = (avg.get("families") or {}).get(family) or avg["all"]
+    return min(max(float(stats["factor"]), FACTOR_MIN), FACTOR_MAX), int(stats["jobs"])
+
+
 def shared_prior(cfg, jobs):
     """What stands for other people's jobs until you have enough of your own: rows for the
     factor, and how many real jobs are behind them. The shared average counts as at most
-    min_jobs jobs at its factor (the one of your model family if it has one, else of all jobs),
-    and its factor is held between x0.25 and x4: anyone can send numbers, so it is not trusted further."""
-    avg = shared_average()
-    if avg:
-        family = jobs[-1].get("family") if jobs else None
-        stats = (avg.get("families") or {}).get(family) or avg["all"]
-        n = int(stats["jobs"])
-        factor = min(max(float(stats["factor"]), FACTOR_MIN), FACTOR_MAX)
+    min_jobs jobs at its factor (with shared_min_weight 0: otherwise see shared_mix)."""
+    found = shared_factor(jobs)
+    if found:
+        factor, n = found
         row = {"raw_estimate": 1000000, "actual": round(1000000 * factor), "finished": "",
                "choice": "shared", "shared": True}
         return [dict(row) for _ in range(min(n, cfg["min_jobs"]))], n
     rows = shared_jobs(jobs)
     return rows, len(rows)
+
+
+def shared_weight(cfg, n, started=False):
+    """1.2.3: how much the shared average weighs next to n of your jobs: nearly all at first, less and less as they
+    grow, never under shared_min_weight. With start rows (`started`), just the minimum: 1.1.9 measured those rows on
+    clean jobs (x0.58) and they, not the average of all jobs (x1.18 on 21/10/2026), are what a new user starts from."""
+    least = float(cfg.get("shared_min_weight") or 0)
+    k = max(int(cfg["min_jobs"]), 1)
+    return least if started else max(least, k / float(k + n))
+
+
+def shared_mix(own, shared, weight):
+    """1.2.3: your factor and the shared one, weighted on a log scale, so x2 and /2 weigh the same (as in factor_from)."""
+    mixed = math.exp(weight * math.log(shared) + (1 - weight) * math.log(own))
+    return min(max(mixed, FACTOR_MIN), FACTOR_MAX)
 
 
 def shared_jobs(own=()):
@@ -1409,13 +1438,15 @@ def steps_per_million(cfg, kind="chat"):
 
 def learning(cfg, kind="chat", wtype=None):
     """The correction factor of one kind of job (chat jobs or installments): from your own jobs of that kind; with
-    fewer than min_jobs of them, from all your jobs; until you have min_jobs jobs in all, with the shared ones too.
+    fewer than min_jobs of them, from all your jobs; until you have min_jobs jobs in all, with the shared ones too
+    (1.2.3, with shared_min_weight: the shared average stays a part of the factor for good, see shared_weight).
     1.1.4: with a type of work (code, writing, research, other), from the jobs of that type and kind once there are
     type_min_jobs of them; and the jobs after the last change of the environment weigh more (see factor_from).
     v118: with learn_rate_all on, the installments learn from all the jobs, of both kinds and every type."""
     jobs = finished_jobs()
     window = cfg["history_window"]
     shared, shared_n = shared_prior(cfg, jobs)
+    mixing = shared_factor(jobs) if float(cfg.get("shared_min_weight") or 0) > 0 else None
     least = int(cfg.get("type_min_jobs") or 3)
     env = merge(DEFAULTS["env"], cfg.get("env") or {})
     changes = env_change_epochs()
@@ -1439,7 +1470,7 @@ def learning(cfg, kind="chat", wtype=None):
             row = {"raw_estimate": 1000000, "actual": round(1000000 * base), "finished": "", "choice": "start",
                    "shared": True}
             return [dict(row) for _ in range(max(0, cfg["min_jobs"] - len(have)))]
-        return shared if len(done) < cfg["min_jobs"] else []
+        return shared if len(done) < cfg["min_jobs"] and not mixing else []   # 1.2.3: mixing, it is not rows
 
     def since(at):
         before = [c for c in changes if c <= at]
@@ -1468,10 +1499,19 @@ def learning(cfg, kind="chat", wtype=None):
     def factor(rows, at):
         return factor_from(rows, window, since(at), env["weight"], env["min_jobs"])
 
+    def weight_of(k, done, t=None):
+        """1.2.3: how much the shared average weighs for this kind of job, or None when it is not mixed in."""
+        return shared_weight(cfg, len(own(k, done, t)), clean_on and start > 0 and k == "chat") if mixing else None
+
+    def estimate(k, done, at, t=None):
+        """The factor of one kind of job from what was done so far; 1.2.3: with the shared average mixed in."""
+        value = factor(prior(k, done, t) + own(k, done, t), at)
+        return shared_mix(value, mixing[0], weight_of(k, done, t)) if mixing else value
+
     rows = []
     for i, job in enumerate(jobs):
         at = ts_epoch(job.get("started")) or ts_epoch(job.get("finished"))
-        before = factor(prior(kind_of(job), jobs[:i], job.get("type")) + own(kind_of(job), jobs[:i], job.get("type")), at)
+        before = estimate(kind_of(job), jobs[:i], at, job.get("type"))
         corrected = job["raw_estimate"] * before
         work = max(work_of(job), 1)
         rows.append({
@@ -1484,13 +1524,13 @@ def learning(cfg, kind="chat", wtype=None):
             "miss_corrected": miss(work / corrected),
         })
     start_rows = prior(kind, jobs, wtype) if clean_on and start > 0 and kind == "chat" else []
-    use_shared = len(jobs) < cfg["min_jobs"] and not (clean_on and start > 0 and kind == "chat")
-    basis = (start_rows or (shared if use_shared else [])) + own(kind, jobs, wtype)
+    use_shared = bool(mixing) or (len(jobs) < cfg["min_jobs"] and not (clean_on and start > 0 and kind == "chat"))
     every = kind == "rate" and rate_all
     clean = clean_on and kind == "chat"
     type_jobs = sum(1 for j in (tidy(jobs) if clean else jobs) if kind_of(j) == kind and job_type(j) == wtype
                     and teaches(j, cfg)) if wtype and not every else 0
-    return {"jobs": jobs, "rows": rows, "factor": factor(basis, time.time()), "kind": kind,
+    return {"jobs": jobs, "rows": rows, "factor": estimate(kind, jobs, time.time(), wtype), "kind": kind,
+            "shared_weight": weight_of(kind, jobs, wtype),
             "kind_jobs": len(jobs) if every else (len(tidy(jobs)) if clean else
                                                   sum(1 for j in jobs if kind_of(j) == kind and teaches(j, cfg))),
             "clean": clean, "start_rows": len(start_rows),
@@ -2492,8 +2532,8 @@ def allowed_url(url):
     return url.startswith("https://") or url.startswith("http://127.0.0.1")
 
 
-def http(method, url, body=None, timeout=3):
-    """A plain HTTPS request: no cookies, no identifying headers, at most 256 KB read within a time
+def http(method, url, body=None, timeout=3, most=262144):
+    """A plain HTTPS request: no cookies, no identifying headers, at most 256 KB read (or `most` bytes) within a time
     limit. Returns (status, body) or (None, b"")."""
     if not allowed_url(url):
         return None, b""
@@ -2506,7 +2546,7 @@ def http(method, url, body=None, timeout=3):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             chunks, size = [], 0
-            while size < 262144 and time.time() < end:
+            while size < most and time.time() < end:
                 chunk = resp.read(16384)
                 if not chunk:
                     break
@@ -2616,9 +2656,11 @@ def share_status(cfg):
         "  (plan: only if you chose it, now %s; per_point and per_point_5h: the weighted tokens in 1%% of your week and "
         "of your 5 hours, when known)" % (cfg.get("subscription") or "not said"),
         "Lines sent so far: %d. Lines waiting to be sent: %d." % (state.get("sent", 0), waiting),
-        ("Shared average: x%.2f from %d real jobs%s; used until you have %d jobs of your own, and held between "
-         "x0.25 and x4." % (avg["all"]["factor"], avg["all"]["jobs"],
-                            " (published %s)" % avg["updated"] if avg.get("updated") else "", cfg["min_jobs"])
+        ("Shared average: x%.2f from %d real jobs%s; %s, and held between x0.25 and x4." % (
+            avg["all"]["factor"], avg["all"]["jobs"], " (published %s)" % avg["updated"] if avg.get("updated") else "",
+            "a part of the factor that weighs less as your own jobs grow, never under %d%%" % round(
+                float(cfg["shared_min_weight"]) * 100) if float(cfg.get("shared_min_weight") or 0) > 0 else
+            "used until you have %d jobs of your own" % cfg["min_jobs"])
          if avg else "Shared average: not available yet."),
         plan_status(cfg),
         "Turn sharing %s with: share %s (or /token-quotient:share %s). Either way the shared average is downloaded "
@@ -2658,6 +2700,10 @@ def calibration(cfg, learned):
     report, the steps and the working time per million in quote-table's numbers."""
     n = len(learned["jobs"])
     shared = learned.get("shared", 0)
+    part = learned.get("shared_weight")
+    if part is not None:   # 1.2.3: the shared average stays a part of the factor
+        return "Correction factor x%.2f from %d job(s) of yours and the shared average of %d real jobs, which weighs %d%% (installments x%.2f)." % (
+            learned["factor"], n, shared, round(part * 100), learning(cfg, "rate")["factor"])
     if n == 0 and shared:
         return ("Correction factor x%.2f, from the shared average of %d real jobs (yours take over after %d)." % (
             learned["factor"], shared, cfg["min_jobs"]))
@@ -6750,6 +6796,80 @@ def export():
             out(json.dumps(row, separators=(",", ":")) + "\n")
 
 
+# ---------------------------------------------------------------- the price table (1.2.3)
+# From tokencost (MIT, data/LICENSE-tokencost.txt): only the Claude models, and only when the user asks (`prices update`).
+PRICES_URL = "https://raw.githubusercontent.com/AgentOps-AI/tokencost/main/tokencost/model_prices.json"
+PRICE_FIELDS = (("input", "input_cost_per_token"), ("output", "output_cost_per_token"),
+                ("cache_read", "cache_read_input_token_cost"), ("cache_write", "cache_creation_input_token_cost"))
+PRICE_DATE_RE = re.compile(r"-(?:\d{8}|latest)$")
+
+
+def prices_path():
+    return os.path.join(plugin_root(), "data", "model-prices.json")
+
+
+def filter_prices(table):
+    """The Claude models of tokencost's table, each with its prices per token: only the numbers are kept."""
+    models = {}
+    for name, entry in (table.items() if isinstance(table, dict) else ()):
+        if not isinstance(entry, dict):
+            continue
+        low = str(name).lower()
+        if "claude" not in low and "anthropic" not in low and str(entry.get("litellm_provider")).lower() != "anthropic":
+            continue
+        kept = {short: float(entry[field]) for short, field in PRICE_FIELDS
+                if isinstance(entry.get(field), (int, float)) and not isinstance(entry.get(field), bool)}
+        if kept:
+            models[name] = kept
+    return models
+
+
+def model_price(model):
+    """The prices per token of a model (input, output, cache_read, cache_write, those the table has), or None. An id
+    like claude-opus-4-1[1m] or anthropic/claude-opus-4-1 and one with or without its date find the same line; another
+    version of the model never does, because its price can differ."""
+    models = load_json(prices_path(), {}).get("models") or {}
+    name = re.sub(r"\[.*?\]$", "", str(model or "").strip().lower())
+    name = name.split("/")[-1]
+    if name in models:
+        return models[name]
+    bare = PRICE_DATE_RE.sub("", name)
+    found = [key for key in models if PRICE_DATE_RE.sub("", key) == bare]
+    return models[max(found, key=lambda key: (key.endswith("-latest"), key))] if found else None
+
+
+def prices_update():
+    """Download the table again and keep the Claude models. Only when the user runs it; a failure leaves the old table."""
+    status, body = http("GET", PRICES_URL, timeout=30, most=20 * 1024 * 1024)
+    try:
+        models = filter_prices(json.loads(body.decode("utf-8"))) if status == 200 else {}
+    except ValueError:
+        models = {}
+    if not models:
+        sys.exit("quotient: the price table could not be downloaded (or has no Claude models): the old one stays.")
+    save_json(prices_path(), {"source": PRICES_URL, "license": "MIT, see LICENSE-tokencost.txt",
+                              "updated": datetime.now().strftime("%Y-%m-%d"), "models": models})
+    return len(models)
+
+
+def cmd_prices(args):
+    if args.action == "update":
+        out("Price table updated: %d Claude models.\n" % prices_update())
+    table = load_json(prices_path(), {})
+    models = table.get("models") or {}
+    if not models:
+        out("No price table yet: prices update downloads it.\n")
+        return
+    out("Dollars per million tokens, from tokencost (MIT), updated %s. Not your plan's cost: plans have limits.\n" % (
+        table.get("updated") or "?"))
+    width = max(len(name) for name in models)
+    out("%-*s %9s %9s %10s %11s\n" % (width, "model", "input", "output", "cache read", "cache write"))
+    for name in sorted(models):
+        out("%-*s %s\n" % (width, name, " ".join(
+            ("%*.2f" % (size, models[name][key] * 1e6)) if key in models[name] else " " * (size - 1) + "-"
+            for (key, _), size in zip(PRICE_FIELDS, (9, 9, 10, 11)))))
+
+
 def cmd_share(args):
     """status: what is sent and what is waiting; on/off: turn sharing on or off; send: send the waiting
     lines now. --into (for maintainers): add your finished jobs, numbers only, to a JSON-lines file."""
@@ -6811,7 +6931,7 @@ def cmd_config(args):
 RATE_PROMPT = """You are doing ONE installment of a bigger job, inside a spending cap.
 1. Read the job: {task}
 2. Read the handoff from the previous installments: {handoff}
-3. Continue from where the handoff says. Work in small steps. After each finished step, update {handoff}: what is done, what remains, where to resume. Keep it short. Save results as you go (after each part), not only at the end. If you start helpers (subagents), tell each one to write its results into a file of its own in {notes} as it goes, not only at the end, and give it the path.
+3. Continue from where the handoff says. Work in small steps. After each finished step, update {handoff}: what is done, what remains, where to resume. Keep it short. Save results as you go (after each part), not only at the end. If you start helpers (subagents), tell each one to write its results into a file of its own in {notes} as it goes, not only at the end, and give it the path. To count, search or compare, do not read many files or large outputs: write a small script that prints only the result.
 4. Keep one line `PROGRESS: <n>%` near the top of {handoff}: your honest estimate of how much of the WHOLE job is done (not of this installment). Quotient uses it to tell how many installments remain. Update this line EVERY time you update {handoff}: Quotient reads it as you go and measures the installment in pieces.
 Your working folder is {workdir} (the current folder): the job's own files go there, never next to the task and handoff files.
 5. Near the end of the cap Quotient refuses tools that start new work but still lets Write and Edit through: then save at once what you have found. If a tool call is refused because this installment is used up, update {handoff} and stop at once. If the handoff lists the work of helpers stopped in an earlier installment, use their files before searching again.
@@ -8099,6 +8219,8 @@ def main(argv=None):
     p.add_argument("--port", type=int, help="the local port of the receiver (default: the setting, 4318)")
     p = sub.add_parser("limits-read", help="(internal) one reading of the plan limits, run in the background")
     p.add_argument("--every", type=float, help="not if read or tried within these seconds (default: limits.job_every)")
+    p = sub.add_parser("prices", help="the price table of the Claude models; `prices update` downloads it again")
+    p.add_argument("action", nargs="?", choices=["update"])
     p = sub.add_parser("config")
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
@@ -8190,6 +8312,8 @@ def main(argv=None):
         cmd_setup(args)
     elif args.cmd == "share":
         cmd_share(args)
+    elif args.cmd == "prices":
+        cmd_prices(args)
     elif args.cmd == "commands":
         cmd_commands()
     elif args.cmd == "hermes-hook":

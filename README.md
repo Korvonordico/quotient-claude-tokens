@@ -296,7 +296,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.2.2","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.2.3","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - `plan` only if you chose your plan; `per_point` and `per_point_5h` (how many weighted tokens 1% of your week and 1% of your 5 hours hold, 3 digits) only when Quotient has learned them from your own readings.
@@ -344,7 +344,7 @@ Each copy of Quotient learns from its own errors, but a new user has no errors y
 
 The correction learns from the measures: if the measures are wrong, it learns the wrong thing. This is how Quotient checks them, and what is not shown yet.
 
-- **Automatic tests.** 378 tests run at every change, on Windows and Ubuntu with Python 3.9 and 3.13, on made-up chats whose costs are known in advance: each API call counted once, the chat part, the working time, jobs that move between chats, installments, Hermes.
+- **Automatic tests.** 444 tests run at every change, on Windows and Ubuntu with Python 3.9 and 3.13, on made-up chats whose costs are known in advance: each API call counted once, the chat part, the working time, jobs that move between chats, installments, Hermes.
 - **Errors found and fixed.** In 1.0.0 the jobs measured in Hermes turned out to be 57 pieces of 4 real jobs: the agent wrote its quote again at every message, and each copy opened a new job. The correction factor had fallen to x0.14. The cause is fixed; the pieces already made were not repaired automatically. On 15/10/2026 a piece of a job was found counted apart from it, and it was put back by hand; since 1.1.4 Quotient finds such cases itself and proposes `fix`.
 - **The measures against the week (1.1.1).** Anthropic shows the share of the weekly limit used, and Quotient estimates how many weighted tokens 1% holds. Each finished job and each installment is set against how much the week rose in the same time. If the two are more than 3 times apart (`config check.factor`) and no other job was running, Claude tells you once that the measure of that job does not match the week, and the report lists it. Quotient changes nothing by itself. Jobs under 4 points of the week are not judged, because the percentages are whole numbers. Other chats, and use Quotient cannot see (claude.ai, the phone), move the week too: a warning is a hint to check, not a proof.
 - **The week against the 5 hours (1.1.2).** The size of the week is estimated in two ways: from the weighted tokens measured against its own rise, and from the ratio between the rises of the 5 hours and of the week, times the size of the 5 hours. On the author's readings of 5 to 15 October 2026 the two came out the same (x1.00 apart: 8.7 points of the 5 hours for 1 point of the week, from 84 points of the week in 24 windows). The report shows both, and says when they part.
@@ -379,7 +379,7 @@ The correction learns from the measures: if the measures are wrong, it learns th
 
 **Your data.** Everything is in `~/.quotient/` (or `QUOTIENT_HOME`). `export` prints the exact lines sharing sends. The outbox is `share-outbox.jsonl`; the downloaded average is `average.json`; jobs open in a chat are in `chat-jobs.json` (forgotten after 7 days); the measures set against the week are in `checks.jsonl`; the changes of plan are in `plan-changes.jsonl`; the names around each job are in `env.jsonl` and their changes in `env-changes.jsonl`; the repairs are in `fix.jsonl`, with the copies made before each one in `fix/` and the jobs taken out in `jobs-excluded.jsonl`; the page with charts is `report.html`.
 
-**The shared average.** Until you have 5 jobs of your own, the shared average counts as 5 jobs at its factor (the one of your model family when it has at least 5 jobs, else of all jobs), next to your own. From your fifth job on, only your jobs count.
+**The shared average.** Until you have 5 jobs of your own, the shared average counts as 5 jobs at its factor (the one of your model family when it has at least 5 jobs, else of all jobs), next to your own. From your fifth job on, only your jobs count. Since 1.2.3 it can stay a part of your factor for good: `quotient config shared_min_weight 0.1` makes it weigh k/(k+n), with n your jobs that teach the factor and k = 5, so nearly all at first and less and less as your jobs grow, but never under that minimum. It is off by default for now: today's average still comes mostly from jobs measured by older versions of Quotient, and on my own jobs mixing it in made the quotes less accurate. It will be turned on once the average counts only recent versions.
 
 **Tests.** `python -m unittest discover -s tests` (Quotient, offline) and `node --test server/test/stats.test.mjs` (the service's numbers). GitHub Actions runs them at every push and pull request: the Python tests on Windows and Ubuntu with Python 3.9 and 3.13, the service's on Ubuntu.
 
@@ -428,3 +428,5 @@ Francesco Candela (Korvonordico). The idea, the threshold, the learning from err
 ## License
 
 [MIT](LICENSE)
+
+The price table comes from [tokencost](https://github.com/AgentOps-AI/tokencost) (MIT). Some other ideas, like measuring which tools use the most tokens, come from other context-saving tools I've looked at; the code is my own.

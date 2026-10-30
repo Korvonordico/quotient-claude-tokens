@@ -2,6 +2,17 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.2.3] - 2026-10-30
+
+### Added
+
+- **Installments think with code**: the text of each installment now says to write a small script that prints only the result, instead of reading many files or large outputs to count, search or compare.
+- **A price table of the Claude models** (`data/model-prices.json`, from [tokencost](https://github.com/AgentOps-AI/tokencost), MIT, license in `data/LICENSE-tokencost.txt`): dollars per token for input, output, cache read and cache write. `quotient.py prices` shows it, `quotient.py prices update` downloads it again (only when you run it: no automatic network), and `model_price(model)` reads it. The table has no line yet for models newer than it knows (no Opus 5.5 on 30/10/2026): those give None, never the price of another version.
+
+### Changed
+
+- **The shared average and your own numbers together, as an option** (`shared_min_weight`, off by default). With it on (for example `quotient config shared_min_weight 0.1`), the shared average no longer drops out after your fifth job: it stays a part of the factor for good, weighing k/(k+n) (n your jobs that teach the factor, k = 5) and never under the minimum; the two factors are mixed on a log scale. Off for now because today's average still comes mostly from jobs measured by older versions, and on the author's jobs it made quotes less accurate.
+
 ## [1.2.2] - 2026-10-19
 
 ### Fixed
@@ -437,6 +448,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.2.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.3
 [1.2.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.2
 [1.2.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.0
