@@ -400,19 +400,16 @@ class TestDocs(unittest.TestCase):
             return f.read()
 
     def test_no_placeholder_and_the_version_everywhere(self):
-        for rel in ("README.md", "README.it.md", "PRIVACY.md", "docs/index.html"):
+        for rel in ("README.md", "PRIVACY.md", "docs/index.html"):
             self.assertNotIn("@@", self.read(rel), rel)
         self.assertIn("version %s ·" % pv.VERSION, self.read("docs/index.html"))
         self.assertIn("## [%s] - " % pv.VERSION, self.read("CHANGELOG.md"))
-        for rel in ("README.md", "README.it.md", "PRIVACY.md", "docs/index.html"):
+        for rel in ("README.md", "PRIVACY.md", "docs/index.html"):
             self.assertIn('{"v":1,"q":"%s",' % pv.VERSION, self.read(rel), rel)
 
-    def test_the_readmes_say_the_same_number_of_tests(self):
+    def test_the_readme_says_the_number_of_tests(self):
         en = re.search(r"\*\*Automatic tests\.\*\* (\d+) tests", self.read("README.md"))
-        it = re.search(r"\*\*Prove automatiche\.\*\* (\d+) prove", self.read("README.it.md"))
-        self.assertTrue(en and it)
-        self.assertEqual(en.group(1), it.group(1))
-
+        self.assertTrue(en)
 
 if __name__ == "__main__":
     unittest.main()

@@ -155,7 +155,7 @@ class Manifest(unittest.TestCase):
                                 (name, injected))
 
     def test_no_old_command_names_are_left(self):
-        for rel in ("README.md", "README.it.md", "docs/index.html", "PRIVACY.md", "CONTRIBUTING.md",
+        for rel in ("README.md", "docs/index.html", "PRIVACY.md", "CONTRIBUTING.md",
                     "scripts/quotient.py", "commands/setup.md", "commands/share.md"):
             text = open(os.path.join(ROOT, rel), encoding="utf-8").read()
             self.assertIsNone(re.search(r"(?<![\w-])/quotient:|/plugin install quotient@quotient", text), rel)
