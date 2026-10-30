@@ -1,15 +1,2 @@
-# Funding links for the "Sponsor" button on the repository page.
-# Nothing is enabled yet: every line below is commented out on purpose,
-# because the owner's GitHub Sponsors and Ko-fi names are not set yet.
-#
-# To enable it:
-# 1. Uncomment the lines for the platforms you use and put in your own names:
-#    github = the GitHub account enrolled in GitHub Sponsors,
-#    ko_fi  = the name in your ko-fi.com/<name> link.
-# 2. Commit this file to the default branch (main).
-# 3. In the repository settings (Settings > General > Features), tick "Sponsorships".
-# 4. Replace the "<!-- TODO: add link -->" placeholders in the Support section
-#    of README.md and README.it.md with the same links.
-#
-# github: [your-github-username]
-# ko_fi: your-ko-fi-name
+# Funding link for the "Sponsor" button on the repository page.
+custom: ["https://paypal.me/Khrosms"]
