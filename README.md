@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" width="75%" alt="Token Quotient">
+  <img src="docs/token-quotient-logo.png" width="75%" alt="Token Quotient">
 </p>
 
 <h1 align="center">Token Quotient: cost quotes and usage limits for Claude Code</h1>
