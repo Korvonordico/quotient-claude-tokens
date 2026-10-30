@@ -40,7 +40,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.2.3"
+VERSION = "1.2.4"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -6961,15 +6961,19 @@ def once_task(name, task):
 
 
 def find_claude(cfg):
-    if cfg.get("claude_path"):
+    # A saved path is used only while its file is there: the Claude app removes old version
+    # folders when it updates, and a stale path made every installment fail.
+    if cfg.get("claude_path") and os.path.exists(cfg["claude_path"]):
         return cfg["claude_path"]
     found = shutil.which("claude")
     if found:
         return found
-    # The Claude desktop app keeps its own copy of Claude Code. Installed from the Microsoft
-    # Store, the app's AppData is private: outside the app (a scheduled task) it lives under
-    # Packages\Claude_*\LocalCache, so both places are searched.
+    # The Claude desktop app keeps its own copy of Claude Code. Since October 2026 it lives in
+    # %LOCALAPPDATA%\Claude-Data\claude_<id>\claude-code; before, in %APPDATA%\Claude or, for the
+    # Microsoft Store app seen from outside it (a scheduled task), under Packages\Claude_*\LocalCache.
     patterns = [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Claude-Data", "claude_*", "claude-code", "*", "*",
+                     "claude.exe"),
         os.path.join(os.environ.get("APPDATA", ""), "Claude", "claude-code", "*", "*", "claude.exe"),
         os.path.join(os.environ.get("LOCALAPPDATA", ""), "Packages", "Claude_*", "LocalCache", "Roaming",
                      "Claude", "claude-code", "*", "*", "claude.exe"),

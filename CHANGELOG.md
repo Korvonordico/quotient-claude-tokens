@@ -4,6 +4,12 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-10-30
+
+### Fixed
+
+- **Claude Code found again after an update of the Claude app**: a saved `claude_path` is used only while its file is there (the app removes old version folders when it updates, and a stale path made every installment fail), and the search now looks in the app's new folder, `%LOCALAPPDATA%\Claude-Data\claude_*\claude-code`, taking the newest version.
+
 ### Docs
 
 - README rewritten (shorter main page, details folded), new demo, feature images made by `docs/make_images.py`, logo for the light theme.
@@ -454,6 +460,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.2.4]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.4
 [1.2.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.3
 [1.2.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.2
 [1.2.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.1
