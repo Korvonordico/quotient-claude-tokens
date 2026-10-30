@@ -1,4 +1,8 @@
-# Token Quotient: cost quotes and usage limits for Claude Code
+<p align="center">
+  <img src="docs/logo.png" width="45%" alt="Token Quotient">
+</p>
+
+<h1 align="center">Token Quotient: cost quotes and usage limits for Claude Code</h1>
 
 Know what a [Claude Code](https://code.claude.com) job will cost before it starts, and fit big jobs into your 5-hour and weekly limits.
 

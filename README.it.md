@@ -1,4 +1,8 @@
-# Token Quotient: preventivi dei token e limiti di utilizzo per Claude Code
+<p align="center">
+  <img src="docs/logo.png" width="45%" alt="Token Quotient">
+</p>
+
+<h1 align="center">Token Quotient: preventivi dei token e limiti di utilizzo per Claude Code</h1>
 
 Sapere quanto costa un lavoro di [Claude Code](https://code.claude.com) prima di cominciarlo, e far stare i lavori grandi nei limiti delle 5 ore e della settimana.
 
