@@ -336,6 +336,33 @@ DEFAULTS = {
     "timer": {
         "window": False,
     },
+    # Improvements 2, 5, 7, 9 (savings.py): tips for saving tokens. level 0 = off, 1 = few (the one that saves most, each
+    # told once in a chat), 2 = all (at most `most` at a message, told again as they grow). `tips later` and `tips drop`
+    # put one off or throw it away.
+    # new_chat_tokens: a new chat is proposed only from this size on (Francesco's rule: 500,000), in the tips, in the
+    # line and in the quote's pace options while tips are on. long_chat_tokens: a summary, from this size on.
+    # apart_tokens: an open job in a chat this long gets the tip of doing it apart. again_tokens: told again after this
+    # much growth. tool_share, tool_min_wt: a tool's share of a chat, in percent, from this much spent in the chat.
+    # image_tokens: what one screen photo weighs (Anthropic's rule, width x height / 750, about 1,500 for a big one).
+    # cache_min_percent, cache_min_calls: the part of what is sent that comes from the cache, below which there is a
+    # tip, from this many steps. cold_min_tokens: prompts smaller than this do not count as a cold cache.
+    # every_seconds: how often the logs are read for tools and cache. later_days: the default of `tips later`.
+    "tips": {
+        "level": 0,
+        "most": 3,
+        "new_chat_tokens": 500000,
+        "long_chat_tokens": 500000,
+        "apart_tokens": 200000,
+        "again_tokens": 100000,
+        "tool_share": 25,
+        "tool_min_wt": 500000,
+        "image_tokens": 1500,
+        "cache_min_percent": 70,
+        "cache_min_calls": 10,
+        "cold_min_tokens": 20000,
+        "every_seconds": 600,
+        "later_days": 7,
+    },
     "share": {
         # On by default and declared (first-use window, README, PRIVACY.md): after each finished job, one line
         # of numbers (format, version, model family, raw estimate, real cost) goes to the shared average.
@@ -2931,7 +2958,7 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
     biggest = max(rows, key=lambda r: r["work"])
     levels = level_count(cfg, biggest["work"])
     if new_chat is None:
-        new_chat = bool(context and fresh and kind != "rate" and
+        new_chat = bool(context and fresh and kind != "rate" and new_chat_allowed(cfg, context) and
                         chat_share(cfg, context, fresh)["older_percent"] >= cfg["chat"]["new_chat_percent"])
 
     def time_of(seconds):
@@ -3376,6 +3403,11 @@ def report_lines(name, job, runs, told, folder):
             ", %s of work%s" % (fmt_duration(took), " (about %s expected)" % fmt_duration(r["predicted_seconds"])
                                 if r.get("predicted_seconds") else "") if took else "",
             "; FAILED: %s" % str(r["error"])[:200] if r.get("error") else ""))
+        if r.get("tools"):       # improvements 5, 7: where it spent, with tips on
+            import savings
+            where = savings.run_line(sys.modules[__name__], config(), r, config().get("lang"))
+            if where:
+                lines.append("  " + where)
     spent = sum(r.get("wt") or 0 for r in runs)
     total = "So far: %d installment(s), %s wt, %s of work." % (len(runs), fmt(spent),
                                                                  fmt_duration(sum(run_seconds(r) for r in runs)))
@@ -3900,6 +3932,11 @@ def hook_prompt():
     warning = None if scheduled else compact_warning(cfg, state, ctx)
     if warning:
         lines.append(warning)
+    tips_line = "" if scheduled else saving_line(
+        cfg, sid, ctx, state.get("fresh") or first_context(path), bool(job),
+        lambda: sys.modules["savings"].claude_usage(sys.modules[__name__], read_jsonl(path), cfg))
+    if tips_line:
+        lines.append(tips_line)
     told = None
     if state.get("unquoted") and not scheduled:
         told = state["unquoted"]
@@ -3953,13 +3990,31 @@ def chat_share(cfg, ctx, fresh):
             "older_percent": 100.0 * older * read / wpc if wpc else 0.0}
 
 
+def new_chat_allowed(cfg, ctx):
+    """With the tips on (tips.level), a new chat is proposed only from tips.new_chat_tokens on; off: as always."""
+    tips = cfg.get("tips") or {}
+    return not tips.get("level") or (ctx or 0) >= (tips.get("new_chat_tokens") or 0)
+
+
+def saving_line(cfg, sid, ctx, fresh, job_open, usage_of):
+    """Improvements 2, 5, 7, 9: the tips due at this message; '' when off. Never stops a message."""
+    if not (cfg.get("tips") or {}).get("level"):
+        return ""
+    try:
+        import savings
+        return savings.line(sys.modules[__name__], cfg, sid, ctx, fresh, job_open, usage_of)
+    except Exception as exc:
+        sys.stderr.write("quotient: %s\n" % exc)
+        return ""
+
+
 def chat_hint(cfg, ctx, fresh):
     """One line for Claude: how much re-reading this chat adds to a job, and how much a new chat would save."""
     c = chat_share(cfg, ctx, fresh)
     # 1.1.7: short; how to quote it is in the protocol, and quote-table works the chat part out
     line = "CHAT PART: every call re-reads this chat, ~%s tokens (~%s wt): about +%d%% on a job's work." % (
         fmt(c["context"]), fmt(c["per_call"]), round(c["percent"]))
-    if c["older_percent"] >= cfg["chat"]["new_chat_percent"]:
+    if c["older_percent"] >= cfg["chat"]["new_chat_percent"] and new_chat_allowed(cfg, c["context"]):
         line += " ~%s of them older conversation (+%d%%): offer the pace 'new chat'." % (
             fmt(c["older"]), round(c["older_percent"]))
     return line
@@ -5906,6 +5961,9 @@ COMMANDS = [
      "create a job in installments (--pace: the user's own words, with days, amount a day and time; a template gives it a tested way of working)",
      "crea un lavoro a rate (--pace: le parole dell'utente, con giorni, quantita' al giorno e ora; un modello gli da' un modo di lavorare gia' provato)"),
     ("rate templates", "the ready-made ways of working: book, research, code review", "i modi di lavorare pronti: libro, ricerca, revisione di codice"),
+    ("tips [list|later <id> [--days N]|drop <id>|back <id>]",
+     "the tips for saving tokens, most useful first, with an estimate of each; put one off, or drop it (on with config tips.level 1 or 2)",
+     "i consigli per risparmiare token, dal piu' utile, ognuno con la sua stima; rimandarne uno o scartarlo (si accendono con config tips.level 1 o 2)"),
     ("task-file --out <file> --dir <folder> --what ... --why ... --read <file[:from-to]> --example <file:from-to> --check <command> --goal ... [--no-ask] [--lang it|en] [--force]",
      "write the task file of a job apart or in installments: what and why, the exact files, code examples, the commands to check, the three stops (goal, cap, stuck); in a terminal it asks what you leave out",
      "scrive il file-compito di un lavoro a parte o a rate: cosa e perche', i file esatti, esempi di codice, i comandi per controllarsi, le tre fermate (obiettivo, tetto, bloccato); nel terminale chiede quello che manca"),
@@ -8084,6 +8142,9 @@ def run_installment(args):
            "helpers": len(helpers), "helpers_stopped": sum(1 for h in helpers if h["stopped"]),
            "check": 1}   # 1.1.1: set against the week (measure_checks)
     try:
+        if transcript and (cfg.get("tips") or {}).get("level"):   # improvements 5, 7: where it spent, its cache
+            import savings
+            run.update(savings.run_numbers(sys.modules[__name__], read_jsonl(transcript), cfg))
         run["env"] = record_env(cfg, job.get("dir"))   # 1.1.4: the plugins, MCP servers and hooks it ran with
         run["elsewhere"] = elsewhere_wt(ts_epoch(started), ts_epoch(finished_at), {sid} if sid else ())
     except Exception:
@@ -8565,6 +8626,10 @@ def main(argv=None):
     p.add_argument("--every", type=float, help="not if read or tried within these seconds (default: limits.job_every)")
     p = sub.add_parser("prices", help="the price table of the Claude models; `prices update` downloads it again")
     p.add_argument("action", nargs="?", choices=["update"])
+    p = sub.add_parser("tips", help="the tips for saving tokens, most useful first: put one off (later) or drop it")
+    p.add_argument("what", nargs="?", choices=("list", "later", "drop", "back"), default="list")
+    p.add_argument("id", nargs="?", help="the tip, as the list names it")
+    p.add_argument("--days", type=float, help="with later: for how many days (default: tips.later_days)")
     p = sub.add_parser("task-file", help="write the task file of a job apart or in installments, from a few answers")
     p.add_argument("--out", help="the file to write (default: print it)")
     p.add_argument("--dir", default=".", help="the job's working folder; the files named are relative to it")
@@ -8713,6 +8778,9 @@ def main(argv=None):
         cmd_config(args)
     elif args.cmd == "task-file":
         cmd_task_file(args)
+    elif args.cmd == "tips":
+        import savings
+        savings.cmd(sys.modules[__name__], args)
     elif args.cmd == "rate":
         actions = {"new": rate_new, "apart": rate_apart, "run": rate_run, "status": rate_status, "schedule": rate_schedule,
                    "once": rate_once, "stop": rate_stop, "after": rate_after, "here": rate_here, "check": rate_check,

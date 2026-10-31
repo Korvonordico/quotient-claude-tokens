@@ -221,15 +221,21 @@ def pre_llm_call(q, payload):
     # Long chats (the lesson of M33: re-reading the chat is most of the cost). Two notices at most, a day apart.
     big = (cfg.get("chat") or {}).get("hermes_compress_at", 250000)
     told = chat.setdefault("compress_told", [])
+    tips_on = (cfg.get("tips") or {}).get("level")
     if ctx > big and len(told) < 2 and (not told or time.time() - told[-1] > 24 * 3600):
         told.append(time.time())
-        text += (" LONG CHAT: each step re-reads about %s tokens (%s wt). Tell the user once, in one line, that "
-                 "/compress (or a new chat with a summary) would make every next step cheaper." % (
-                     q.fmt(ctx), q.fmt(ctx * cfg["weights"]["cache_read"])))
+        if not tips_on:       # with the tips on, they say it, at the size the user chose (tips.new_chat_tokens)
+            text += (" LONG CHAT: each step re-reads about %s tokens (%s wt). Tell the user once, in one line, that "
+                     "/compress (or a new chat with a summary) would make every next step cheaper." % (
+                         q.fmt(ctx), q.fmt(ctx * cfg["weights"]["cache_read"])))
         if (cfg.get("chat") or {}).get("hermes_copy") is None and not chat.get("copy_asked"):
             chat["copy_asked"] = True
             text += HERMES_COPY_TIP % q.run_cmd()
     text += cache_note(q, cfg, chat, ctx, time.time())    # 1.2.6: a pause longer than the cache
+    tips_line = q.saving_line(cfg, sid, ctx, (cfg.get("chat") or {}).get("installment_start"), bool(open_job),
+                              lambda: sys.modules["savings"].hermes_usage(q, hs, sid, totals, calls, cfg))
+    if tips_line:
+        text += " " + tips_line
     if open_job:
         spent = hs.weigh_hermes(_grow(totals, open_job["start"]), cfg["weights"])
         text += " Open job: %s, about %s wt spent of %s (raw)" % (open_job["choice"], q.fmt(spent),

@@ -152,6 +152,7 @@ It also:
 - measures its own weight, so you can see what it costs next to what it helps;
 - opens the report as a page with charts (`/token-quotient:report page`, a local file);
 - has ready-made ways of working for long installment jobs: a book, a research, a code review (`rate templates`);
+- can tell you where the tokens go and what would save most (`tips`, off by default): a long chat, a job better done apart, a tool that eats the chat, a cache that went cold;
 - writes a job's task file for you from a few answers (`task-file`): what and why, the exact files, code to imitate, how to check, when to stop;
 - works inside Hermes Agent too (see *Hermes Agent: setup and options*).
 
@@ -235,6 +236,8 @@ Run them as `python scripts/quotient.py <command>` from the plugin's folder or a
 | `setup --compact keep\|auto\|<tokens>` | long chats: keep them as they are, or let them compact themselves at a size |
 | `setup --hermes-copy yes\|no` | Hermes: save the whole chat to `~/.quotient/chats/` before each automatic summary |
 | `config chat.cache_warn 1` | Hermes: one line when a pause was longer than the cache keeps the chat (off by default) |
+| `tips`, `tips later <id> [--days N]`, `tips drop <id>`, `tips back <id>` | the tips for saving tokens, most useful first, each with an estimate of what it saves; put one off, or throw it away (the choice is saved) |
+| `config tips.level 1` or `2` | tips for saving tokens (off by default). 1: only the one that saves most, each told once in a chat. 2: up to `tips.most` at a message, told again as they grow. They cover long chats (a summary from `tips.long_chat_tokens`, a new chat from `tips.new_chat_tokens`, both 500,000; while tips are on, no new chat is proposed below that), a job that would cost less apart, each tool's share of the chat (`tips.tool_share`, e.g. "screen photos cost about 30% of this chat") and how much of what is sent comes from the cache (`tips.cache_min_percent`), with the likely reason. Installments get a line in their report. They never ask for shorter replies |
 | `config rate.task_file_hint 1` | the rules tell Claude to write the task of a job apart or in installments with `task-file` (off by default) |
 | `config rate.task_check 1` | before a job starts (`rate new`, `rate apart`): a few lines when its task looks vague (short, no file named, no way to check the work, no goal) or when the CLAUDE.md rules for its folder are missing or very big (off by default) |
 | `config [key [value]]` | show every setting, or change one |

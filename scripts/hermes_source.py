@@ -249,6 +249,44 @@ def messages(sid, since, until, home=None):
     return [(float(t), r, n) for t, r, n in rows if t is not None]
 
 
+def tool_rows(sid, home=None):
+    """Where a chat's tokens went (savings.py), only sizes and names, read in memory and kept nowhere: for each message
+    (time, role, tool name, characters, [(tool asked for, characters of the request)], is a summary of the chat).
+    None if the session store cannot be read."""
+    path = db_path(home)
+    if not sid or not os.path.isfile(path):
+        return None
+    try:
+        con = sqlite3.connect("file:" + path.replace("\\", "/") + "?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return None
+    try:
+        cols = {r[1] for r in con.execute("pragma table_info(messages)")}
+        if not {"session_id", "role", "timestamp", "content"} <= cols:
+            return None
+        rows = con.execute("select timestamp, role, %s, content, %s from messages where session_id = ? order by "
+                           "timestamp, id" % ("tool_name" if "tool_name" in cols else "NULL",
+                                              "tool_calls" if "tool_calls" in cols else "NULL"), (sid,)).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+    found = []
+    for when, role, tool, content, tool_calls in rows:
+        asked = []
+        try:
+            listed = json.loads(tool_calls) if tool_calls else []
+        except (TypeError, ValueError):
+            listed = []
+        for call in listed if isinstance(listed, list) else []:
+            f = (call.get("function") or {}) if isinstance(call, dict) else {}
+            asked.append((f.get("name"), len(str(f.get("arguments") or ""))))
+        text = content if isinstance(content, str) else ""
+        found.append((float(when or 0), role, tool, len(text), asked,
+                      role != "tool" and text.startswith("[CONTEXT COMPACTION")))
+    return found
+
+
 def reply_texts(sid, since, until, home=None):
     """The lines Hermes wrote in a chat between two moments (epoch seconds), and the choices of its clarify windows, one
     string each (1.1.5): in Hermes the quote's table and the window come in the messages before the last one, the QUOTE
