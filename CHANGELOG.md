@@ -4,6 +4,12 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-31
+
+### Added
+
+- **The weekly reserve switches itself off just before the week resets.** What is left of a week that is about to reset would be lost anyway, so in the last 2 days before the weekly limit resets the reserve for your normal use drops to 0 and installments may use what is left. `rate week` and the quotes say so: "off: the week resets soon and what is left would be lost". On for everyone; change the days with `setup --reserve-off-days N` or the plugin setting `reserve_off_days` (0 = never). The first-use window mentions it next to the reserve.
+
 ## [1.3.0] - 2026-10-31
 
 ### Added
@@ -511,6 +517,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.3.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.1
 [1.3.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.0
 [1.2.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.9
 [1.2.8]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.8

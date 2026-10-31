@@ -109,7 +109,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.3.0","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.3.1","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - No dates, no times, no names, no text, no paths, no session or user ids. The service that collects the lines ([code in `server/`](server/)) does not keep IP addresses.
@@ -236,7 +236,7 @@ Run them as `python scripts/quotient.py <command>` from the plugin's folder or a
 | Command | What it does |
 |---|---|
 | `report [--html]` | the report (`--html`: a page with charts, opened in the browser) |
-| `setup --threshold N --reserve N --lang it\|en --after sleep\|hibernate\|nothing` | save the settings (also `--wake yes\|no` and `--share yes\|no`) |
+| `setup --threshold N --reserve N --lang it\|en --after sleep\|hibernate\|nothing` | save the settings (also `--wake yes\|no`, `--share yes\|no` and `--reserve-off-days N`) |
 | `setup --compact keep\|auto\|<tokens>` | long chats: keep them as they are, or let them compact themselves at a size |
 | `setup --hermes-copy yes\|no` | Hermes: save the whole chat to `~/.quotient/chats/` before each automatic summary |
 | `config chat.cache_warn 1` | Hermes: one line when a pause was longer than the cache keeps the chat (off by default) |
@@ -312,7 +312,7 @@ Good to know:
 <details>
 <summary><b>The week: all jobs together</b></summary>
 
-Two or three jobs can each fit in the week and still not fit together. Quotient adds up every planned installment until the weekly limit resets and keeps a reserve for your normal use (20% unless you change it). If the plan does not fit, a window asks which jobs to keep, slow down or pause. An installment never eats into the reserve: it gets smaller, or waits.
+Two or three jobs can each fit in the week and still not fit together. Quotient adds up every planned installment until the weekly limit resets and keeps a reserve for your normal use (20% unless you change it). If the plan does not fit, a window asks which jobs to keep, slow down or pause. An installment never eats into the reserve: it gets smaller, or waits. In the last 2 days before the weekly limit resets, the reserve switches itself off, since what is left of that week would be lost anyway (`setup --reserve-off-days N` changes the days; 0 = never).
 
 </details>
 
