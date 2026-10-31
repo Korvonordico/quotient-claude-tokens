@@ -21,7 +21,7 @@ def entry():
     return ENTRY["module"]
 
 
-VERSION = "1.2.8"
+VERSION = "1.2.9"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).

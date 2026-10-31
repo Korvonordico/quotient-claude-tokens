@@ -4,6 +4,8 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.2.9] - 2026-10-31
+
 ### Fixed
 
 - **An installment stopped before its end now counts what it really spent.** Only the answer printed at the end of a run gave its session, so a run stopped by the timeout or killed recorded 0 weighted tokens, and the costs and the factors learned from them were wrong. Its transcript is now found from the job's TASK.md in its first prompt. A run Quotient itself did not see the end of (PC turned off) gets its line at the job's next run. `rate repair [job] [--dry]` measures the lines already written, with a copy of the file first.
@@ -503,6 +505,9 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.2.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.9
+[1.2.8]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.8
+[1.2.7]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.7
 [1.2.6]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.6
 [1.2.5]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.5
 [1.2.4]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.4

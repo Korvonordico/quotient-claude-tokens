@@ -65,7 +65,7 @@ GitHub Actions runs both at every push and pull request: the Python tests on Ubu
 
 Commit messages are one line that says what changes for the user, like the history: `Quotient 0.9.7: the PC goes back to sleep only if the installment woke it`.
 
-Leave the version number as it is: the maintainer sets it when releasing. It lives in two places that must match, `.claude-plugin/plugin.json` and `VERSION` in `scripts/quotient.py`.
+Leave the version number as it is: the maintainer sets it when releasing. It lives in two places that must match, `.claude-plugin/plugin.json` and `VERSION` in `scripts/quotient_lib/q_settings.py`.
 
 ## License
 
