@@ -4,6 +4,10 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+### Added
+
+- **`task-file`: the task of a job, written from a few answers.** A job apart or in installments cannot ask questions, so its task file must hold all it needs (the method of the PRP, by Rasmus Widing). `task-file --out <file> --dir <folder> --what ... --why ... --read <file[:from-to]> --example <file:from-to> --check <command> --goal ...` writes: what to do and why, the exact files with their size, the code to imitate copied in (at most `rate.task_file_lines` lines each, 60), the commands to check the work, and the three stops: goal reached, cap, stuck (after `rate.task_file_stuck` attempts, 3). In a terminal it asks what you leave out; with `--no-ask`, or with no terminal as in `claude -p`, it never asks, and it says what stayed unanswered or was not found. With `config rate.task_file_hint 1` (off by default) the rules tell Claude to use it.
+
 ## [1.2.8] - 2026-10-31
 
 ### Fixed

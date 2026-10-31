@@ -152,6 +152,7 @@ It also:
 - measures its own weight, so you can see what it costs next to what it helps;
 - opens the report as a page with charts (`/token-quotient:report page`, a local file);
 - has ready-made ways of working for long installment jobs: a book, a research, a code review (`rate templates`);
+- writes a job's task file for you from a few answers (`task-file`): what and why, the exact files, code to imitate, how to check, when to stop;
 - works inside Hermes Agent too (see *Hermes Agent: setup and options*).
 
 </details>
@@ -234,6 +235,7 @@ Run them as `python scripts/quotient.py <command>` from the plugin's folder or a
 | `setup --compact keep\|auto\|<tokens>` | long chats: keep them as they are, or let them compact themselves at a size |
 | `setup --hermes-copy yes\|no` | Hermes: save the whole chat to `~/.quotient/chats/` before each automatic summary |
 | `config chat.cache_warn 1` | Hermes: one line when a pause was longer than the cache keeps the chat (off by default) |
+| `config rate.task_file_hint 1` | the rules tell Claude to write the task of a job apart or in installments with `task-file` (off by default) |
 | `config rate.task_check 1` | before a job starts (`rate new`, `rate apart`): a few lines when its task looks vague (short, no file named, no way to check the work, no goal) or when the CLAUDE.md rules for its folder are missing or very big (off by default) |
 | `config [key [value]]` | show every setting, or change one |
 | `share status\|on\|off\|send` | sharing, from a terminal (`send`: send the waiting lines now) |
@@ -249,6 +251,7 @@ Run them as `python scripts/quotient.py <command>` from the plugin's folder or a
 | `tick` | read Hermes' counters and the plan limits now (for a scheduled task) |
 | `rate new <job> --dir <folder> --task-file <file> --quote N (--days N \| --daily N \| --pace "5 days at 2:00") [--at HH:MM] [--template book\|research\|code-review] [--type code\|writing\|research\|other]` | create a job in installments (`--pace`: your own words, with the days, the amount a day and the time) |
 | `rate templates` | the ready-made ways of working: book, research, code review |
+| `task-file --out <file> --dir <folder> --what ... --why ... --read <file[:from-to]> --example <file:from-to> --check <command> --goal ...` | write the task file of a job apart or in installments: what and why, the exact files, code examples copied in, the commands to check, and the three stops (goal reached, cap, stuck). In a terminal it asks what you leave out; with `--no-ask`, or from `claude -p`, it never asks |
 | `rate apart <job> --dir <folder> --task-file <file> --quote N [--type ...]` | do a job apart, now: one installment in a separate session, started at once; its report comes back to the chat |
 | `rate run <job> [--force]` | run one installment now (`--force`: even if one already ran today) |
 | `rate once <job> [--time HH:MM]` | one installment at that time (tomorrow if it has passed; without `--time`, the job's own time); wakes the PC |

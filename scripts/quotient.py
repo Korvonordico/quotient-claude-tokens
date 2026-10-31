@@ -279,6 +279,13 @@ DEFAULTS = {
         "task_check": 0,
         "task_min_words": 60,
         "rules_warn_tokens": 10000,
+        # Improvement 1: the command `task-file` writes a job's task file from a few answers. task_file_hint 1: the
+        # protocol tells the agent to write the task of a job apart or in installments with it (0 = it just asks for a
+        # file). task_file_lines: most lines of one code example in that file (0 = no limit). task_file_stuck: after how
+        # many attempts at one problem the file tells the job to stop on it.
+        "task_file_hint": 0,
+        "task_file_lines": 60,
+        "task_file_stuck": 3,
         "extra_args": [],
     },
     # 1.1.1: each finished job (and each installment) is set against how much the weekly limit rose meanwhile. A miss
@@ -3203,6 +3210,16 @@ def additions_rule(cfg):
             "addition against its own quote.")
 
 
+def task_file_hint(cfg):
+    """Improvement 1: what the protocol says about `task-file`; '' when rate.task_file_hint is off."""
+    if not cfg["rate"].get("task_file_hint"):
+        return ""
+    return ("TASK FILES: the file of a job apart or in installments is written by `%s task-file --out <file> --dir "
+            "<work folder> --what \"...\" --why \"...\" --goal \"...\"`, plus `--read <file or file:from-to>`, `--example "
+            "<file:from-to>` and `--check \"<command>\"` as many times as needed. It adds the code examples and the three "
+            "stops: goal reached, cap, stuck. Name only what the job must read." % run_cmd())
+
+
 def addition_hint(cfg):
     """1.1.8: the reminder in the open job's line, only where the ASIDE reminder is (the first message of the job and
     after a reply counted apart), so the line of every message does not grow; '' when requote_on_addition is off."""
@@ -3229,6 +3246,7 @@ def protocol(cfg, factor):
         "5) After the answer write `CHOICE: <level>`. A choice written in the free field: estimate it (raw, as the levels) and write `CHOICE: custom=<n>` (or a short name of your own with its estimate): Quotient measures the job against that estimate. Then one of `PACE: today`, `PACE: apart`, `PACE: new chat`, `PACE: days=<n>`, `PACE: daily=<n>` (add `at=HH:MM` when the user gave a time; the user's own words work too). Apart: write what the whole job is to a file, with everything a session that cannot ask needs, then run `%s rate apart <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level>`: it starts at once in the background, and its report comes back to this chat when it ends." % cmd + " If today: start the stopwatch with `%s timer start --raw <raw estimate of the chosen level> --level <level>` (the job's time counts from there), then do the work; if it will not be finished at the end of a reply, end that reply with `JOB: CONTINUES`. Right after the choice, tell the user in one line that writing to you while the job runs adds to its cost%s, and that messages about something else are counted apart: while the job is open, a reply that is not about it ends with the line `ASIDE` (the job stays open; Quotient counts that reply apart from the work). New chat: write what the job is to a file and tell the user to open a new chat and ask to continue it; Quotient tells the new chat, which writes `JOB: RESUME <id>` when it starts. If the user declines: `CHOICE: none`." % (cmd, added),
         "Machine lines (QUOTE, CHOICE, PACE, JOB, ASIDE, LIMITS) go in the LAST message of your reply, the one after your last tool call: a progress note written in the middle of a reply may be kept only as a summary, and then Quotient never sees them. Write QUOTE and CHOICE once: later replies of the same job carry only the JOB line.",
         additions_rule(cfg),
+        task_file_hint(cfg),
         "6) Installments: do NOT do the whole job now. Write what the whole job is to a file, then run: %s rate new <short-name> --dir <work folder> --task-file <file> --quote <raw estimate of the chosen level> plus --days <n> or --daily <n> (and --at HH:MM for the time); a pace the user wrote in the free field goes as it is with --pace \"<their words>\": Quotient reads the days, the amount a day and the time from it. Then open a second window with three questions: 'Prima rata'/'First installment' (now; at a time they write; tonight at the time of the plan, 03:00 unless they gave another), 'Ogni giorno'/'Every day' (the daily time; free field; leave it out when the pace already gave the time: `rate schedule <name>` uses it) and 'Dopo la rata'/'After it' (put the PC back to sleep, hibernate, or leave it as it is: whoever turned the PC on, it sleeps only when nobody is using it, after a 2-minute warning). Scheduled installments wake the PC from sleep or hibernation by themselves, not from a full shutdown; run `rate check` first and, if wake timers are off, tell the user how to turn them on (you do not change system settings). Set the choice with `rate after <name> sleep|hibernate|nothing`. Then: now = run `%s rate run <name>` in the background; a time = `rate once <name> --time HH:MM` (today, or tomorrow if the time has passed); every day = `rate schedule <name> --time HH:MM` (without --time: the time of the plan; add --force to run even after another installment the same day). The user may also start an extra installment on the same day (`rate run <name> --force`), at their own risk: it spends more of that day's limit. Let them choose freely. Each installment's report comes back to the chat that ran `rate new`, at the user's next message there (other chats get a one-line notice, twice at most); `rate here <name>` run in another chat moves the reports there." % (cmd, cmd),
         "LIMITS: the Quotient line at each message shows the plan limits (5-hour and weekly) when it knows them (in Claude Code also how many wt 1% holds); quote-table works out each level's share. Before a quote, if the limits are missing or older than 30 minutes and you have a tool that reads the plan usage (for example get_usage), call it and write the line: LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>. Write it again right after a quoted job ends.",
         "Read the limits before running quote-table, so its shares are fresh. When the table says a level does not fit in what is left of the 5 hours, say so in the window and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left; at the next message Quotient gives the job's real cost and working time against the expected ones: tell them in one line.",
@@ -5888,6 +5906,9 @@ COMMANDS = [
      "create a job in installments (--pace: the user's own words, with days, amount a day and time; a template gives it a tested way of working)",
      "crea un lavoro a rate (--pace: le parole dell'utente, con giorni, quantita' al giorno e ora; un modello gli da' un modo di lavorare gia' provato)"),
     ("rate templates", "the ready-made ways of working: book, research, code review", "i modi di lavorare pronti: libro, ricerca, revisione di codice"),
+    ("task-file --out <file> --dir <folder> --what ... --why ... --read <file[:from-to]> --example <file:from-to> --check <command> --goal ... [--no-ask] [--lang it|en] [--force]",
+     "write the task file of a job apart or in installments: what and why, the exact files, code examples, the commands to check, the three stops (goal, cap, stuck); in a terminal it asks what you leave out",
+     "scrive il file-compito di un lavoro a parte o a rate: cosa e perche', i file esatti, esempi di codice, i comandi per controllarsi, le tre fermate (obiettivo, tetto, bloccato); nel terminale chiede quello che manca"),
     ("rate apart <job> --dir <folder> --task-file <file> --quote N [--type code|writing|research|other]",
      "do a job apart, now: it starts at once as one installment in a separate session, and its report comes back here",
      "fa un lavoro a parte, adesso: parte subito come una rata sola in una sessione separata, e il resoconto torna qui"),
@@ -7463,6 +7484,187 @@ def task_check(task, folder, cfg):
     return notes
 
 
+# improvement 1 (the PRP method of Rasmus Widing, Francesco's idea of 18/10/2026): one document with all a job that
+# cannot ask needs. The headings and the fixed text of the file, in the user's language.
+TASK_FILE_TEXT = {
+    "it": {
+        "intro": "Il lavoro è già approvato: non fermarti a un piano e non fare domande, nessuno può rispondere. "
+                 "Qui sotto c'è tutto quello che serve: leggi solo il necessario.",
+        "folder": "Cartella di lavoro: %s",
+        "what": "Cosa fare", "why": "Perché", "read": "File da leggere",
+        "read_note": "Prima questi, nell'ordine; altri file solo se servono.",
+        "lines": "%d righe", "range": "righe %s", "folder_entry": "cartella", "missing_entry": "NON TROVATO quando "
+        "questo file è stato scritto: cercalo",
+        "read_none": "Nessun file indicato: trova i file giusti con una ricerca, senza leggere tutto.",
+        "examples": "Esempi del codice che c'è già, da imitare",
+        "examples_none": "Nessun esempio indicato: prima di scrivere guarda come è fatto il codice vicino e imitalo.",
+        "cut": "(tagliato a %d righe su %d)",
+        "check": "Comandi per controllarti",
+        "check_note": "Lanciali dopo ogni parte finita; se uno fallisce, sistema prima di andare avanti.",
+        "check_none": "Nessun comando indicato: scegli tu una prova che dimostri il risultato e scrivi cosa ha detto.",
+        "stops": "Le tre fermate",
+        "goal_stop": "Obiettivo raggiunto: %s Fermati e scrivilo.",
+        "goal_default": "tutto quello che c'è in «Cosa fare» è fatto e i comandi di controllo passano.",
+        "cap_stop": "Tetto: quando la spesa arriva al tetto (Quotient rifiuta gli strumenti che iniziano lavoro nuovo), "
+                    "salva subito cosa hai fatto e dove riprendere, e fermati.",
+        "stuck_stop": "Bloccato: dopo %d tentativi sullo stesso problema senza progressi, fermati su quel punto: non "
+                      "inventare risultati, scrivi cosa hai provato e perché non va, poi passa alla parte dopo.",
+    },
+    "en": {
+        "intro": "This job is already approved: do not stop at a plan and do not ask questions, nobody can answer. "
+                 "All it needs is below: read only what is necessary.",
+        "folder": "Working folder: %s",
+        "what": "What to do", "why": "Why", "read": "Files to read",
+        "read_note": "These first, in this order; other files only if needed.",
+        "lines": "%d lines", "range": "lines %s", "folder_entry": "folder", "missing_entry": "NOT FOUND when this file "
+        "was written: look for it",
+        "read_none": "No files given: find the right ones with a search, without reading everything.",
+        "examples": "Examples of the existing code, to imitate",
+        "examples_none": "No examples given: before writing, look at how the code nearby is made and imitate it.",
+        "cut": "(cut at %d lines of %d)",
+        "check": "Commands to check yourself",
+        "check_note": "Run them after each finished part; if one fails, fix it before going on.",
+        "check_none": "No commands given: choose a test that proves the result and write what it said.",
+        "stops": "The three stops",
+        "goal_stop": "Goal reached: %s Stop and write it down.",
+        "goal_default": "all that is in \"What to do\" is done and the commands to check pass.",
+        "cap_stop": "Cap: when the spending reaches the cap (Quotient refuses the tools that start new work), save at "
+                    "once what you did and where to resume, and stop.",
+        "stuck_stop": "Stuck: after %d attempts at the same problem with no progress, stop on that point: do not invent "
+                      "results, write what you tried and why it fails, then go on to the next part.",
+    },
+}
+# The few simple questions, when the command runs in a terminal: (answer, the question in each language, a list?)
+TASK_FILE_QUESTIONS = (
+    ("what", "Cosa deve fare il lavoro?", "What must the job do?", False),
+    ("why", "Perché serve?", "Why is it needed?", False),
+    ("read", "Quale file deve leggere? (anche file:10-40; invio vuoto per finire)",
+     "Which file must it read? (also file:10-40; empty to finish)", True),
+    ("example", "Quale pezzo di codice deve imitare? (file:10-40; invio vuoto per finire)",
+     "Which piece of code must it imitate? (file:10-40; empty to finish)", True),
+    ("check", "Con quale comando si controlla da solo? (invio vuoto per finire)",
+     "Which command does it check itself with? (empty to finish)", True),
+    ("goal", "Quando è finito?", "When is it finished?", False),
+)
+TASK_SPOT_RE = re.compile(r"^(.+?):(\d+)(?:-(\d+))?$")
+
+
+def task_spot(spec, folder):
+    """A file named in the answers, `path` or `path:from-to`: (path as given, full path, first line, last line)."""
+    m = TASK_SPOT_RE.match(spec.strip())
+    path, first, last = (m.group(1), int(m.group(2)), int(m.group(3) or m.group(2))) if m else (spec.strip(), None, None)
+    return path, os.path.join(folder, os.path.expanduser(path)), first, last
+
+
+def task_read_line(spec, folder, t):
+    """One line of the list of files, with its size or range, so a job plans its reading without opening them."""
+    path, full, first, last = task_spot(spec, folder)
+    if os.path.isdir(full):
+        return "- `%s` (%s)" % (path, t["folder_entry"])
+    text = load_text(full)
+    if text is None:
+        return "- `%s` (%s)" % (path, t["missing_entry"])
+    size = t["range"] % ("%d-%d" % (first, last)) if first else t["lines"] % len(text.splitlines())
+    return "- `%s` (%s)" % (path, size)
+
+
+def task_example(spec, folder, t, most):
+    """An example as the lines themselves: the job imitates them without opening the file. None if there is no file."""
+    path, full, first, last = task_spot(spec, folder)
+    text = load_text(full) if os.path.isfile(full) else None
+    if text is None:
+        return None
+    lines = text.splitlines()
+    chosen = lines[first - 1:last] if first else lines
+    head = "### `%s`" % path + (" (%s)" % (t["range"] % ("%d-%d" % (first, last))) if first else "")
+    note = ""
+    if most and len(chosen) > most:
+        note, chosen = "\n" + t["cut"] % (most, len(chosen)), chosen[:most]
+    fence = "`" * max([3] + [len(run) + 1 for run in re.findall(r"`{3,}", "\n".join(chosen))])
+    return "%s\n%s\n%s\n%s%s" % (head, fence, "\n".join(chosen), fence, note)
+
+
+def task_file_text(answers, folder, lang, most, stuck):
+    """The file of the task: what and why, the exact files, examples, the commands to check, the three stops. Sections
+    with no answer say what to do instead, since the job cannot ask."""
+    t = TASK_FILE_TEXT[lang if lang in TASK_FILE_TEXT else "en"]
+    what = answers["what"].strip()
+    parts = ["# " + re.split(r"[\r\n]", what)[0][:100], "", t["intro"], t["folder"] % os.path.abspath(folder), "",
+             "## " + t["what"], "", what, ""]
+    if answers.get("why"):
+        parts += ["## " + t["why"], "", answers["why"].strip(), ""]
+    parts += ["## " + t["read"], ""]
+    reads = answers.get("read") or []
+    parts += ([t["read_note"], ""] + [task_read_line(r, folder, t) for r in reads]) if reads else [t["read_none"]]
+    parts += ["", "## " + t["examples"], ""]
+    examples = [e for e in (task_example(s, folder, t, most) for s in answers.get("example") or []) if e]
+    parts += ["\n\n".join(examples)] if examples else [t["examples_none"]]
+    parts += ["", "## " + t["check"], ""]
+    checks = answers.get("check") or []
+    parts += ([t["check_note"], ""] + ["- `%s`" % c.strip() for c in checks]) if checks else [t["check_none"]]
+    goal = (answers.get("goal") or "").strip() or t["goal_default"]
+    goal = goal if goal[-1] in ".!?" else goal + "."
+    parts += ["", "## " + t["stops"], "", "1. " + t["goal_stop"] % goal, "2. " + t["cap_stop"],
+              "3. " + t["stuck_stop"] % stuck, ""]
+    return "\n".join(parts)
+
+
+def task_file_ask(answers, it):
+    """The questions a terminal answers, only for what the arguments left out."""
+    for key, ita, en, many in TASK_FILE_QUESTIONS:
+        if answers.get(key):
+            continue
+        try:
+            if many:
+                answers[key] = list(iter(lambda: input((ita if it else en) + " ").strip(), ""))
+            else:
+                answers[key] = input((ita if it else en) + " ").strip()
+        except EOFError:
+            return
+
+
+def cmd_task_file(args):
+    """Improvement 1: write the task file of a job apart or in installments. With a terminal it asks what the arguments
+    left out; with --no-ask, or with no terminal (claude -p cannot answer), it never asks."""
+    cfg = config()
+    lang = args.lang or cfg.get("lang")
+    it = lang == "it"
+    answers = {"what": args.what, "why": args.why, "read": args.read, "example": args.example, "check": args.check,
+               "goal": args.goal}
+    if not args.no_ask and sys.stdin is not None and sys.stdin.isatty():
+        task_file_ask(answers, it)
+    if not (answers.get("what") or "").strip():
+        sys.exit("quotient: serve almeno --what: cosa deve fare il lavoro" if it else
+                 "quotient: --what is needed at least: what the job must do")
+    if args.out and os.path.exists(args.out) and not args.force:
+        sys.exit("quotient: %s c'e' gia': usa --force per sovrascriverlo" % args.out if it else
+                 "quotient: %s exists already: use --force to overwrite it" % args.out)
+    folder = os.path.abspath(args.dir)
+    r = cfg["rate"]
+    text = task_file_text(answers, folder, lang, int(r.get("task_file_lines") or 0), max(1, int(r.get("task_file_stuck") or 3)))
+    if not args.out:
+        out(text)
+        return
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    with open(args.out, "w", encoding="utf-8") as f:
+        f.write(text)
+    names = {"why": ("perche'", "why"), "read": ("file da leggere", "files to read"),
+             "example": ("esempi di codice", "code examples"), "check": ("comandi di controllo", "commands to check"),
+             "goal": ("quando e' finito", "when it is finished")}
+    empty = [names[k][0 if it else 1] for k in ("why", "read", "example", "check", "goal") if not answers.get(k)]
+    # what was named but is not on disk: the job would look for it, and a typo here costs it steps
+    lost = [s for s in (answers.get("read") or []) + (answers.get("example") or [])
+            if not os.path.exists(task_spot(s, folder)[1])]
+    out(("Compito scritto: %s (%d righe). Usalo con rate new o rate apart, --task-file.\n" if it else
+         "Task written: %s (%d lines). Use it with rate new or rate apart, --task-file.\n") % (
+             args.out, len(text.splitlines())))
+    if empty:
+        out(("Senza risposta: %s. Il file dice al lavoro di arrangiarsi, e questo gli costa passi.\n" if it else
+             "Not answered: %s. The file tells the job to manage without, which costs it steps.\n") % ", ".join(empty))
+    if lost:
+        out(("Non trovati in %s: %s.\n" if it else "Not found in %s: %s.\n") % (folder, ", ".join(lost)))
+
+
 def rate_new(args):
     folder = rate_dir(args.name)
     if os.path.exists(os.path.join(folder, "job.json")):
@@ -8363,6 +8565,18 @@ def main(argv=None):
     p.add_argument("--every", type=float, help="not if read or tried within these seconds (default: limits.job_every)")
     p = sub.add_parser("prices", help="the price table of the Claude models; `prices update` downloads it again")
     p.add_argument("action", nargs="?", choices=["update"])
+    p = sub.add_parser("task-file", help="write the task file of a job apart or in installments, from a few answers")
+    p.add_argument("--out", help="the file to write (default: print it)")
+    p.add_argument("--dir", default=".", help="the job's working folder; the files named are relative to it")
+    p.add_argument("--what", help="what the job must do")
+    p.add_argument("--why", help="why it is needed")
+    p.add_argument("--read", action="append", help="a file it must read, or file:from-to (repeat it)")
+    p.add_argument("--example", action="append", help="code to imitate, file:from-to, copied into the file (repeat it)")
+    p.add_argument("--check", action="append", help="a command it checks itself with (repeat it)")
+    p.add_argument("--goal", help="when it is finished")
+    p.add_argument("--lang", choices=("it", "en"), help="the language of the file (default: the setting)")
+    p.add_argument("--no-ask", action="store_true", help="never ask, even in a terminal")
+    p.add_argument("--force", action="store_true", help="overwrite the file if it exists")
     p = sub.add_parser("config")
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
@@ -8497,6 +8711,8 @@ def main(argv=None):
         export()
     elif args.cmd == "config":
         cmd_config(args)
+    elif args.cmd == "task-file":
+        cmd_task_file(args)
     elif args.cmd == "rate":
         actions = {"new": rate_new, "apart": rate_apart, "run": rate_run, "status": rate_status, "schedule": rate_schedule,
                    "once": rate_once, "stop": rate_stop, "after": rate_after, "here": rate_here, "check": rate_check,
