@@ -86,6 +86,21 @@ DEFAULTS = {
         "cache_warn_min": 100000,
         "cache_life_5m": 300,
         "cache_life_1h": 3600,
+        # Improvement 4, off by default, measured on the author's jobs (walk-forward; a hint with so few jobs).
+        # steps_history 1: the chat part of a quote counts the steps of the measured jobs of the same origin (Hermes or
+        # Claude Code) and the same size (steps_bands, in raw wt), their median, instead of a share of the work: a small
+        # fix with its release took 24 steps where the quote counted 7. On 21 jobs, work + chat part: typical miss 111%
+        # -> 65%, lean x1.54 -> x1.04. Under steps_min_jobs such jobs: at least steps_start steps, and the quote says it
+        # is a prudent estimate.
+        # own_factor_mix 1: the factor of a job done in a chat is halfway (geometric mean) between the usual one and the
+        # median of ALL the recent chat jobs of the same origin, whatever their size and whether the user wrote during
+        # them: the usual one learns from clean jobs only, cheaper than most. On 40 jobs, work alone: typical miss 126% ->
+        # 74%, lean x1.91 -> x1.28, within 50% 10 -> 15; on the 21 with their chat part about the same (65% -> 62%).
+        "steps_history": 0,
+        "steps_bands": [500000, 1000000],
+        "steps_min_jobs": 3,
+        "steps_start": 15,
+        "own_factor_mix": 0,
     },
     # Long chats. "keep" (the default): Quotient leaves Claude Code's compaction as it is and, when a chat has
     # grown long, offers a new chat. "auto": the chat compacts itself at the size Quotient recommends from your
@@ -283,6 +298,9 @@ DEFAULTS = {
         # protocol tells the agent to write the task of a job apart or in installments with it (0 = it just asks for a
         # file). task_file_lines: most lines of one code example in that file (0 = no limit). task_file_stuck: after how
         # many attempts at one problem the file tells the job to stop on it.
+        # Improvement 11: an installment that repeats the same command, or meets the same error, this many times in a
+        # row stops by itself: Quotient writes it in the handoff and only the handoff can then be written. 0 = off.
+        "loop_stop": 0,
         "task_file_hint": 0,
         "task_file_lines": 60,
         "task_file_stuck": 3,
@@ -362,6 +380,29 @@ DEFAULTS = {
         "cold_min_tokens": 20000,
         "every_seconds": 600,
         "later_days": 7,
+    },
+    # Improvement 8 (savings.py): enabled 1: a quote, a closed job and a finished installment job say what the same
+    # tokens would cost on a cheaper model (`model`, a family). Only prices, stated as an estimate: a cheaper model may
+    # need more steps and may work worse, which nobody can price. A family's price is the input price of `ids` in the
+    # table (`prices update`) and otherwise `prices`, dollars per million input tokens from Anthropic's public price
+    # page, 31/10/2026 (Haiku 5.5: its price for prompts over 100,000 tokens, the prudent one); they are settings.
+    "whatif": {
+        "enabled": 0,
+        "model": "sonnet",
+        "ids": {"fable": "claude-fable-5-1", "opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5",
+                "haiku": "claude-haiku-5-5"},
+        "prices": {"fable": 10.0, "opus": 4.0, "sonnet": 2.0, "haiku": 0.5},
+    },
+    # Improvement 10 (savings.py): a budget for the normal chats, in percent of the weekly limit, read from the plan's
+    # limits. day_percent: what a day may use (0 = no budget); week_percent: where the week may reach (0 = no budget).
+    # A line at each share of `warn`, once. stop 1: past the budget Claude Code refuses the next message, until the user
+    # writes BUDGET OK in one (it then passes until the budget's day or week ends); Hermes has no way to refuse a
+    # message, so it only asks the agent not to start new work. Installments have their own cap.
+    "budget": {
+        "day_percent": 0,
+        "week_percent": 0,
+        "warn": [50, 80, 100],
+        "stop": 0,
     },
     "share": {
         # On by default and declared (first-use window, README, PRIVACY.md): after each finished job, one line
@@ -1398,8 +1439,58 @@ def blend_end(cfg, mid, big):
     return end
 
 
+def chat_origin():
+    """Where a chat job is quoted from: Hermes gives its session id to all it starts."""
+    return "hermes" if os.environ.get("HERMES_SESSION_ID") else "claude"
+
+
+def same_origin(job, origin):
+    return (job.get("source") == "hermes") == (origin == "hermes")
+
+
+def chat_jobs_measured(origin=None):
+    """The finished chat jobs of one origin, oldest first (`finished_jobs` keeps the order)."""
+    origin = origin or chat_origin()
+    return [j for j in finished_jobs() if kind_of(j) == "chat" and j.get("raw_estimate") and work_of(j) > 0
+            and same_origin(j, origin)]
+
+
+def own_chat_factor(cfg, origin=None):
+    """Improvement 4 (chat.own_factor_mix): the median of all the recent chat jobs of this origin; None when off or
+    under min_jobs."""
+    if not (cfg.get("chat") or {}).get("own_factor_mix"):
+        return None
+    jobs = chat_jobs_measured(origin)
+    return factor_from(jobs, cfg["history_window"]) if len(jobs) >= cfg["min_jobs"] else None
+
+
+def chat_steps(cfg, raw, usual, origin=None):
+    """Improvement 4 (chat.steps_history): the steps of a chat job quoted at raw, from the measured jobs of the same
+    origin and size: (steps, prudent). None when off. With too few of them, at least chat.steps_start, said in the quote."""
+    opts = cfg.get("chat") or {}
+    if not opts.get("steps_history"):
+        return None
+    bands = sorted(opts.get("steps_bands") or [])
+
+    def band(value):
+        return sum(1 for limit in bands if value >= limit)
+    rows = [j["calls"] for j in chat_jobs_measured(origin) if j.get("calls") and band(j["raw_estimate"]) == band(raw)]
+    rows = rows[-cfg["history_window"]:]
+    if len(rows) >= int(opts.get("steps_min_jobs") or 1):
+        return median(rows), False
+    return max(usual, float(opts.get("steps_start") or 0)), True
+
+
 def factor_for(cfg, raw, source):
-    """The factor a chosen level is corrected with. With the medium band on and its factor known: under learn_min_raw
+    """The factor a chosen level is corrected with: of its size (band_factor), halfway to the factor of all the chat
+    jobs when there is one (improvement 4, chat.own_factor_mix)."""
+    factor = band_factor(cfg, raw, source)
+    own = source.get("factor_own")
+    return math.sqrt(factor * own) if own and factor > 0 else factor
+
+
+def band_factor(cfg, raw, source):
+    """The factor of a level by its size. With the medium band on and its factor known: under learn_min_raw
     the medium factor, smaller quotes too (they teach no factor: the nearest learned one); from learn_min_raw up to
     learn_blend_raw a straight line from learn_min_raw x the medium factor to learn_blend_raw x the factor; from there
     up the factor alone (1.1.7).
@@ -1420,11 +1511,12 @@ def factor_for(cfg, raw, source):
     return (top * mid + (raw - top) * (end * big - top * mid) / (end - top)) / raw
 
 
-def chat_factor(cfg, raw, wtype=None):
+def chat_factor(cfg, raw, wtype=None, origin=None):
     """The factor a chat job quoted at raw is corrected with: its type of work's factor (1.1.4), the general one
     until the type has its jobs, and the medium band. Under learn_min_raw the band's factor is the same for every type:
     the types learn only from the jobs that teach the factor."""
-    return factor_for(cfg, raw, {"factor": learning(cfg, "chat", wtype)["factor"], "factor_mid": mid_factor(cfg)})
+    return factor_for(cfg, raw, {"factor": learning(cfg, "chat", wtype)["factor"], "factor_mid": mid_factor(cfg),
+                                 "factor_own": own_chat_factor(cfg, origin)})
 
 
 def factor_from(jobs, window, since=None, weight=1, least=3):
@@ -2179,7 +2271,12 @@ def closed_note(row, cfg=None):
         # 1.1.4: work done elsewhere meanwhile
         text += ("; while it ran, other sessions (other chats, installments, Hermes) spent %s wt: not in this job, "
                  "but in the limits" % fmt(row["elsewhere"]))
-    return text + web_note(cfg, row) + ". Tell the user in one line, in their language."
+    text += web_note(cfg, row) + ". Tell the user in one line, in their language."
+    if ((cfg or config()).get("whatif") or {}).get("enabled"):      # improvement 8
+        import savings
+        cheaper = savings.what_if(sys.modules[__name__], cfg or config(), row.get("actual") or 0, row.get("family"), "en")
+        text += (" " + cheaper) if cheaper else ""
+    return text
 
 
 # The stopwatch: a small file the hooks keep (run while the agent works, pause on the user's turn, end when the job
@@ -2808,6 +2905,7 @@ def quote_numbers(cfg, options, kind="chat", context=None, wtype=None, factor=No
     expected working time, and the share of the 5 hours and of the week the total takes, with what would be left.
     1.1.4: the factor of the type of work when given; factor=1.0 for amounts already corrected (a new quote)."""
     mid = mid_factor(cfg) if factor is None and kind == "chat" else None   # hermes branch: the medium band
+    own = own_chat_factor(cfg) if factor is None and kind == "chat" else None   # improvement 4
     if factor is None:
         factor = learning(cfg, kind, wtype)["factor"]
     five, week = five_capacity(cfg), week_capacity(cfg)
@@ -2819,17 +2917,22 @@ def quote_numbers(cfg, options, kind="chat", context=None, wtype=None, factor=No
     wpc = work_per_call(cfg)[0]
     rows = []
     for name, raw in options.items():
-        f = factor_for(cfg, raw, {"factor": factor, "factor_mid": mid}) if mid else factor
+        f = factor_for(cfg, raw, {"factor": factor, "factor_mid": mid, "factor_own": own}) if mid or own else factor
         work = raw * f
+        counted = None
         if kind == "rate":
             chat = work * overhead + start
         elif per_step is not None:
-            chat = (steps[0] * work / 1e6 if steps else work / max(wpc, 1.0)) * per_step
+            usual = steps[0] * work / 1e6 if steps else work / max(wpc, 1.0)
+            counted = chat_steps(cfg, raw, usual)
+            chat = (counted[0] if counted else usual) * per_step
         else:
             chat = None
         total = work + (chat or 0)
         row = {"name": name, "raw": raw, "work": work, "chat": chat, "total": total, "factor": f,
                "seconds": expected_seconds(cfg, raw, kind, f)}
+        if counted:
+            row["steps"], row["prudent"] = counted
         for window, c in (("five_hour", five), ("seven_day", week)):
             if c:
                 used = (latest.get(window) or {}).get("used")
@@ -2902,6 +3005,15 @@ def writing_notes(cfg, options, wtype, words, lang):
     return user, agent
 
 
+def chat_steps_note(rows, lang):
+    """Improvement 4: the quote says when its chat part rests on few measured jobs."""
+    if not any(r.get("prudent") for r in rows):
+        return ""
+    return ("Parte della chat: stima prudente, ci sono ancora pochi lavori misurati di questa grandezza (conta almeno "
+            "%d passi)." if lang == "it" else "Chat part: a prudent estimate, there are still few measured jobs of this "
+            "size (it counts at least %d steps).") % round(min(r["steps"] for r in rows if r.get("prudent")))
+
+
 def small_quote(cfg, options, kind, context, wtype, lang):
     """1.1.8 (small_quote_line): a quote for a job under the threshold, in one line: the biggest level's work, chat part,
     total, time and shares, and a note for the agent (no window, no first-use questions now); None for a job over it.
@@ -2930,6 +3042,9 @@ def small_quote(cfg, options, kind, context, wtype, lang):
         ((", circa %s" if it else ", about %s") % fmt_duration(top["seconds"])) if top["seconds"] else "",
         (", " + (" e " if it else " and ").join(shares)) if shares else "", learned["factor"],
         learned["type_jobs"] if learned["typed"] else learned["kind_jobs"]))
+    prudent = chat_steps_note([top], lang)
+    if prudent:
+        line += " " + prudent
     raw = round(top["raw"])
     save_json(os.path.join(home(), "quote-table.json"), {"options": {"good": raw}, "kind": kind, "small": True,
                                                           "epoch": round(time.time()), "session": chat_id(), "type": wtype})
@@ -2992,6 +3107,14 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
         lines.append("| " + " | ".join(cells) + " |")
     if told_words:
         lines += [""] + told_words
+    prudent = chat_steps_note(rows, lang)
+    if prudent:
+        lines += ["", prudent]
+    if (cfg.get("whatif") or {}).get("enabled"):      # improvement 8
+        import savings
+        cheaper = savings.what_if(sys.modules[__name__], cfg, biggest["total"], savings.recent_family(sys.modules[__name__]), lang)
+        if cheaper:
+            lines += ["", cheaper]
     unknown = []
     if not any(r["seconds"] for r in rows):
         unknown.append("il tempo previsto arriva dopo 3 lavori misurati col tempo" if it else
@@ -3085,6 +3208,10 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
                   "%d jobs%s%s).") % (learned["factor"], learned["type_jobs"] if learned["typed"] else learned["kind_jobs"],
                                       ((", chat e rate" if it else ", chat jobs and installments") if learned.get("all") else
                                        (" a rate" if it else " in installments")) if kind == "rate" else "", typed))
+    own = own_chat_factor(cfg) if kind == "chat" else None
+    if own:       # improvement 4: the factor in the table is halfway to this one
+        lines[-1] = lines[-1][:-2] + (("; a metà strada con x%.2f, tutti i lavori fatti in chat)." if it else
+                                       "; halfway to x%.2f, all the jobs done in a chat).") % own)
     mid = mid_factor(cfg) if kind == "chat" else None
     if mid:
         top = cfg["learn_min_raw"]
@@ -3403,6 +3530,8 @@ def report_lines(name, job, runs, told, folder):
             ", %s of work%s" % (fmt_duration(took), " (about %s expected)" % fmt_duration(r["predicted_seconds"])
                                 if r.get("predicted_seconds") else "") if took else "",
             "; FAILED: %s" % str(r["error"])[:200] if r.get("error") else ""))
+        if r.get("stuck"):       # improvement 11
+            lines.append("  It stopped by itself, stuck: %s" % r["stuck"])
         if r.get("tools"):       # improvements 5, 7: where it spent, with tips on
             import savings
             where = savings.run_line(sys.modules[__name__], config(), r, config().get("lang"))
@@ -3421,6 +3550,11 @@ def report_lines(name, job, runs, told, folder):
         else:
             total += margin_words(config(), spent, expected) + "."   # 1.1.8 (margin_percent)
     lines.append(total)
+    if job.get("status") == "done" and (config().get("whatif") or {}).get("enabled"):      # improvement 8
+        import savings
+        cheaper = savings.what_if(sys.modules[__name__], config(), spent, main_family(job.get("families") or {}), "en")
+        if cheaper:
+            lines.append(cheaper)
     web = web_note(config(), job, "say so with the real cost") if job.get("status") == "done" else ""
     if web:
         lines.append("Note:" + web[1:] + ".")   # 1.1.8 (note_web_haiku), a research job
@@ -3846,6 +3980,15 @@ def hook_prompt():
     hints.append("Plan limits: %s." % current if current else "Plan limits: not read yet (see LIMITS in the protocol).")
     # 1.1.7: the size of 1% without its margin and points (the report has them; quote-table uses them); the threshold
     # and the quote rules are in the protocol, the steps and the time per million in quote-table's numbers
+    prefix0 = (cfg["rate"].get("prompt_prefix") or "").strip()
+    budget_on = (cfg.get("budget") or {}).get("day_percent") or (cfg.get("budget") or {}).get("week_percent")
+    budget_note = ""
+    if budget_on and not (prefix0 and (data.get("prompt") or "").lstrip().startswith(prefix0)):   # improvement 10
+        import savings
+        blocked, budget_note = savings.budget_check(sys.modules[__name__], cfg, data.get("prompt") or "")
+        if blocked:
+            out(json.dumps({"decision": "block", "reason": blocked}))
+            return
     sizes = []
     for window, label in (("five_hour", "the 5 hours"), ("seven_day", "the week")):
         c = week_capacity(cfg) if window == "seven_day" else five_capacity(cfg)
@@ -3937,6 +4080,8 @@ def hook_prompt():
         lambda: sys.modules["savings"].claude_usage(sys.modules[__name__], read_jsonl(path), cfg))
     if tips_line:
         lines.append(tips_line)
+    if budget_note:
+        lines.append(budget_note)
     told = None
     if state.get("unquoted") and not scheduled:
         told = state["unquoted"]
@@ -4352,7 +4497,7 @@ def hook_stop():
             timer_put(cfg, "pause", job["seconds"], job.get("predicted_seconds"), job.get("choice"))
     elif choice and (same_turn or pending):
         source = ({"options": quote, "factor": learning(cfg, "chat", wtype)["factor"], "factor_mid": mid_factor(cfg),
-                   "quote_cost": 0, "type": wtype} if same_turn else pending)
+                   "factor_own": own_chat_factor(cfg), "quote_cost": 0, "type": wtype} if same_turn else pending)
         state["pending"] = None
         raw = custom[1] if custom else source["options"].get(choice)
         installments = (pace not in (None, "today", "new-chat")) or INSTALLMENT_RE.match(choice)
@@ -4406,7 +4551,8 @@ def hook_stop():
             pending["quote_cost"] = pending.get("quote_cost", 0) + cost
         else:
             state["pending"] = {"ts": now_iso(), "options": quote, "factor": learning(cfg, "chat", wtype)["factor"],
-                                "factor_mid": mid_factor(cfg), "quote_cost": cost, "age": 0, "type": wtype}
+                                "factor_mid": mid_factor(cfg), "factor_own": own_chat_factor(cfg),
+                                "quote_cost": cost, "age": 0, "type": wtype}
 
     # A reply above the threshold that nobody quoted: said once per chat at the next message, counted always.
     if not (had_job or job or quote or choice or pending or state.get("pending") or repeat
@@ -4542,6 +4688,13 @@ def hook_pretool():
     cap = int(os.environ.get("QUOTIENT_CAP") or job["daily_cap"])
     if piece_check(name, data, spent, cap, cfg):
         return
+    if cfg["rate"].get("loop_stop"):       # improvement 11: the same command or error again and again
+        import savings
+        reason = savings.loop_check(sys.modules[__name__], name, data, entries, cfg)
+        if reason:
+            out(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                                   "permissionDecisionReason": reason}}))
+            return
     # 06/10/2026: three installments ended 9%, 23% and 9% over the cap, because the check comes before a tool
     # call and the calls after it (updating the handoff, the last answer) still cost. So new work stops
     # when what is spent plus the next steps (the size of the latest calls) would reach the cap.
@@ -5961,6 +6114,8 @@ COMMANDS = [
      "create a job in installments (--pace: the user's own words, with days, amount a day and time; a template gives it a tested way of working)",
      "crea un lavoro a rate (--pace: le parole dell'utente, con giorni, quantita' al giorno e ora; un modello gli da' un modo di lavorare gia' provato)"),
     ("rate templates", "the ready-made ways of working: book, research, code review", "i modi di lavorare pronti: libro, ricerca, revisione di codice"),
+    ("budget", "the budget of the normal chats, in percent of the weekly limit: how much is used (set it with config budget.day_percent and budget.week_percent; budget.stop 1: a real stop)",
+     "il budget delle chat normali, in percentuale del limite settimanale: quanto e' usato (si imposta con config budget.day_percent e budget.week_percent; budget.stop 1: uno stop vero)"),
     ("tips [list|later <id> [--days N]|drop <id>|back <id>]",
      "the tips for saving tokens, most useful first, with an estimate of each; put one off, or drop it (on with config tips.level 1 or 2)",
      "i consigli per risparmiare token, dal piu' utile, ognuno con la sua stima; rimandarne uno o scartarlo (si accendono con config tips.level 1 o 2)"),
@@ -8141,6 +8296,9 @@ def run_installment(args):
            "predicted_seconds": round(expected_run) if expected_run else None,
            "helpers": len(helpers), "helpers_stopped": sum(1 for h in helpers if h["stopped"]),
            "check": 1}   # 1.1.1: set against the week (measure_checks)
+    stuck = (load_json(os.path.join(folder, "stuck.json"), {}) or {}).get(str(sid or ""))
+    if stuck:
+        run["stuck"] = stuck      # improvement 11
     try:
         if transcript and (cfg.get("tips") or {}).get("level"):   # improvements 5, 7: where it spent, its cache
             import savings
@@ -8626,6 +8784,7 @@ def main(argv=None):
     p.add_argument("--every", type=float, help="not if read or tried within these seconds (default: limits.job_every)")
     p = sub.add_parser("prices", help="the price table of the Claude models; `prices update` downloads it again")
     p.add_argument("action", nargs="?", choices=["update"])
+    p = sub.add_parser("budget", help="the budget of the normal chats against the plan's limits")
     p = sub.add_parser("tips", help="the tips for saving tokens, most useful first: put one off (later) or drop it")
     p.add_argument("what", nargs="?", choices=("list", "later", "drop", "back"), default="list")
     p.add_argument("id", nargs="?", help="the tip, as the list names it")
@@ -8778,6 +8937,9 @@ def main(argv=None):
         cmd_config(args)
     elif args.cmd == "task-file":
         cmd_task_file(args)
+    elif args.cmd == "budget":
+        import savings
+        savings.cmd_budget(sys.modules[__name__])
     elif args.cmd == "tips":
         import savings
         savings.cmd(sys.modules[__name__], args)

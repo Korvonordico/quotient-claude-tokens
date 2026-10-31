@@ -133,7 +133,7 @@ ASIDE_TEXT = (" If this message is about something else, answer it and end the r
 def job_factor(q, cfg, raw, wtype=None):
     """The factor a chosen level is corrected with: its type of work's and the medium band's (16/10/2026: before, the
     jobs quoted in Hermes took the plain factor, and the band was only shown in the line)."""
-    return q.chat_factor(cfg, raw, wtype)
+    return q.chat_factor(cfg, raw, wtype, "hermes")
 
 
 def hermes_protocol(q, cfg, factor):
@@ -236,6 +236,14 @@ def pre_llm_call(q, payload):
                               lambda: sys.modules["savings"].hermes_usage(q, hs, sid, totals, calls, cfg))
     if tips_line:
         text += " " + tips_line
+    budget = cfg.get("budget") or {}
+    if budget.get("day_percent") or budget.get("week_percent"):     # improvement 10
+        import savings
+        stop, note = savings.budget_check(q, cfg, payload.get("user_message") or "")
+        if stop:
+            text += " BUDGET STOP: " + stop + " Hermes cannot refuse a message: do not start new work, and tell the user."
+        elif note:
+            text += " " + note
     if open_job:
         spent = hs.weigh_hermes(_grow(totals, open_job["start"]), cfg["weights"])
         text += " Open job: %s, about %s wt spent of %s (raw)" % (open_job["choice"], q.fmt(spent),
@@ -403,6 +411,13 @@ def post_llm_call(q, payload):
             chat["quote_incomplete"] = gaps
         else:
             chat.pop("quote_incomplete", None)
+    pending = (chat.get("quote") or {}).get("options") or {}
+    if (cfg.get("small_quote_line") and len(pending) == 1 and not (chat.get("job") or quote or choice)
+            and (move == "close" or q.CONTINUES_RE.search(text))):
+        # improvement 4, as in Claude Code since 1.1.8: a one-line quote gets a plain yes, so the reply may come back
+        # with only the JOB line: the work done chooses the quote's one level, done today
+        choice = next(iter(pending))
+        pace = pace or "today"
     aside = bool(q.ASIDE_RE.search(text)) and not quote and not move
     if chat.get("job"):
         job = chat["job"]

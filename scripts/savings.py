@@ -318,6 +318,199 @@ def line(q, cfg, sid, ctx, fresh, job_open, usage_of, now=None):
             " ".join("[%s] %s" % (t["id"], t["en"]) for t in show))
 
 
+def recent_family(q):
+    """The family of the model the last finished job ran on, for a quote: its model is not known yet."""
+    jobs = q.finished_jobs()
+    return (jobs[-1].get("family") if jobs else None) or "opus"
+
+
+def _family_price(q, cfg, family):
+    """Dollars per million input tokens: from the table when it has the model, else from the settings."""
+    opts = cfg.get("whatif") or {}
+    found = q.model_price((opts.get("ids") or {}).get(family))
+    if found and found.get("input"):
+        return found["input"] * 1e6
+    return (opts.get("prices") or {}).get(family)
+
+
+def what_if(q, cfg, wt, family, lang):
+    """Improvement 8: what the same tokens would cost on the cheaper model of whatif.model; '' when off, with no
+    numbers, or when that model is not cheaper. The ratio of the input prices: Anthropic's other prices follow them,
+    the cache reads of some models excepted."""
+    opts = cfg.get("whatif") or {}
+    target = opts.get("model")
+    if not opts.get("enabled") or not wt or not family or family == target:
+        return ""
+    now, then = _family_price(q, cfg, family), _family_price(q, cfg, target)
+    if not now or not then or then >= now:
+        return ""
+    ratio = then / now
+    if lang == "it":
+        return ("Con %s invece di %s gli stessi token costerebbero circa il %d%% del prezzo, circa %s token pesati di "
+                "adesso: una stima dai prezzi pubblici, e un modello più economico può fare più passi o lavorare peggio."
+                % (target.capitalize(), family.capitalize(), round(100 * ratio), q.fmt(wt * ratio)))
+    return ("With %s instead of %s the same tokens would cost about %d%% of the price, about %s of today's weighted "
+            "tokens: an estimate from the public prices, and a cheaper model may take more steps or work worse."
+            % (target.capitalize(), family.capitalize(), round(100 * ratio), q.fmt(wt * ratio)))
+
+
+def _week_readings(q):
+    return [r for r in q.read_jsonl(q.limits_path(), tail_bytes=4 * 1024 * 1024) if r.get("seven_day") is not None]
+
+
+def budget_numbers(q, cfg, now=None):
+    """The budgets set, as [{"kind", "period", "used", "limit", "share"}]: percent of the weekly limit used against
+    each. Today's use is the weekly share now less the last reading before midnight (or the first of today, or 0 when
+    the week started again today). As fresh as the latest reading of the limits."""
+    opts = cfg.get("budget") or {}
+    rows = _week_readings(q)
+    if not rows:
+        return []
+    now = now or time.time()
+    last = rows[-1]
+    used = float(last["seven_day"])
+    found = []
+    if opts.get("week_percent"):
+        limit = float(opts["week_percent"])
+        found.append({"kind": "week", "period": "%d" % round(float(last.get("seven_day_resets") or 0) / 7200),
+                      "used": used, "limit": limit, "share": 100.0 * used / limit})
+    if opts.get("day_percent"):
+        t = time.localtime(now)
+        midnight = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1))
+        before = [r for r in rows if (r.get("epoch") or 0) < midnight]
+        today = [r for r in rows if (r.get("epoch") or 0) >= midnight]
+        base = before[-1] if before else (today[0] if today else last)
+        reset = abs(float(base.get("seven_day_resets") or 0) - float(last.get("seven_day_resets") or 0)) > 3600
+        spent = max(0.0, used - (0.0 if reset else float(base["seven_day"])))
+        limit = float(opts["day_percent"])
+        found.append({"kind": "day", "period": time.strftime("%Y-%m-%d", t), "used": spent, "limit": limit,
+                      "share": 100.0 * spent / limit})
+    return found
+
+
+def budget_check(q, cfg, prompt, now=None):
+    """Improvement 10, at each message of a normal chat: (the reason to refuse it or None, a line for the agent or '').
+    Each step of budget.warn is told once a period. With budget.stop, past 100%, a message is refused until one says
+    BUDGET OK, which lifts the stop until that budget's period ends."""
+    opts = cfg.get("budget") or {}
+    numbers = budget_numbers(q, cfg, now)
+    if not numbers:
+        return None, ""
+    state = q.load_json(_path(q), {}) or {}
+    memory = state.setdefault("budget", {})
+    notes, blocked = [], None
+    passed = "BUDGET OK" in (prompt or "")
+    for b in numbers:
+        mine = memory.get(b["kind"])
+        if not mine or mine.get("period") != b["period"]:
+            mine = memory[b["kind"]] = {"period": b["period"], "told": 0}
+        if passed and b["share"] >= 100:
+            mine["passed"] = True
+        steps = [w for w in opts.get("warn") or [] if b["share"] >= w and w > mine["told"]]
+        if steps:
+            mine["told"] = max(steps)
+            notes.append("BUDGET: %s used %.1f%% of the weekly limit against a budget of %g%% (%d%% of it). Tell the user "
+                         "in one line, in their language, and go on." % (
+                             "today" if b["kind"] == "day" else "the week", b["used"], b["limit"], round(b["share"])))
+        if opts.get("stop") and b["share"] >= 100 and not mine.get("passed"):
+            blocked = ("Quotient: the budget of %s is used up (%.1f%% of the weekly limit, budget %g%%). To go on anyway, "
+                       "send a message with BUDGET OK in it, or change it with: config budget.stop 0" % (
+                           "the day" if b["kind"] == "day" else "the week", b["used"], b["limit"]))
+    q.save_json(_path(q), state)
+    return blocked, " ".join(notes)
+
+
+def cmd_budget(q):
+    cfg = q.config()
+    it = cfg.get("lang") == "it"
+    numbers = budget_numbers(q, cfg)
+    if not numbers:
+        q.out("Nessun budget (o nessuna lettura dei limiti): config budget.day_percent e budget.week_percent.\n" if it else
+              "No budget (or no reading of the limits): config budget.day_percent and budget.week_percent.\n")
+    for b in numbers:
+        name = (("oggi" if b["kind"] == "day" else "la settimana") if it else ("today" if b["kind"] == "day" else "the week"))
+        q.out(("%s: %.1f%% del limite settimanale su %g%% di budget (%d%%).\n" if it else
+               "%s: %.1f%% of the weekly limit, budget %g%% (%d%%).\n") % (name, b["used"], b["limit"], round(b["share"])))
+    if numbers and (cfg.get("budget") or {}).get("stop"):
+        q.out("Stop vero acceso.\n" if it else "A real stop is on.\n")
+
+
+def _tool_uses(q, entries):
+    """The tool calls of a transcript, oldest first: (id, name, input)."""
+    found = []
+    for call in q.ordered_calls(entries):
+        found += [(b.get("id"), b.get("name"), b.get("input")) for b in call["tools"]]
+    return found
+
+
+def _error_text(block):
+    content = block.get("content")
+    if isinstance(content, list):
+        content = " ".join(str(b.get("text") or "") for b in content if isinstance(b, dict))
+    return re.sub(r"\s+", " ", str(content or "")).strip()[:200]
+
+
+def loop_found(q, entries, data, limit):
+    """What repeats at the end of a transcript, as a sentence, or None: the same call `limit` times in a row (the one
+    about to run included), or the same error `limit` times in a row. Whatever else happens in between breaks it, so a
+    test run again after an edit is no loop."""
+    uses = _tool_uses(q, entries)
+    now = (data.get("tool_use_id"), data.get("tool_name"), data.get("tool_input"))
+    if not uses or not now[0] or uses[-1][0] != now[0]:
+        uses.append(now)
+    count = 0
+    for use in reversed(uses):
+        if use[1] != now[1] or use[2] != now[2]:
+            break
+        count += 1
+    if count >= limit:
+        shown = re.sub(r"\s+", " ", str(now[2]))[:120]
+        return "the same call of %s %d times in a row (%s)" % (now[1], count, shown)
+    results = []
+    for e in entries:
+        content = (e.get("message") or {}).get("content") if e.get("type") == "user" and not e.get("isSidechain") else None
+        for b in content if isinstance(content, list) else []:
+            if isinstance(b, dict) and b.get("type") == "tool_result":
+                results.append(_error_text(b) if b.get("is_error") else None)
+    if results and results[-1]:
+        count = 0
+        for r in reversed(results):
+            if r != results[-1]:
+                break
+            count += 1
+        if count >= limit:
+            return "the same error %d times in a row (%s)" % (count, results[-1][:120])
+    return None
+
+
+def loop_check(q, name, data, entries, cfg):
+    """Improvement 11, before each tool call of an installment: None to let it pass, or why it is refused. When
+    something repeats, Quotient itself writes it in the handoff, and from then on only the handoff passes."""
+    limit = int(cfg["rate"].get("loop_stop") or 0)
+    sid = str(data.get("session_id") or "")
+    if limit <= 0 or not sid:
+        return None
+    folder = q.rate_dir(name)
+    path = os.path.join(folder, "stuck.json")
+    handoff = os.path.join(folder, "HANDOFF.md")
+    stuck = q.load_json(path, {}) or {}
+    what = stuck.get(sid)
+    if not what:
+        what = loop_found(q, entries, data, limit)
+        if not what:
+            return None
+        stuck[sid] = what
+        q.save_json(path, stuck)
+        with open(handoff, "a", encoding="utf-8") as f:
+            f.write("\nSTUCK (written by Quotient, %s): the installment stopped by itself: %s.\n" % (q.now_iso(), what))
+    target = (data.get("tool_input") or {}).get("file_path") or ""
+    if data.get("tool_name") in ("Write", "Edit", "MultiEdit", "Read") and target and \
+            os.path.normcase(os.path.abspath(target)) == os.path.normcase(os.path.abspath(handoff)):
+        return None
+    return ("Quotient: this installment is going round in circles: %s. Quotient stopped it and noted it in %s. Do not "
+            "try again: add there what you tried, why it fails and where to resume, then stop." % (what, handoff))
+
+
 def run_numbers(q, entries, cfg):
     """What an installment keeps of this, in numbers: wt by group, and how much came from the cache."""
     usage = claude_usage(q, entries, cfg)
