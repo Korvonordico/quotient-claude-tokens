@@ -9,6 +9,8 @@ import unittest
 from datetime import datetime
 from unittest import mock
 
+from q_patch import patch_q
+
 from test_quotient import Base, pv  # noqa: F401 (pv: the script, loaded with the tests' environment)
 import limits_usage as lu  # noqa: E402
 
@@ -81,7 +83,7 @@ class UsageText(unittest.TestCase):
 class Refresh(Base):
     def live(self, answer):
         return [mock.patch.dict(os.environ, {"QUOTIENT_LIMITS_LIVE": "1"}),
-                mock.patch.object(pv, "find_claude", return_value="claude.exe"),
+                patch_q(pv, "find_claude", return_value="claude.exe"),
                 mock.patch.object(lu, "fetch", return_value=answer)]
 
     def test_claude_is_asked_at_most_every_ten_minutes_even_without_an_answer(self):

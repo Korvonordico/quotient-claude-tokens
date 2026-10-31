@@ -12,6 +12,8 @@ import time
 import unittest
 from unittest import mock
 
+from q_patch import patch_q
+
 os.environ["QUOTIENT_TIMER_WINDOW"] = "0"   # the tests never open the stopwatch window
 from test_quotient import Base, HERE, pv  # noqa: E402
 import hermes_source as hs  # noqa: E402
@@ -260,7 +262,7 @@ class TestBackfillTime(Base):
                   "finished": iso(1530.0)}
         lost = {"session": "gone", "raw_estimate": 1, "actual": 1, "started": iso(1.0), "finished": iso(2.0)}
         write_jobs([rate, claude, hermes, lost])
-        with mock.patch.object(pv, "find_transcript", side_effect=lambda sid, *a: self.t.path if sid == "cc1" else None):
+        with patch_q(pv, "find_transcript", side_effect=lambda sid, *a: self.t.path if sid == "cc1" else None):
             self.assertEqual(pv.backfill_time(home_hermes=h), 3)
             self.assertEqual(pv.backfill_time(home_hermes=h), 0)     # each job is looked at once
         jobs = pv.read_jsonl(os.path.join(pv.home(), "jobs.jsonl"))

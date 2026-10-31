@@ -10,6 +10,8 @@ import sys
 import time
 from unittest import mock
 
+from q_patch import patch_q
+
 import unittest
 
 from test_v116 import Cli, pv
@@ -100,7 +102,7 @@ class TestLongChat(Tips):
     def test_apart_needs_an_open_job_and_counts_the_start(self):
         cfg = self.on()
         self.assertEqual(self.line(cfg, ctx=300000, job=False), "")
-        with mock.patch.object(pv, "installment_start_cost", return_value=100000):
+        with patch_q(pv, "installment_start_cost", return_value=100000):
             self.assertIn("[apart]", self.line(cfg, ctx=300000, job=True))
             # re-reading saved (10 steps x 0.1 x 150k = 150k) still above the start of 100k; below it, no tip
             tips = savings.chat_tips(pv, cfg, 200000, 150000, True, None)

@@ -9,6 +9,8 @@ import os
 import sys
 from unittest import mock
 
+from q_patch import patch_q
+
 import unittest
 
 from test_quotient import Base, pv
@@ -107,7 +109,7 @@ class TestLimitsDuringAJob(Cli):
         live = mock.patch.dict(os.environ, {"QUOTIENT_LIMITS_LIVE": "1"})
         live.start()
         self.addCleanup(live.stop)
-        self.started = mock.patch.object(pv, "start_detached", return_value=True).start()
+        self.started = patch_q(pv, "start_detached", return_value=True).start()
         self.addCleanup(mock.patch.stopall)
 
     def test_every_minute_during_a_job_every_ten_otherwise(self):
@@ -137,7 +139,7 @@ class TestLimitsDuringAJob(Cli):
             f.write("".join(json.dumps(r) + "\n" for r in rows))
         import limits_usage
         with mock.patch.object(limits_usage, "fetch", return_value={"five_hour": 11, "seven_day": 3}) as fetch, \
-                mock.patch.object(pv, "find_claude", return_value="claude"):
+                patch_q(pv, "find_claude", return_value="claude"):
             self.assertIsNone(pv.refresh_limits(pv.config()))                   # every 10 minutes: not yet
             self.assertEqual(pv.refresh_limits(pv.config(), every=60)["five_hour"], 11)
             self.assertEqual(fetch.call_count, 1)
@@ -145,7 +147,7 @@ class TestLimitsDuringAJob(Cli):
 
     def test_an_installment_reads_while_it_works(self):
         pv.store(("limits", "job_every"), 0.02)
-        with mock.patch.object(pv, "refresh_limits") as refresh:
+        with patch_q(pv, "refresh_limits") as refresh:
             stop = pv.limits_reader(pv.config())
             for _ in range(200):
                 if refresh.call_count >= 2:
@@ -160,10 +162,10 @@ class TestLimitsDuringAJob(Cli):
     def test_the_message_of_an_open_job_asks_for_a_reading(self):
         pv.save_json(pv.session_path("s1"), {"job": {"choice": "good", "raw_estimate": 100000, "actual": 5000,
                                                        "chat": 0, "factor_used": 1.0}})
-        with mock.patch.object(pv, "limits_soon") as soon:
+        with patch_q(pv, "limits_soon") as soon:
             self.run_hook(pv.hook_prompt, {"session_id": "s1", "transcript_path": self.t.path})
         soon.assert_called_once()
-        with mock.patch.object(pv, "limits_soon") as soon:
+        with patch_q(pv, "limits_soon") as soon:
             self.run_hook(pv.hook_prompt, {"session_id": "s2", "transcript_path": self.t.path})
         soon.assert_called_once()                                    # 1.1.8: no job: a reading too, at the usual pace
         self.assertEqual(soon.call_args.args[1], 60)
@@ -278,7 +280,7 @@ class TestTelemetry(Cli):
         self.assertIsNone(telemetry.alert(pv, cfg))                 # told once
         check = pv.read_jsonl(telemetry.checks_path(pv.home()))[-1]
         self.assertEqual(check["aux_wt"], 1000)
-        with mock.patch.object(pv, "start_detached", return_value=True):
+        with patch_q(pv, "start_detached", return_value=True):
             report = self.run_hook(pv.report, {})
         self.assertIn("1 job(s) and installment(s) measured by both", report)
         self.assertIn("calls on the side (auxiliary)", report)
@@ -289,7 +291,7 @@ class TestTelemetry(Cli):
         path = os.path.join(claude, "settings.json")
         pv.save_json(path, {"model": "opus", "env": {"MINE": "1"}})
         with mock.patch.dict(os.environ, {"QUOTIENT_CLAUDE_DIR": claude}), \
-                mock.patch.object(pv, "start_detached", return_value=True) as started:
+                patch_q(pv, "start_detached", return_value=True) as started:
             text = self.cli("telemetry", "on")
             self.assertIn('"OTEL_EXPORTER_OTLP_PROTOCOL": "http/json"', text)
             self.assertEqual(pv.load_json(path, {})["env"], {"MINE": "1"})   # printed, not written

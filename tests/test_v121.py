@@ -6,6 +6,8 @@ import os
 import unittest
 from unittest import mock
 
+from q_patch import patch_q
+
 from test_quotient import Base, pv
 
 
@@ -52,7 +54,7 @@ class TestInstallmentPieces(V121):
             f.write("PROGRESS: %d%%\nwhat is done\n" % n)
 
     def check(self, spent, tool="Read", target="x.md"):
-        with mock.patch.object(pv, "out") as out:
+        with patch_q(pv, "out") as out:
             refused = pv.piece_check("book", {"session_id": "s1", "tool_name": tool, "tool_input": {"file_path": target}},
                                      spent, 400000, pv.config())
         return refused, out

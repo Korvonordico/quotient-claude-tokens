@@ -4,6 +4,8 @@ Run: python -m unittest discover tests"""
 import os
 from unittest import mock
 
+from q_patch import patch_q
+
 from test_quotient import Base, pv
 
 DAY = 86400
@@ -79,7 +81,7 @@ class TestWindowRatio(LimitsBase):
     def test_the_ratio_takes_the_place_of_a_week_with_too_few_points(self):
         self.three_windows()
         real = pv.capacity
-        with mock.patch.object(pv, "capacity", side_effect=lambda w, since=None, turns=None:
+        with patch_q(pv, "capacity", side_effect=lambda w, since=None, turns=None:
                                None if w == "seven_day" else real(w, since, turns)):
             c = pv.week_capacity()
             self.assertEqual((c["source"], round(c["per_point"])), ("ratio", 750000))

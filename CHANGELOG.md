@@ -4,6 +4,10 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+### Changed
+
+- The main file is split into smaller modules, `scripts/quotient_lib/`, so the code can be checked file by file; Quotient does the same things as before.
+
 ### Added
 
 - **What if with a cheaper model (off by default).** With `config whatif.enabled 1`, a quote, a closed job and a finished installment job say what the same tokens would cost on `whatif.model` (Sonnet): the ratio of the input prices, from the price table when it has the model, else from `whatif.prices` (Anthropic's public page, 31/10/2026). Stated as an estimate: a cheaper model may take more steps or work worse.

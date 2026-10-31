@@ -6,6 +6,8 @@ import json
 import os
 from unittest import mock
 
+from q_patch import patch_q
+
 import unittest
 
 from test_v116 import Cli, pv
@@ -100,7 +102,7 @@ class TaskCheck(Cli):
 
     def test_a_job_apart_gets_the_points_for_the_next_task(self):
         pv.store(("rate", "task_check"), 1)
-        with mock.patch.object(pv, "start_detached", return_value=True):
+        with patch_q(pv, "start_detached", return_value=True):
             text = self.cli("rate", "apart", "fast", "--dir", self.work, "--task", VAGUE, "--quote", "400000")
         self.assertIn("Task check", text)
         self.assertIn("for the next task", text)

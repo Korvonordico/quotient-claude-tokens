@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from q_patch import patch_q
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(HERE, "..", "scripts")
 sys.path.insert(0, SCRIPTS)
@@ -73,15 +75,15 @@ class Base(unittest.TestCase):
         os.environ.pop("QUOTIENT_JOB", None)
         os.environ.pop("QUOTIENT_CAP", None)   # 1.1.1: tests run inside an installment too, which sets its cap
         # tests never show a notification and never read the real Task Scheduler
-        self.toast = mock.patch.object(pv, "notify", return_value=True)
+        self.toast = patch_q(pv, "notify", return_value=True)
         self.notified = self.toast.start()
         self.addCleanup(self.toast.stop)
-        self.sched = mock.patch.object(pv, "next_run", return_value=None)
+        self.sched = patch_q(pv, "next_run", return_value=None)
         self.sched.start()
         self.addCleanup(self.sched.stop)
         # tests never read Windows' event log or Claude Code's login (0.9.7)
         for name, value in (("woken_recently", True), ("auth_alert", None)):
-            patcher = mock.patch.object(pv, name, return_value=value)
+            patcher = patch_q(pv, name, return_value=value)
             patcher.start()
             self.addCleanup(patcher.stop)
         # 1.1.9: the tests written before it keep the 1.1.8 learning (clean jobs only, the start factor and a quote for
@@ -102,14 +104,14 @@ class Base(unittest.TestCase):
         self.v118_learning.start()
         self.addCleanup(self.v118_learning.stop)
         # tests do not see the numbers shipped with the plugin unless they ask for them
-        self.bundled = mock.patch.object(pv, "bundled_average_path", return_value=os.path.join(self.dir, "none.json"))
+        self.bundled = patch_q(pv, "bundled_average_path", return_value=os.path.join(self.dir, "none.json"))
         self.bundled.start()
         self.addCleanup(self.bundled.stop)
-        self.seed = mock.patch.object(pv, "shared_path", return_value=os.path.join(self.dir, "none.jsonl"))
+        self.seed = patch_q(pv, "shared_path", return_value=os.path.join(self.dir, "none.jsonl"))
         self.seed.start()
         self.addCleanup(self.seed.stop)
         # tests never reach the internet: every request fails unless a test opens a local server
-        self.offline = mock.patch.object(pv, "http", return_value=(None, b""))
+        self.offline = patch_q(pv, "http", return_value=(None, b""))
         self.net = self.offline.start()
         self.addCleanup(self.offline.stop)
         self.t = Transcript(os.path.join(self.dir, "session.jsonl"))
@@ -449,7 +451,7 @@ class TestShared(Base):
         path = os.path.join(self.dir, "shared.jsonl")
         for r in rows:
             pv.append_jsonl(path, r)
-        return mock.patch.object(pv, "shared_path", return_value=path)
+        return patch_q(pv, "shared_path", return_value=path)
 
     def test_start_from_shared_then_own(self):
         with self.shared([{"date": "2026-10-05", "raw_estimate": 100000, "actual": 150000}] * 3):
@@ -514,7 +516,7 @@ class TestWeek(Base):
         self.assertTrue(pv.week_plan(pv.config())["fits"])
         args = mock.Mock(force=True)
         args.name = "two"
-        with mock.patch.object(pv, "find_claude") as find:
+        with patch_q(pv, "find_claude") as find:
             said = self.run_hook(lambda: pv.run_installment(args), {})
         find.assert_not_called()
         self.assertIn("paused", said)
@@ -528,7 +530,7 @@ class TestWeek(Base):
         def too_long(*a, **k):
             seen["cap"] = os.environ.get("QUOTIENT_CAP")
             raise pv.subprocess.TimeoutExpired("c", 1)
-        with mock.patch.object(pv, "find_claude", return_value="claude"), \
+        with patch_q(pv, "find_claude", return_value="claude"), \
                 mock.patch.object(pv.subprocess, "run", side_effect=too_long):
             said = self.run_hook(lambda: pv.run_installment(args), {})
         self.assertIn("shortened to 4.00M", said)
@@ -624,12 +626,12 @@ class TestInstallments(Base):
 
     def test_after_the_installment_the_pc_sleeps_only_if_idle(self):
         self.new_job(quote=500000, days=2, after="sleep")
-        with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"),                 mock.patch.object(pv, "go_to_sleep") as sleep,                 mock.patch.object(pv, "idle_seconds", return_value=60), mock.patch.object(pv.time, "sleep"), mock.patch.object(pv, "notify"):
+        with patch_q(pv, "run_installment"), patch_q(pv, "keep_awake"),                 patch_q(pv, "go_to_sleep") as sleep,                 patch_q(pv, "idle_seconds", return_value=60), mock.patch.object(pv.time, "sleep"), patch_q(pv, "notify"):
             args = mock.Mock(force=False)
             args.name = "book"
             self.run_hook(lambda: pv.rate_run(args), {})
             sleep.assert_not_called()
-        with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"),                 mock.patch.object(pv, "go_to_sleep") as sleep,                 mock.patch.object(pv, "idle_seconds", return_value=3600), mock.patch.object(pv.time, "sleep"), mock.patch.object(pv, "notify"):
+        with patch_q(pv, "run_installment"), patch_q(pv, "keep_awake"),                 patch_q(pv, "go_to_sleep") as sleep,                 patch_q(pv, "idle_seconds", return_value=3600), mock.patch.object(pv.time, "sleep"), patch_q(pv, "notify"):
             args = mock.Mock(force=False)
             args.name = "book"
             self.run_hook(lambda: pv.rate_run(args), {})
@@ -640,7 +642,7 @@ class TestInstallments(Base):
         open(os.path.join(pv.rate_dir("book"), "run.lock"), "w").close()
         args = mock.Mock(force=True)
         args.name = "book"
-        with mock.patch.object(pv, "run_installment") as run:
+        with patch_q(pv, "run_installment") as run:
             said = self.run_hook(lambda: pv.rate_run(args), {})
         run.assert_not_called()
         self.assertIn("already running", said)
@@ -846,9 +848,9 @@ class TestReports(Base):
 
         args = mock.Mock(force=True)
         args.name = "book"
-        with mock.patch.object(pv, "find_claude", return_value="claude"), \
+        with patch_q(pv, "find_claude", return_value="claude"), \
                 mock.patch.object(pv.subprocess, "run", side_effect=claude_run), \
-                mock.patch.object(pv, "find_transcript", side_effect=lambda sid, near=None:
+                patch_q(pv, "find_transcript", side_effect=lambda sid, near=None:
                                   self.home_chat if sid == "home1" else None):
             self.run_hook(lambda: pv.run_installment(args), {})
         self.assertEqual(self.job()["session"], "home1")
@@ -869,13 +871,13 @@ class TestReports(Base):
         job = self.job()
         runs = [{"started": "2026-10-06T10:00:01+02:00", "finished": "2026-10-06T10:07:30+02:00", "wt": 548000,
                  "cap": 550000, "error": None}]
-        with mock.patch.object(pv, "find_transcript", return_value=self.home_chat):
+        with patch_q(pv, "find_transcript", return_value=self.home_chat):
             title, body = pv.installment_toast("tutorial", job, runs, pv.config())
             self.assertEqual(title, "Quotient · rata 1 di «tutorial» finita")
             self.assertIn("10:00–10:07 · 548.000 token pesati su 550.000", body)
             self.assertRegex(body, r"Il resoconto è nella chat «Riprendi il libro» \(aperta il 05/10 alle \d\d:05\)\.")
             # 06/10/2026, rata 2 vera: 675.352 token pesati, 1% della settimana circa 5,34 milioni
-            with mock.patch.object(pv, "capacity", return_value={"per_point": 5340000}):
+            with patch_q(pv, "capacity", return_value={"per_point": 5340000}):
                 self.assertIn(" · 0,1% della settimana (stima).", pv.installment_toast("tutorial", job, runs, pv.config())[1])
             self.assertEqual((pv.percent(0.126, "it"), pv.percent(9.94, "en"), pv.percent(23.4, "it")), ("0,1%", "9.9%", "23%"))
             runs[0]["error"] = "timeout"

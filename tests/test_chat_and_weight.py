@@ -7,6 +7,8 @@ import os
 import time
 from unittest import mock
 
+from q_patch import patch_q
+
 from test_quotient import Base, Transcript, usage, pv
 
 A = "aaaa1111-0000-0000-0000-000000000001"
@@ -364,7 +366,7 @@ class TestBackfill(ChatBase):
             "raw_estimate": 10000, "actual": 11000, "choice": "max"})
         pv.append_jsonl(os.path.join(pv.home(), "jobs.jsonl"), {
             "started": "x", "finished": "y", "session": "rate:book", "raw_estimate": 10000, "actual": 9000})
-        with mock.patch.object(pv, "find_transcript", return_value=path):
+        with patch_q(pv, "find_transcript", return_value=path):
             self.assertEqual(pv.backfill_chat(), 1)
             self.assertEqual(pv.backfill_chat(), 0)  # each job is looked at once
         jobs = pv.finished_jobs()
@@ -383,7 +385,7 @@ class TestReportPage(ChatBase):
         pv.record_limits({"seven_day": 30, "seven_day_resets": round(time.time() + 3 * 86400)}, "claude")
         pv.store(("lang",), "it")
         args = mock.Mock(html=True, no_open=True)
-        with mock.patch.object(pv, "open_file") as opened:
+        with patch_q(pv, "open_file") as opened:
             said = self.run_hook(lambda: pv.report(args), {})
         opened.assert_not_called()
         path = os.path.join(pv.home(), "report.html")
@@ -410,7 +412,7 @@ class TestCompact(ChatBase):
     def setUp(self):
         super().setUp()
         self.settings = os.path.join(self.dir, "claude-settings.json")
-        patcher = mock.patch.object(pv, "claude_settings_path", return_value=self.settings)
+        patcher = patch_q(pv, "claude_settings_path", return_value=self.settings)
         patcher.start()
         self.addCleanup(patcher.stop)
         os.environ.pop("CLAUDE_CODE_AUTO_COMPACT_WINDOW", None)
@@ -531,11 +533,11 @@ class TestNight097(ChatBase):
     def run_once(self, woke, idle):
         args = mock.Mock(force=True)
         args.name = "book"
-        with mock.patch.object(pv, "run_installment"), mock.patch.object(pv, "keep_awake"), \
-                mock.patch.object(pv, "woken_recently", return_value=woke), \
-                mock.patch.object(pv, "idle_seconds", return_value=idle), \
-                mock.patch.object(pv.time, "sleep"), mock.patch.object(pv, "notify") as note, \
-                mock.patch.object(pv, "go_to_sleep") as sleep:
+        with patch_q(pv, "run_installment"), patch_q(pv, "keep_awake"), \
+                patch_q(pv, "woken_recently", return_value=woke), \
+                patch_q(pv, "idle_seconds", return_value=idle), \
+                mock.patch.object(pv.time, "sleep"), patch_q(pv, "notify") as note, \
+                patch_q(pv, "go_to_sleep") as sleep:
             said = self.run_hook(lambda: pv.rate_run(args), {})
         self.note = note
         return said, sleep
@@ -555,22 +557,22 @@ class TestNight097(ChatBase):
 
     def test_a_touch_after_the_warning_keeps_the_pc_on(self):
         cfg = pv.config()
-        with mock.patch.object(pv, "idle_seconds", side_effect=[3600, 5]), mock.patch.object(pv, "notify"), \
-                mock.patch.object(pv, "go_to_sleep") as sleep:
+        with patch_q(pv, "idle_seconds", side_effect=[3600, 5]), patch_q(pv, "notify"), \
+                patch_q(pv, "go_to_sleep") as sleep:
             self.assertFalse(pv.after_installment("sleep", cfg, sleep=lambda s: None))
         sleep.assert_not_called()
-        with mock.patch.object(pv, "idle_seconds", side_effect=[30, 700, 820]), mock.patch.object(pv, "notify"), \
-                mock.patch.object(pv, "go_to_sleep") as sleep:        # in use, then left: it waits, then sleeps
+        with patch_q(pv, "idle_seconds", side_effect=[30, 700, 820]), patch_q(pv, "notify"), \
+                patch_q(pv, "go_to_sleep") as sleep:        # in use, then left: it waits, then sleeps
             self.assertTrue(pv.after_installment("sleep", cfg, sleep=lambda s: None))
         sleep.assert_called_once_with("sleep")
 
     def test_without_windows_log_recent_use_means_the_pc_was_on(self):
         cfg = pv.config()
-        with mock.patch.object(pv, "woken_recently", return_value=None), \
-                mock.patch.object(pv, "idle_seconds", return_value=60):
+        with patch_q(pv, "woken_recently", return_value=None), \
+                patch_q(pv, "idle_seconds", return_value=60):
             self.assertFalse(pv.found_asleep(cfg))
-        with mock.patch.object(pv, "woken_recently", return_value=None), \
-                mock.patch.object(pv, "idle_seconds", return_value=3600):
+        with patch_q(pv, "woken_recently", return_value=None), \
+                patch_q(pv, "idle_seconds", return_value=3600):
             self.assertTrue(pv.found_asleep(cfg))
 
     def test_an_expired_login_is_said_plainly(self):
@@ -586,7 +588,7 @@ class TestNight097(ChatBase):
 
     def test_the_login_is_checked_on_messages_while_a_job_is_open(self):
         real = TestNight097.real_auth_alert
-        with mock.patch.object(pv, "find_claude", return_value="claude.exe"), \
+        with patch_q(pv, "find_claude", return_value="claude.exe"), \
                 mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(stdout=b'{"loggedIn": false}')) as run:
             self.assertIsNone(real(pv.config()))              # no open job: nothing to check
             self.new_job()
@@ -614,7 +616,7 @@ class TestNight097(ChatBase):
 
     def test_hooks_stay_quiet_in_the_live_check(self):
         with mock.patch.dict(os.environ, {"QUOTIENT_CHECK": "1"}):
-            with mock.patch.object(pv, "hook_prompt") as hook:
+            with patch_q(pv, "hook_prompt") as hook:
                 pv.main(["hook-prompt"])
         hook.assert_not_called()
 

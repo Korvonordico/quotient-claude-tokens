@@ -6,6 +6,8 @@ import os
 import re
 from unittest import mock
 
+from q_patch import patch_q
+
 import unittest
 
 from test_quotient import Base, pv, usage
@@ -99,7 +101,7 @@ class TestBlendShown(Base):
         super().setUp()
         pv.store(("learn_min_raw",), 1000000)
         pv.store(("learn_mid_min",), 500000)
-        patcher = mock.patch.object(pv, "mid_factor", return_value=1.75)
+        patcher = patch_q(pv, "mid_factor", return_value=1.75)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -137,7 +139,7 @@ class TestLimitsInTheBackground(Base):
         import limits_usage
         self.limits_usage = limits_usage
         self.fetch = mock.patch.object(limits_usage, "fetch", side_effect=AssertionError("a hook waited for /usage")).start()
-        self.started = mock.patch.object(pv, "start_detached", return_value=True).start()
+        self.started = patch_q(pv, "start_detached", return_value=True).start()
         self.addCleanup(mock.patch.stopall)
 
     def hermes(self, sid="c1"):
@@ -172,8 +174,8 @@ class TestLimitsInTheBackground(Base):
         self.fetch.assert_not_called()
 
     def test_a_job_waiting_for_its_check_reads_in_the_background(self):
-        with mock.patch.object(pv, "check_spans", return_value=[("k1", 0, 0, 0, 0, True)]), \
-                mock.patch.object(pv, "measure_checks"):
+        with patch_q(pv, "check_spans", return_value=[("k1", 0, 0, 0, 0, True)]), \
+                patch_q(pv, "measure_checks"):
             pv.check_alert(pv.config())
         self.fetch.assert_not_called()
         self.assertEqual(self.started.call_args.args[0], ["limits-read", "--every", "60"])   # 1.1.8: limits.every 60 (was 600)
@@ -193,7 +195,7 @@ class TestLimitsInTheBackground(Base):
     def test_the_process_apart_reads_even_right_after_it_was_started(self):
         self.assertTrue(pv.limits_soon(pv.config(), 600))
         with mock.patch.object(self.limits_usage, "fetch", return_value={"five_hour": 12, "seven_day": 4}) as fetch, \
-                mock.patch.object(pv, "find_claude", return_value="claude"):
+                patch_q(pv, "find_claude", return_value="claude"):
             pv.main(["limits-read", "--every", "600"])
             pv.main(["limits-read", "--every", "600"])               # read a moment ago: not again
         self.assertEqual(fetch.call_count, 1)
@@ -316,7 +318,7 @@ class TestFiveHoursShared(Base):
         pv.store(("subscription",), "max5")
         self.assertIsNone(pv.learned_per_point_5h(pv.config()))       # the plan's value is never sent back as ours
         own = {"per_point": 412345.6, "points": 40, "windows": 6, "low": 3.9e7, "high": 4.3e7}
-        with mock.patch.object(pv, "capacity", side_effect=lambda w, **k: own if w == "five_hour" else None):
+        with patch_q(pv, "capacity", side_effect=lambda w, **k: own if w == "five_hour" else None):
             self.assertEqual(pv.learned_per_point_5h(pv.config()), 412000)
             self.assertEqual(pv.five_capacity(pv.config())["source"], "direct")
             row = pv.queue_share(self.job, pv.config())

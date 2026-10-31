@@ -7,6 +7,8 @@ import os
 import unittest
 from unittest import mock
 
+from q_patch import patch_q
+
 from test_quotient import Base, pv, usage
 
 NEW = {"start_fixed": 1, "min_cap_starts": 1.5}
@@ -41,7 +43,7 @@ class TestDefaults(Base):
     def test_shipped_defaults(self):
         # Base patches them for the older tests: read the module's own values from a fresh import of the source
         import importlib.util
-        spec = importlib.util.spec_from_file_location("q122", pv.__file__)
+        spec = importlib.util.spec_from_file_location("q122", pv.q_settings.__file__)
         fresh = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(fresh)
         for key, value in NEW.items():
@@ -115,16 +117,16 @@ class TestCaps(V122):
 
     def test_the_time_of_an_installment_leaves_the_start_out(self):
         job = {"daily_cap": 250000, "start_at_quote": 100000, "overhead_at_quote": 0.5}
-        with mock.patch.object(pv, "minutes_per_million", return_value=(10.0, 3)):
+        with patch_q(pv, "minutes_per_million", return_value=(10.0, 3)):
             self.assertAlmostEqual(pv.installment_seconds(pv.config(), job), 60.0)
 
     def test_a_week_too_full_to_start_skips_the_installment(self):
         self.new_job(daily=300000)
         args = mock.Mock(force=True, woke=None)
         args.name = "post"
-        with mock.patch.object(pv, "find_claude", return_value="claude"), \
-                mock.patch.object(pv, "week_room", return_value=120000), \
-                mock.patch.object(pv, "subprocess") as sub:
+        with patch_q(pv, "find_claude", return_value="claude"), \
+                patch_q(pv, "week_room", return_value=120000), \
+                patch_q(pv, "subprocess") as sub:
             said = self.run_hook(lambda: pv.run_installment(args), {})
         self.assertIn("skipped", said)
         self.assertFalse(sub.run.called or sub.Popen.called)

@@ -14,7 +14,8 @@ Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md). Security
 
 | Path | What it is |
 |---|---|
-| `scripts/quotient.py` | the plugin itself: hooks, quotes, measuring, the report, installments (Python, standard library only) |
+| `scripts/quotient_lib/` | the plugin's code, one module per subject; `q_settings.py` holds the version and the defaults |
+| `scripts/quotient.py` | the entry point, with the commands, over `quotient_lib`: hooks, quotes, measuring, the report, installments (Python, standard library only) |
 | `scripts/run.sh` | finds Python 3.8 or newer and runs `quotient.py`; the hooks and slash commands go through it |
 | `scripts/hermes_source.py`, `scripts/hermes_hooks.py` | Hermes Agent: reading its token counters, and the shell hooks |
 | `scripts/limits_usage.py` | reads the plan limits through Claude Code's own `/usage` command |

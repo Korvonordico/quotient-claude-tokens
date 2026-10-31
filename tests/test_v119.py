@@ -8,6 +8,8 @@ import os
 import unittest
 from unittest import mock
 
+from q_patch import patch_q
+
 from test_quotient import Base, pv, usage
 
 KEYS = ("note_web_haiku", "small_quote_line", "margin_percent")   # writing_wt_per_word: 27 from 1.1.9   # requote_on_addition: on from 1.1.9 (test_v120)
@@ -303,8 +305,8 @@ class TestLimitsLeft(Base):
         self.assertIn("95% left (~276M wt)", line)
 
     def test_sizes_are_the_quotes_sizes(self):
-        with mock.patch.object(pv, "five_capacity", return_value={"per_point": 320000}), \
-                mock.patch.object(pv, "week_capacity", return_value={"per_point": 2.91e6}):
+        with patch_q(pv, "five_capacity", return_value={"per_point": 320000}), \
+                patch_q(pv, "week_capacity", return_value={"per_point": 2.91e6}):
             self.assertEqual(pv.window_sizes(), {"five_hour": 320000.0, "seven_day": 2.91e6})
             self.assertIn("(~26M wt)", pv.limits_line("en"))
             pv.store(("limits", "show_left"), 0)
@@ -316,7 +318,7 @@ class TestLimitsLeft(Base):
         self.assertIn("81% left, resets", pv.limits_line("en"))
 
     def test_a_size_that_fails_never_stops_the_line(self):
-        with mock.patch.object(pv, "five_capacity", side_effect=ValueError("broken")):
+        with patch_q(pv, "five_capacity", side_effect=ValueError("broken")):
             self.assertEqual(pv.window_sizes(), {})
             self.assertIn("81% left, resets", pv.limits_line("en"))
 
@@ -338,7 +340,7 @@ class TestLimitsLeft(Base):
             f.write("".join(json.dumps(r) + "\n" for r in rows))
         import limits_usage
         with mock.patch.object(limits_usage, "fetch", return_value={"five_hour": 20, "seven_day": 5}) as fetch, \
-                mock.patch.object(pv, "find_claude", return_value="claude"):
+                patch_q(pv, "find_claude", return_value="claude"):
             self.assertEqual(pv.refresh_limits(pv.config())["five_hour"], 20)
             self.assertEqual(fetch.call_count, 1)
             self.assertIsNone(pv.refresh_limits(pv.config()))     # tried just now: not before a minute
@@ -356,7 +358,7 @@ class TestReadingsWithoutAJob(Base):
         self.addCleanup(live.stop)
         import limits_usage
         self.fetch = mock.patch.object(limits_usage, "fetch", side_effect=AssertionError("a hook waited for /usage")).start()
-        self.started = mock.patch.object(pv, "start_detached", return_value=True).start()
+        self.started = patch_q(pv, "start_detached", return_value=True).start()
         self.addCleanup(mock.patch.stopall)
 
     def prompt(self):

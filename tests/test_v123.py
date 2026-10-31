@@ -7,6 +7,8 @@ import math
 import os
 from unittest import mock
 
+from q_patch import patch_q
+
 from test_quotient import Base, AVERAGE, pv
 
 
@@ -40,7 +42,7 @@ class TestDefaults(Base):
     def test_shipped_default(self):
         # Base patches it for the older tests: read the module's own value from a fresh import of the source
         import importlib.util
-        spec = importlib.util.spec_from_file_location("q123", pv.__file__)
+        spec = importlib.util.spec_from_file_location("q123", pv.q_settings.__file__)
         fresh = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(fresh)
         self.assertEqual(fresh.DEFAULTS["shared_min_weight"], 0)
@@ -144,7 +146,7 @@ class TestPrices(Base):
     def setUp(self):
         super().setUp()
         self.path = os.path.join(self.dir, "data", "model-prices.json")
-        patcher = mock.patch.object(pv, "prices_path", return_value=self.path)
+        patcher = patch_q(pv, "prices_path", return_value=self.path)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -177,7 +179,7 @@ class TestPrices(Base):
 
     def test_update_downloads_and_filters(self):
         body = json.dumps(self.TABLE).encode("utf-8")
-        with mock.patch.object(pv, "http", return_value=(200, body)) as http:
+        with patch_q(pv, "http", return_value=(200, body)) as http:
             said = self.run_hook(lambda: pv.cmd_prices(mock.Mock(action="update")), {})
         self.assertEqual(http.call_args[0][:2], ("GET", pv.PRICES_URL))
         self.assertIn("4 Claude models", said)
@@ -191,14 +193,14 @@ class TestPrices(Base):
         self.write()
         before = pv.load_json(self.path, {})
         for answer in ((None, b""), (200, b"not json"), (200, b'{"gpt-4": {"input_cost_per_token": 1}}'), (500, b"{}")):
-            with mock.patch.object(pv, "http", return_value=answer):
+            with patch_q(pv, "http", return_value=answer):
                 with self.assertRaises(SystemExit):
                     pv.prices_update()
             self.assertEqual(pv.load_json(self.path, {}), before)
 
     def test_showing_or_reading_prices_never_uses_the_network(self):
         self.write()
-        with mock.patch.object(pv, "http") as http:
+        with patch_q(pv, "http") as http:
             pv.model_price("claude-opus-4-1")
             self.run_hook(lambda: pv.cmd_prices(mock.Mock(action=None)), {})
         http.assert_not_called()

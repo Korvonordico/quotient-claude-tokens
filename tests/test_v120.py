@@ -30,7 +30,7 @@ class TestDefaults(Base):
     def test_shipped_defaults(self):
         # Base patches them for the older tests: read the module's own values from a fresh import of the source
         import importlib.util
-        spec = importlib.util.spec_from_file_location("q119", pv.__file__)
+        spec = importlib.util.spec_from_file_location("q119", pv.q_settings.__file__)
         fresh = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(fresh)
         for key, value in NEW.items():

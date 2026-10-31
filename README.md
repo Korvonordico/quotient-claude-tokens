@@ -536,6 +536,34 @@ Quotes, measuring, limits and the report work wherever Claude Code, Python 3.8+ 
 
 </details>
 
+## How the code is organized
+
+`scripts/quotient.py` is the entry point: the commands, and every name again for the helpers beside it. The rest is in `scripts/quotient_lib/`, one module per subject, each under 100 KB (a test checks it):
+
+| Module | What it holds |
+|---|---|
+| `q_settings` | the settings and their defaults, the patterns of the machine lines, the files in `~/.quotient` |
+| `q_costs` | weighted tokens from the transcripts, the Claude Code runs a Hermes chat starts, reading the machine lines |
+| `q_learning` | the correction factor, the shared average, the environment jobs ran in |
+| `q_timing` | a job's time and pieces of work, the note when it closes, the stopwatch |
+| `q_sharing` | the anonymous numbers sent to the shared average, and downloading it |
+| `q_quotes` | the quote: each level's numbers, the table, the protocol |
+| `q_notices` | the installments' reports and notices in the chat |
+| `q_longchats` | compaction at a size, and the setup command |
+| `q_hooks` | Claude Code's hooks |
+| `q_limits` | the plan's limits, how much 1% holds, a change of subscription |
+| `q_repairs` | the measures set against the limits, `fix`, the status line |
+| `q_weeks` | all open installment jobs against the week, the list of commands |
+| `q_reports` | the report in the chat |
+| `q_pages` | the report as a page with charts, the export |
+| `q_prices` | the price table, the share and config commands |
+| `q_rates` | an installment's files, finding Claude Code, notifications, the report page |
+| `q_tasks` | the task check and `task-file` |
+| `q_runs` | new job, apart, one run with its cap, its status |
+| `q_schedules` | scheduled installments on Windows, and the PC: awake, idle, asleep |
+
+Beside them: `hermes_hooks.py` and `hermes_source.py` (Hermes), `savings.py` (the tips, the budget, what if), `telemetry.py`, `limits_usage.py`.
+
 ## Contributing
 
 Ideas under consideration are in [ROADMAP.md](ROADMAP.md). The first one, a quote of how long a job will take with a live stopwatch and a time that learns, came in 1.1.0.

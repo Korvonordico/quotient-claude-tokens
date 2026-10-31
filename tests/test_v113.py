@@ -8,6 +8,8 @@ import re
 import sys
 from unittest import mock
 
+from q_patch import patch_q
+
 from test_quotient import Base, usage, pv, HERE
 from test_v111 import InstallmentBase
 from test_hermes import fake_hermes
@@ -23,7 +25,7 @@ class Known(Base):
     def known(self, names=None):
         for name, value in KNOWN:
             if names is None or name in names:
-                patcher = mock.patch.object(pv, name, return_value=value)
+                patcher = patch_q(pv, name, return_value=value)
                 patcher.start()
                 self.addCleanup(patcher.stop)
 
@@ -282,7 +284,7 @@ class TestPaceWithTime(InstallmentBase):
     def test_once_and_every_day_use_the_jobs_time(self):
         self.new_job(pace="5 giorni alle 2:00", quote=1000000, days=None, daily=None)
         self.new_job("plain")
-        with mock.patch.object(pv, "schedule") as made:
+        with patch_q(pv, "schedule") as made:
             pv.rate_once(self.args("book"))
             pv.rate_schedule(self.args("book"))
             pv.rate_schedule(self.args("plain"))

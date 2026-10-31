@@ -9,6 +9,8 @@ import sys
 import time
 from unittest import mock
 
+from q_patch import patch_q
+
 import unittest
 
 from test_v116 import Cli, pv
@@ -53,7 +55,7 @@ class WhatIf(Cli):
 
     def test_the_table_counts_first(self):
         cfg = self.on()
-        with mock.patch.object(pv, "model_price", lambda m: {"input": 1e-6} if m and "sonnet" in m else None):
+        with patch_q(pv, "model_price", lambda m: {"input": 1e-6} if m and "sonnet" in m else None):
             self.assertIn("25%", savings.what_if(pv, cfg, 1000000, "opus", "en"))
 
     def test_in_the_quote_and_at_the_close(self):
@@ -138,7 +140,7 @@ class Budget(Cli):
         real_now = self.noon()
         stdout = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
         with mock.patch.object(sys, "stdin", stdin), mock.patch.object(sys, "stdout", stdout), \
-                mock.patch.object(time, "time", return_value=real_now), mock.patch.object(pv, "limits_soon"):
+                mock.patch.object(time, "time", return_value=real_now), patch_q(pv, "limits_soon"):
             pv.hook_prompt()
             stdout.flush()
         said = json.loads(stdout.buffer.getvalue().decode("utf-8"))
@@ -151,7 +153,7 @@ class Budget(Cli):
         pv.store(("rate", "prompt_prefix"), "[AUTO]")
         stdin = io.TextIOWrapper(io.BytesIO(json.dumps({"session_id": "c", "prompt": "[AUTO] fai"}).encode("utf-8")), encoding="utf-8")
         stdout = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
-        with mock.patch.object(sys, "stdin", stdin), mock.patch.object(sys, "stdout", stdout), mock.patch.object(pv, "limits_soon"):
+        with mock.patch.object(sys, "stdin", stdin), mock.patch.object(sys, "stdout", stdout), patch_q(pv, "limits_soon"):
             pv.hook_prompt()
             stdout.flush()
         self.assertNotIn('"decision"', stdout.buffer.getvalue().decode("utf-8"))

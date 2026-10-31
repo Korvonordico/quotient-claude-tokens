@@ -10,6 +10,8 @@ import os
 import time
 from unittest import mock
 
+from q_patch import patch_q
+
 import unittest
 
 from test_v116 import Cli, pv
@@ -134,8 +136,8 @@ class TestSmallQuoteOnHermes(ChatQuote):
         with mock.patch.object(hh, "_counters", return_value=(totals, 5)), \
                 mock.patch.object(hs, "active_seconds", return_value=10), \
                 mock.patch.object(hs, "reply_texts", return_value=[]), \
-                mock.patch.object(pv, "limits_soon"), mock.patch.object(pv, "timer_put"), \
-                mock.patch.object(pv, "quote_gaps", return_value=None):
+                patch_q(pv, "limits_soon"), patch_q(pv, "timer_put"), \
+                patch_q(pv, "quote_gaps", return_value=None):
             return hh.post_llm_call(pv, {"session_id": sid, "extra": {"assistant_response": text}})
 
     def state(self, sid="s1"):

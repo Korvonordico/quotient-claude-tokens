@@ -5,6 +5,8 @@ import json
 import os
 from unittest import mock
 
+from q_patch import patch_q
+
 from test_quotient import Base, usage, pv
 
 
@@ -121,10 +123,10 @@ class TestCapKeptForSaving(InstallmentBase):
         result = {"session_id": "inst1", "usage": usage(output=100), "total_cost_usd": 0.01}
         args = mock.Mock(force=True)
         args.name = "book"
-        with mock.patch.object(pv, "find_claude", return_value="claude"), \
+        with patch_q(pv, "find_claude", return_value="claude"), \
                 mock.patch.object(pv.subprocess, "run", return_value=mock.Mock(
                     stdout=json.dumps(result).encode(), stderr=b"", returncode=0)), \
-                mock.patch.object(pv, "find_transcript", side_effect=lambda sid, near=None: main if sid == "inst1" else None):
+                patch_q(pv, "find_transcript", side_effect=lambda sid, near=None: main if sid == "inst1" else None):
             self.run_hook(lambda: pv.run_installment(args), {})
         self.assertTrue(os.path.isdir(os.path.join(folder, "notes")))
         handoff = pv.load_text(os.path.join(folder, "HANDOFF.md"))
@@ -148,7 +150,7 @@ class TestWeekCheck(Base):
         super().setUp()
         self.now = pv.time.time()
         self.resets = round(self.now + 3 * 86400)
-        self.cap = mock.patch.object(pv, "capacity", return_value={"per_point": 100000.0, "points": 10, "windows": 1,
+        self.cap = patch_q(pv, "capacity", return_value={"per_point": 100000.0, "points": 10, "windows": 1,
                                                                    "low": 1, "high": 1})
         self.cap.start()
         self.addCleanup(self.cap.stop)
@@ -276,7 +278,7 @@ class TestApartNow(InstallmentBase):
                          session=None)
         args.name = "book"
         with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "home1"}), \
-                mock.patch.object(pv, "start_detached", return_value=True) as start:
+                patch_q(pv, "start_detached", return_value=True) as start:
             said = self.run_hook(lambda: pv.rate_apart(args), {})
         start.assert_called_once_with(["rate", "run", "book"], os.path.join(pv.rate_dir("book"), "apart.log"))
         job = pv.load_json(os.path.join(pv.rate_dir("book"), "job.json"), None)
