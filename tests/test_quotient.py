@@ -74,6 +74,7 @@ class Base(unittest.TestCase):
         os.environ.pop("CLAUDE_CODE_SESSION_ID", None)  # tests run inside a chat too: no chat unless a test sets one
         os.environ.pop("QUOTIENT_JOB", None)
         os.environ.pop("QUOTIENT_CAP", None)   # 1.1.1: tests run inside an installment too, which sets its cap
+        os.environ.pop("QUOTIENT_STOP_AT", None)
         # tests never show a notification and never read the real Task Scheduler
         self.toast = patch_q(pv, "notify", return_value=True)
         self.notified = self.toast.start()

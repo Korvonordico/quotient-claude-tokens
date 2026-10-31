@@ -308,6 +308,60 @@ def first_prompt(path):
     return None
 
 
+def first_time(path):
+    """When a transcript starts (epoch seconds), or 0."""
+    try:
+        with open(path, "rb") as f:
+            for n, line in enumerate(f):
+                if n > 50:
+                    break
+                try:
+                    e = json.loads(line.decode("utf-8", "replace"))
+                except ValueError:
+                    continue
+                when = q_limits.ts_epoch(e.get("timestamp")) if isinstance(e, dict) else 0
+                if when:
+                    return when
+    except OSError:
+        pass
+    return 0
+
+
+def find_run_transcript(folder, started, finished, known=(), root=None):
+    """The transcript of an installment that left no session id (31/10/2026: sor-tappa4, stopped by the timeout after 4
+    hours, recorded 0 wt: only the answer printed at the end of a run gives the id, and a stopped run prints nothing).
+    It is the `claude -p` session whose first prompt names this job's TASK.md and that started during the run. `known`:
+    sessions already given to other runs of the job. None when nothing matches."""
+    lo, hi = q_limits.ts_epoch(started), q_limits.ts_epoch(finished)
+    if not lo or not hi:
+        return None
+    task = os.path.join(folder, "TASK.md")
+    root = root or os.path.join(os.path.expanduser("~"), ".claude", "projects")
+    found = []
+    for path in glob.glob(os.path.join(root, "*", "*.jsonl")):
+        try:
+            if os.path.getmtime(path) < lo - 60:
+                continue
+        except OSError:
+            continue
+        if os.path.basename(path)[:-6] in known or task not in (first_prompt(path) or ""):
+            continue
+        begin = first_time(path)
+        if lo - 60 <= begin <= hi + 60:
+            found.append((begin, path))
+    return min(found)[1] if found else None
+
+
+def tokens_of(entries):
+    """Tokens by type over the calls of a transcript, for a run Claude Code's own answer does not cover."""
+    totals = {}
+    for usage in calls_of(entries).values():
+        for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
+            if isinstance(usage.get(k), (int, float)):
+                totals[k] = totals.get(k, 0) + int(usage[k])
+    return totals
+
+
 def claude_run_cost(path, lo, hi, weights):
     """What one Claude Code session spent from lo to hi (epoch seconds), its helpers (subagents) included."""
     entries = [e for e in q_settings.read_jsonl(path) + subagent_entries(path, None)

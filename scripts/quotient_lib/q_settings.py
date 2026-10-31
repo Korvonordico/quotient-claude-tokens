@@ -243,6 +243,8 @@ DEFAULTS = {
         # Hard cap in dollars = daily cap x learned dollars per weighted token x this margin.
         "usd_cap_margin": 1.5,
         "timeout_minutes": 240,
+        # The last minutes before that stop are for saving, as at the end of the cap: new work is refused. 0 = off.
+        "close_minutes": 15,
         # After an installment, put the PC back to sleep only if nobody used it for this long.
         "idle_minutes": 10,
         # What the PC does after an installment unless a job says otherwise: nothing, sleep or hibernate.

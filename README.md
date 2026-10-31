@@ -275,6 +275,7 @@ Run them as `python scripts/quotient.py <command>` from the plugin's folder or a
 | `rate pause <job>`, `rate resume <job>` | pause a job, or start it again |
 | `rate stop <job>` | stop a job and remove its scheduled runs |
 | `rate status [job]` | installments done and weighted tokens spent |
+| `rate repair [job] [--dry]` | installments stopped before their end and recorded at 0: their real cost, from their transcript (a copy of the file first) |
 | `rate check [--live]` | can a scheduled installment wake this PC, and is Claude Code logged in (`--live`: one real call, a few cents) |
 
 </details>
@@ -291,6 +292,8 @@ You leave the PC in sleep or hibernation, as you always do. Every installment th
 5. **The next day, at the same time, it starts again**, until the job is finished. Then the schedule removes itself.
 
 When you come back, Windows has shown a notification for each installment, which stays in the notification center; a click opens a page with that installment's report (kept in the job's folder, under `reports`). The full report waits in the chat where you created the job and appears at your first message there: which installment, when, what it cost against the day's amount and the week, what it did, what is left and when the next one starts. Other chats tell you once, and a second time no sooner than a day later; then they stop. To get the reports in another chat, ask Claude there (`rate here <job>`).
+
+An installment is stopped after `rate.timeout_minutes` (240). It knows the time from the start, and in the last `rate.close_minutes` (15; 0 = off) it can only save, so it leaves its report. If it is stopped anyway, by the timeout, by a kill or by the PC turning off, what it spent still counts: Quotient reads it from its transcript.
 
 Good to know:
 

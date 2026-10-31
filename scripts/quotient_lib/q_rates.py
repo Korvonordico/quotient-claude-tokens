@@ -312,6 +312,8 @@ def installment_toast(name, job, runs, cfg, page=None):
                     "the installment. Nothing was spent. ")
         else:
             body = str(run["error"])[:150].strip().rstrip(".") + ". "
+            if run.get("wt"):
+                body += ("Prima dello stop ha speso %s token pesati. " if it else "Before it stopped it spent %s weighted tokens. ") % amount(run["wt"], cfg.get("lang"))
     else:
         per_point = (q_limits.week_capacity(cfg) or {}).get("per_point")
         title = ("Quotient · rata %d di «%s» finita" if it else "Quotient · installment %d of '%s' done") % (n, name)

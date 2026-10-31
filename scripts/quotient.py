@@ -55,7 +55,8 @@ from quotient_lib.q_settings import (  # noqa: F401
 )
 from quotient_lib.q_costs import (  # noqa: F401
     FAMILY_NAMES, RATE_SIGN, add_families, calls_of, chat_part, claude_links, claude_links_path, claude_run_cost,
-    claude_runs_of, context_size, cost_of, families_of, family_of, first_context, first_prompt, is_turn_start,
+    claude_runs_of, context_size, cost_of, families_of, family_of, find_run_transcript, first_context, first_prompt,
+    first_time, is_turn_start, tokens_of,
     main_family, ordered_calls, parse_amount, parse_choice, parse_custom, parse_move, parse_pace, parse_plan,
     parse_progress, parse_quote, parse_type, plan_amount, prompt_tokens, record_claude_link, same_quote, span_cost,
     subagent_entries, turn_of, weigh, work_of, work_type, write_weight,
@@ -145,8 +146,9 @@ from quotient_lib.q_tasks import (  # noqa: F401
     task_read_line, task_spot,
 )
 from quotient_lib.q_runs import (  # noqa: F401
-    after_installment, bind_new_apart, capped, helper_work, rate_apart, rate_here, rate_new, rate_run, rate_status,
-    refused_by_cap, run_installment, save_helpers_note, start_detached,
+    TIME_LINE, after_installment, bind_new_apart, capped, close_lost_run, helper_work, measure_transcript, rate_apart,
+    rate_here, rate_new, rate_repair, rate_run, rate_status, refused_by_cap, repair_job, run_installment,
+    save_helpers_note, start_detached,
 )
 from quotient_lib.q_schedules import (  # noqa: F401
     check_time, found_asleep, go_to_sleep, idle_seconds, job_time, keep_awake, launcher, live_check, load_text,
@@ -264,6 +266,9 @@ def main(argv=None):
     p.add_argument("--force", action="store_true", help="run even if one already ran today")
     p = rsub.add_parser("status")
     p.add_argument("name", nargs="?")
+    p = rsub.add_parser("repair", help="installments stopped before their end: their real cost, from their transcript")
+    p.add_argument("name", nargs="?")
+    p.add_argument("--dry", action="store_true", help="only show what would change")
     p = rsub.add_parser("schedule", help="run an installment every day at a time (wakes the PC)")
     p.add_argument("name")
     p.add_argument("--time", help="HH:MM (default: the job's time, else 03:00)")
@@ -380,7 +385,7 @@ def main(argv=None):
         import savings
         savings.cmd(sys.modules[__name__], args)
     elif args.cmd == "rate":
-        actions = {"new": q_runs.rate_new, "apart": q_runs.rate_apart, "run": q_runs.rate_run, "status": q_runs.rate_status, "schedule": q_schedules.rate_schedule,
+        actions = {"new": q_runs.rate_new, "apart": q_runs.rate_apart, "run": q_runs.rate_run, "status": q_runs.rate_status, "repair": q_runs.rate_repair, "schedule": q_schedules.rate_schedule,
                    "once": q_schedules.rate_once, "stop": q_schedules.rate_stop, "after": q_schedules.rate_after, "here": q_runs.rate_here, "check": q_schedules.rate_check,
                    "week": q_weeks.rate_week, "pause": q_weeks.rate_pause, "resume": q_weeks.rate_resume, "set": q_weeks.rate_set,
                    "templates": q_rates.rate_templates}

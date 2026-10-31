@@ -5,12 +5,13 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 
-from quotient_lib import q_costs, q_hooks, q_learning, q_limits, q_notices, q_quotes, q_rates, q_schedules, q_settings, q_sharing, q_tasks, q_timing, q_weeks
+from quotient_lib import q_costs, q_hooks, q_learning, q_limits, q_notices, q_quotes, q_rates, q_repairs, q_schedules, q_settings, q_sharing, q_tasks, q_timing, q_weeks
 
 def rate_new(args):
     folder = q_rates.rate_dir(args.name)
@@ -193,6 +194,7 @@ def rate_run(args):
     args.woke = woke
     q_schedules.keep_awake(True)
     try:
+        close_lost_run(args.name, q_settings.config())
         run_installment(args)
     finally:
         q_schedules.keep_awake(False)
@@ -305,6 +307,154 @@ def save_helpers_note(folder, helpers, number, lang):
         f.write("\n".join(lines) + "\n")
 
 
+TIME_LINE = (" Time limit: Quotient stops this installment at %s (this PC's clock), whatever it is doing, and what is not "
+             "saved is lost. Keep the handoff up to date, and have your final report in it before then.")
+
+
+def open_run_path(folder):
+    return os.path.join(folder, "run-open.json")
+
+
+def drop_open_run(folder):
+    try:
+        os.remove(open_run_path(folder))
+    except OSError:
+        pass
+
+
+def measure_transcript(transcript, cfg):
+    """What an installment spent, from its transcript and its helpers'."""
+    entries = q_settings.read_jsonl(transcript) + q_costs.subagent_entries(transcript, None)
+    wt, calls = q_costs.cost_of(entries, cfg["weights"])
+    # an installment starts in a new chat: its chat part is re-reading that start at every call
+    fresh = q_costs.first_context(transcript)
+    main_calls = q_costs.ordered_calls(entries)
+    return {"wt": wt, "calls": calls, "families": q_costs.families_of(entries, cfg["weights"]), "fresh": fresh,
+            "chat": q_costs.chat_part(main_calls, 0, fresh, cfg["weights"]),
+            # 1.2.2: what its first call paid for that start (written to the cache), learned for the next quotes
+            "start_wt": round(q_costs.span_cost(main_calls[0]["usage"], 0, fresh, cfg["weights"])) if main_calls else None,
+            "tokens": q_costs.tokens_of(entries)}
+
+
+def measure_into(run, name, transcript, cfg):
+    """A recorded run with no measure gets the one of its transcript. Returns what it spent per model family."""
+    m = measure_transcript(transcript, cfg)
+    sid = os.path.basename(transcript)[:-6]
+    helpers = helper_work(transcript)
+    run.update(session=sid, wt=m["wt"], calls=m["calls"], chat=m["chat"], fresh=m["fresh"], start_wt=m["start_wt"],
+               tokens=m["tokens"] or None, pieces=q_hooks.run_pieces(name, sid), helpers=len(helpers),
+               helpers_stopped=sum(1 for h in helpers if h["stopped"]),
+               elsewhere=q_learning.elsewhere_wt(q_limits.ts_epoch(run.get("started")), q_limits.ts_epoch(run.get("finished")), {sid}))
+    return m["families"]
+
+
+def close_lost_run(name, cfg):
+    """An installment Quotient itself did not see the end of (the PC turned off, the process killed) has no line in
+    runs.jsonl: at the job's next run its marker is still there, and the line is written from the transcript."""
+    folder = q_rates.rate_dir(name)
+    marker = q_settings.load_json(open_run_path(folder), None)
+    if not marker:
+        return None
+    runs = q_settings.read_jsonl(os.path.join(folder, "runs.jsonl"))
+    started = marker.get("started")
+    drop_open_run(folder)
+    if not started or any(r.get("started") == started for r in runs):
+        return None
+    transcript = q_costs.find_run_transcript(folder, started, q_settings.now_iso(), {r.get("session") for r in runs})
+    if not transcript:
+        return None
+    finished = datetime.fromtimestamp(os.path.getmtime(transcript), timezone.utc).astimezone().isoformat(timespec="seconds")
+    handoff = q_schedules.load_text(os.path.join(folder, "HANDOFF.md")) or ""
+    run = {"started": started, "finished": finished, "found_asleep": None, "usd": None, "done": False,
+           "error": "stopped: Quotient did not see the end of this installment (PC turned off or process killed)",
+           "cap": marker.get("cap"), "progress": q_costs.parse_progress(handoff),
+           "seconds": round(max(0.0, q_limits.ts_epoch(finished) - q_limits.ts_epoch(started))), "predicted_seconds": None,
+           "check": 1}
+    families = measure_into(run, name, transcript, cfg)
+    job = q_settings.load_json(os.path.join(folder, "job.json"), None) or {}
+    q_costs.add_families(job, families)
+    q_settings.save_json(os.path.join(folder, "job.json"), job)
+    q_settings.append_jsonl(os.path.join(folder, "runs.jsonl"), run)
+    return run
+
+
+def repair_job(name, cfg, dry=False):
+    """Lines of runs.jsonl written before 31/10/2026 by a stopped installment (0 wt, no session): measured again from the
+    transcript. A copy of the file first. [(line, wt before)] of what changed or would change."""
+    folder = q_rates.rate_dir(name)
+    path = os.path.join(folder, "runs.jsonl")
+    runs = q_settings.read_jsonl(path)
+    changed, families = [], {}
+    known = {r.get("session") for r in runs}
+    for r in runs:
+        if r.get("session") or r.get("wt") or not r.get("error"):
+            continue
+        transcript = q_costs.find_run_transcript(folder, r.get("started"), r.get("finished"), known)
+        if not transcript:
+            continue
+        known.add(os.path.basename(transcript)[:-6])
+        was = r.get("wt")
+        if dry:
+            r["wt"] = measure_transcript(transcript, cfg)["wt"]
+        else:
+            for k, v in measure_into(r, name, transcript, cfg).items():
+                families[k] = families.get(k, 0) + v
+            r["repaired"] = {"at": q_settings.now_iso(), "wt": was}
+        changed.append((r, was))
+    if dry or not changed:
+        return changed
+    shutil.copyfile(path, path + datetime.now().strftime(".%Y%m%d-%H%M%S.bak"))
+    q_repairs.write_rows(path, runs)
+    job = q_settings.load_json(os.path.join(folder, "job.json"), None) or {}
+    q_costs.add_families(job, families)
+    if job.get("status") == "done":
+        repair_finished(name, job, runs)
+    q_settings.save_json(os.path.join(folder, "job.json"), job)
+    if any(r is runs[-1] for r, _ in changed) and runs[-1].get("report_page"):
+        q_rates.write_report_page(name, job, runs, cfg, folder)   # the page of that installment said 0 wt
+    return changed
+
+
+def repair_finished(name, job, runs):
+    """A finished job's total, and its row in jobs.jsonl (a copy first), with the installments measured again."""
+    total = sum(r.get("wt") or 0 for r in runs)
+    job["actual"] = total
+    jobs = q_settings.read_jsonl(q_repairs.jobs_path())
+    at = [i for i, j in enumerate(jobs) if j.get("session") == "rate:" + name]
+    if not at:
+        return
+    chat = sum(r.get("chat") or 0 for r in runs)
+    row = dict(jobs[at[-1]], actual=total, chat=chat, work=max(0, total - chat), calls=sum(r.get("calls") or 0 for r in runs))
+    if row.get("raw_estimate"):
+        row["ratio"] = round(row["work"] / row["raw_estimate"], 4)
+    copies = q_repairs.fix_backup()
+    jobs[at[-1]] = row
+    q_repairs.write_rows(q_repairs.jobs_path(), jobs)
+    q_repairs.fix_log({"action": "repair-run", "keys": [q_repairs.job_key(row)], "backup": copies})
+
+
+def rate_repair(args):
+    """`rate repair [name] [--dry]`: installments stopped before 31/10/2026 get their real cost from their transcript."""
+    base = os.path.join(q_settings.home(), "rate")
+    names = [args.name] if args.name else (sorted(os.listdir(base)) if os.path.isdir(base) else [])
+    cfg = q_settings.config()
+    seen = 0
+    for name in names:
+        folder = q_rates.rate_dir(name)
+        if not os.path.exists(os.path.join(folder, "job.json")):
+            continue
+        if os.path.exists(os.path.join(folder, "run.lock")):
+            q_settings.out("%s: an installment is running, left as it is.\n" % name)
+            continue
+        for r, was in repair_job(name, cfg, bool(args.dry)):
+            seen += 1
+            q_settings.out("%s: installment of %s, stopped (%s): %s -> %s wt%s\n" % (
+                name, str(r.get("started"))[:16], str(r.get("error"))[:40], q_quotes.fmt(was or 0), q_quotes.fmt(r.get("wt")),
+                " (nothing changed: --dry)" if args.dry else ""))
+    if not seen:
+        q_settings.out("No stopped installment with its cost missing and its transcript still there.\n")
+
+
 def run_installment(args):
     cfg = q_settings.config()
     folder = q_rates.rate_dir(args.name)
@@ -364,6 +514,12 @@ def run_installment(args):
     os.environ.pop("HERMES_SESSION_ID", None)   # hermes branch: an installment measures itself, not in the chat that started it
     os.environ["QUOTIENT_JOB"] = args.name  # for the installment's hooks: its job and its cap, only while it runs
     os.environ["QUOTIENT_CAP"] = str(cap)
+    # 31/10/2026: a run stopped by the timeout left no report. It is told when the stop comes, and hook_pretool stops new
+    # work in the last rate.close_minutes.
+    stop_at = time.time() + rc["timeout_minutes"] * 60
+    os.environ["QUOTIENT_STOP_AT"] = str(stop_at)
+    cmd[2] = prompt + TIME_LINE % datetime.fromtimestamp(stop_at).strftime("%H:%M")
+    q_settings.save_json(open_run_path(folder), {"started": started, "cap": cap})
     reader = q_limits.limits_reader(cfg)   # 1.1.6: the limits read every minute while the installment works
     try:
         proc = subprocess.run(cmd, cwd=job["dir"], capture_output=True, timeout=rc["timeout_minutes"] * 60)
@@ -376,6 +532,7 @@ def run_installment(args):
             reader.set()
         os.environ.pop("QUOTIENT_JOB", None)
         os.environ.pop("QUOTIENT_CAP", None)
+        os.environ.pop("QUOTIENT_STOP_AT", None)
     result = {}
     for line in reversed(stdout.strip().splitlines()):
         try:
@@ -385,18 +542,16 @@ def run_installment(args):
             continue
     sid = result.get("session_id")
     transcript = q_rates.find_transcript(sid) if sid else None
+    if not transcript:
+        # 31/10/2026: stopped by the timeout or killed, it printed nothing: its transcript still holds what it spent
+        transcript = q_costs.find_run_transcript(folder, started, q_settings.now_iso(), {r.get("session") for r in runs})
+        sid = os.path.basename(transcript)[:-6] if transcript else sid
     families = {}
-    chat, fresh, start_wt = None, None, None
+    chat, fresh, start_wt, read_tokens = None, None, None, {}
     if transcript:
-        entries = q_settings.read_jsonl(transcript) + q_costs.subagent_entries(transcript, None)
-        wt, calls = q_costs.cost_of(entries, cfg["weights"])
-        families = q_costs.families_of(entries, cfg["weights"])
-        # an installment starts in a new chat: its chat part is re-reading that start at every call
-        fresh = q_costs.first_context(transcript)
-        main_calls = q_costs.ordered_calls(entries)
-        chat = q_costs.chat_part(main_calls, 0, fresh, cfg["weights"])
-        # 1.2.2: what its first call paid for that start (written to the cache), learned for the next quotes
-        start_wt = round(q_costs.span_cost(main_calls[0]["usage"], 0, fresh, cfg["weights"])) if main_calls else None
+        m = measure_transcript(transcript, cfg)
+        wt, calls, families, chat, fresh, start_wt, read_tokens = (
+            m["wt"], m["calls"], m["families"], m["chat"], m["fresh"], m["start_wt"], m["tokens"])
     else:
         wt, calls = round(q_costs.weigh(result.get("usage"), cfg["weights"])), result.get("num_turns")
         if job.get("model"):
@@ -405,7 +560,7 @@ def run_installment(args):
     # 1.1.6: the tokens by type Claude Code gives for the whole run, numbers only (the prices they imply)
     tokens = {k: int(v) for k, v in (result.get("usage") or {}).items()
               if k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
-              and isinstance(v, (int, float))}
+              and isinstance(v, (int, float))} or read_tokens
     handoff = q_schedules.load_text(os.path.join(folder, "HANDOFF.md")) or ""
     done = bool(q_settings.DONE_RE.search(handoff))
     error = None
@@ -499,6 +654,7 @@ def run_installment(args):
         run["report_page"] = page
     run["notified"] = q_rates.notify(*q_rates.installment_toast(args.name, job, runs + [run], cfg, page), link=q_rates.page_uri(page))
     q_settings.append_jsonl(os.path.join(folder, "runs.jsonl"), run)
+    drop_open_run(folder)
     q_settings.out("Installment %d of '%s': %s wt (cap %s)%s%s\n" % (
         len(runs) + 1, args.name, q_quotes.fmt(wt), q_quotes.fmt(cap),
         ". Job finished." if done else "", " Error: %s" % run["error"] if run["error"] else ""))

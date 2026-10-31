@@ -709,7 +709,7 @@ def bind_from_commands(turn, sid, start_ts):
 # as before, except the handoff update.
 SAVE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "TodoWrite")
 # what the hook says when it refuses: the end of an installment finds them in the transcripts (helpers stopped)
-CAP_RE = re.compile(r"Quotient: (?:today's|this) installment is (?:nearly )?used up")
+CAP_RE = re.compile(r"Quotient: (?:today's|this) installment is (?:nearly )?(?:used up|out of time)")
 HEREDOC_RE = re.compile(r"\A\s*(?:cat\s+>>?\s*[^\s;&|<>$`]+\s+|tee\s+(?:-a\s+)?[^\s;&|<>$`]+\s+|cat\s+)<<-?\s*"
                         r"(['\"]?)(\w+)\1(?:\s*>>?\s*[^\s;&|<>$`]+)?\s*$")
 
@@ -811,7 +811,11 @@ def hook_pretool():
     recent = [step_weight(c["usage"], cfg, i == 0) for i, c in enumerate(q_costs.ordered_calls(entries))][-3:]
     reserve = min(cfg["rate"]["reserve_calls"] * max(recent or [0]), cap * cfg["rate"]["reserve_max_share"])
     saving = cap * (1 - float(cfg["rate"].get("save_percent") or 0) / 100.0)
-    if spent + reserve < min(cap, saving):
+    near = spent + reserve >= min(cap, saving)
+    # 31/10/2026: an installment stopped by the timeout left no report, so the last minutes before the stop are for saving
+    stop_at = float(os.environ.get("QUOTIENT_STOP_AT") or 0)
+    close = float(cfg["rate"].get("close_minutes") or 0) * 60
+    if not near and not (stop_at and close and time.time() >= stop_at - close):
         return
     handoff = os.path.normcase(os.path.abspath(os.path.join(q_rates.rate_dir(name), "HANDOFF.md")))
     tool = data.get("tool_name") or ""
@@ -823,11 +827,13 @@ def hook_pretool():
         if tool in SAVE_TOOLS or (tool == "Bash" and write_only(given.get("command"))):
             return
         notes = os.path.join(q_rates.rate_dir(name), "notes")
-        reason = ("Quotient: this installment is nearly used up (%s of %s wt spent; what is left is kept for saving). "
+        why = ("nearly used up (%s of %s wt spent; what is left is kept for saving)" % (q_quotes.fmt(spent), q_quotes.fmt(cap))
+               if near else "nearly out of time (Quotient stops it in %d minutes)" % max(0, round((stop_at - time.time()) / 60)))
+        reason = ("Quotient: this installment is %s. "
                   "No new work: no helpers, searches, fetches, reads or commands. Save NOW, with Write or Edit, what you "
                   "have found and not written yet: a helper (subagent) into a file of its own in %s, then it stops and "
                   "says where; the installment into %s (what is done, what remains, where to resume, the PROGRESS line), "
-                  "then it stops." % (q_quotes.fmt(spent), q_quotes.fmt(cap), notes, handoff))
+                  "then it stops." % (why, notes, handoff))
     else:
         reason = ("Quotient: today's installment is used up (%s of %s wt spent; the steps to close it take about %s). "
                   "Do not start new work. Update %s now (what is done, what remains, where to resume, and the PROGRESS "

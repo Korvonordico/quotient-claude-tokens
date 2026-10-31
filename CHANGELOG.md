@@ -4,6 +4,11 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+### Fixed
+
+- **An installment stopped before its end now counts what it really spent.** Only the answer printed at the end of a run gave its session, so a run stopped by the timeout or killed recorded 0 weighted tokens, and the costs and the factors learned from them were wrong. Its transcript is now found from the job's TASK.md in its first prompt. A run Quotient itself did not see the end of (PC turned off) gets its line at the job's next run. `rate repair [job] [--dry]` measures the lines already written, with a copy of the file first.
+- **An installment is told when it will be stopped.** The time goes in its prompt, and in the last `rate.close_minutes` (15; 0 = off) new work is refused and saving still passes, as at the end of the cap, so it leaves its report.
+
 ### Changed
 
 - The main file is split into smaller modules, `scripts/quotient_lib/`, so the code can be checked file by file; Quotient does the same things as before.
