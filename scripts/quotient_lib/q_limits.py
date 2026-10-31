@@ -148,6 +148,29 @@ def cfg_limits():
         return {}
 
 
+FIVE_HOURS = 5 * 3600
+
+
+def run_out_at(window, w, now=None, min_used=10):
+    """1.3.0 (limits.pace): when the window would be used up at the pace used so far in it, as a Unix time, or None
+    when that is after the reset (nothing to say), the reading is too early (under `min_used`%), or the start of the
+    window is not known. Only the 5-hour window: its start is its reset minus 5 hours."""
+    if window != "five_hour" or not w.get("resets"):
+        return None
+    used = float(w["used"])
+    if used < min_used or used <= 0:
+        return None
+    at = w.get("epoch") or now or time.time()
+    start = w["resets"] - FIVE_HOURS
+    elapsed = at - start
+    if elapsed <= 0 or at >= w["resets"]:
+        return None
+    if used >= 100:
+        return None
+    end = start + elapsed * 100.0 / used
+    return end if end < w["resets"] else None
+
+
 def limits_line(lang, sizes=None):
     """The plan limits for the line at each message. 1.1.8: with limits.show_left on (and how much 1% holds known),
     after the share left the weighted tokens left, e.g. "resta 81% (~26M wt)"; `sizes` (window -> wt per 1%) skips
@@ -168,6 +191,11 @@ def limits_line(lang, sizes=None):
                 if sizes.get(window) else ""
             parts.append("%s: %s" % (names[window], words % (
                 round(w["used"]), max(0, 100 - round(w["used"])), left, when(w["resets"], lang))))
+            lim = cfg_limits()
+            end = run_out_at(window, w, min_used=float(lim.get("pace_min_used", 10))) if lim.get("pace", 1) else None
+            if end:
+                parts[-1] += (", a questo ritmo finisce verso %s" if lang == "it" else ", at this pace it runs out ~%s") \
+                    % when(end, lang)
     newest = max(w["epoch"] for w in latest.values())
     age = (time.time() - newest) / 60
     stale = (" (letto alle %s)" if lang == "it" else " (read at %s)") % datetime.fromtimestamp(newest).strftime("%H:%M") \

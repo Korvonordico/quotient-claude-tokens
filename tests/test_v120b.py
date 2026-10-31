@@ -31,7 +31,7 @@ class TestCeiling(Base):
     def test_small_numbers(self):
         self.assertEqual(pv.left_text(4.51e6, "it", 9e6), "~4,5M su ~9,0M wt")
         self.assertEqual(pv.left_text(0, "en", 3.2e7), "0 of ~32M wt")
-        self.assertRegex(pv.VERSION, r"^1\.2\.\d$")
+        self.assertRegex(pv.VERSION, r"^\d\.\d\.\d$")  # up to 9 in each place, never x.y.10
 
 
 if __name__ == "__main__":

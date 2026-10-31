@@ -21,7 +21,7 @@ def entry():
     return ENTRY["module"]
 
 
-VERSION = "1.2.9"
+VERSION = "1.3.0"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -225,6 +225,13 @@ DEFAULTS = {
         # 1.2.0 (the user's request): with show_left, the ceiling of the window too: "81% left (~26M of ~32M wt)".
         # 0: the tokens left alone, as in 1.1.8.
         "show_top": 1,
+        # 1.3.0 (the user's request, idea from Claude HUD's usage pace): the 5-hour window also says when it would run
+        # out at the pace used so far in it, e.g. "a questo ritmo finisce verso 16:20", but only when that comes
+        # before the reset; silent otherwise, so most lines cost nothing more. 0: off.
+        "pace": 1,
+        # ... and only once at least this share of the window is used: earlier a straight projection is noise
+        # (3% five minutes in "projects" 180%).
+        "pace_min_used": 10,
         # 1.1.6: while a job or an installment is open, at most once every this many seconds (in the background, the
         # message does not wait): more readings, so the size of the limit is learned in fewer uses.
         "job_every": 60,

@@ -4,6 +4,12 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-31
+
+### Added
+
+- **The 5-hour window says when it would run out at your pace.** When the share used so far in the window, kept at the same pace, would use it up before it resets, the line adds "at this pace it runs out ~16:20". Silent otherwise, and only from 10% used (`limits.pace_min_used`): earlier a projection is noise. On for everyone; `limits.pace` 0 turns it off. Idea from Claude HUD's usage pace.
+
 ## [1.2.9] - 2026-10-31
 
 ### Fixed
@@ -505,6 +511,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.3.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.0
 [1.2.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.9
 [1.2.8]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.8
 [1.2.7]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.7

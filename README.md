@@ -109,7 +109,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.2.9","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.3.0","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - No dates, no times, no names, no text, no paths, no session or user ids. The service that collects the lines ([code in `server/`](server/)) does not keep IP addresses.
@@ -145,7 +145,7 @@ The name holds both halves: *quotient* starts like *quote*, the price agreed bef
 
 It also:
 
-- shows how much of the 5-hour and weekly limits you have used and what is left, and tells you once if this week's pace would reach the limit before it resets;
+- shows how much of the 5-hour and weekly limits you have used and what is left, and tells you once if this week's pace would reach the limit before it resets, and on each line if the 5-hour window would run out before it resets at the pace used so far in it;
 - plans the week as a whole, so several installment jobs together never eat the share of the week you keep for yourself;
 - measures apart what Claude spends re-reading a long chat, and offers a new chat when that saves (see *Work and re-reading* below);
 - measures a job as one job even when it moves from one chat to another;
@@ -324,6 +324,8 @@ Quotient records how much of the 5-hour and weekly limits you have used and when
 ```
 Quotient · 5-hour: 31% used, 69% left (~22M of ~32M wt), resets 19:30 · week: 6% used, 94% left (~270M of ~287M wt), resets Mon 12 07:00
 ```
+
+Since 1.3.0, when the share of the 5-hour window used so far, kept at the same pace, would use it up before it resets, the 5-hour part ends with ", at this pace it runs out ~18:40". It stays silent otherwise, and before 10% of the window is used (`limits.pace_min_used`), when a projection is mostly noise. `config limits.pace 0` turns it off. The idea comes from [Claude HUD](https://github.com/jarrodwatts/claude-hud)'s usage pace.
 
 It takes these numbers from what Claude Code passes to the status line, and also from Claude Code's own `/usage` command, run in the background with no tokens spent (at most every minute since 1.1.8, every 10 minutes before; off with `config limits.live false`). So the limits are there in the Claude desktop app too, where there is no status line. `tick` reads them now, for a scheduled task.
 
