@@ -4,6 +4,12 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-10-31
+
+### Fixed
+
+- **The task check counts only the rules a job really loads.** A project CLAUDE.md can import files (`@path`) from outside the job's folder; Claude Code loads those only after a yes to its dialog in an interactive session in that folder, and a job started with `claude -p` never shows the dialog, so it does not see them. 1.2.7 counted them in the size of the rules; now the note names them apart, as files the job does not see, and counts them only when that yes is in Claude Code's `.claude.json`. Imports are followed four hops deep, as in Claude Code (1.2.7 went to five). Checked on the author's PC at no cost, with a local stand-in for the API (nothing sent): a job in a subfolder loaded the parent folder's CLAUDE.md and none of the three files it imports from another folder.
+
 ## [1.2.7] - 2026-10-30
 
 ### Added

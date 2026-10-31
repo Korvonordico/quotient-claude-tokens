@@ -68,18 +68,19 @@ class TaskCheck(Cli):
     def test_the_rules_are_counted_with_their_imports_and_big_ones_are_told(self):
         pv.store(("rate", "task_check"), 1)
         top = os.path.join(self.top, "CLAUDE.md")
-        more = os.path.join(self.top, "notes", "more.md")
-        skip = os.path.join(self.top, "notes", "skip.md")
+        more = os.path.join(self.work, "notes", "more.md")                  # 1.2.8: imported from inside the folder
+        skip = os.path.join(self.work, "notes", "skip.md")
         mine = os.path.join(self.user, "CLAUDE.md")
         here = os.path.join(self.work, ".claude", "CLAUDE.md")
-        self.write(top, "Rules. Also @notes/more.md, not `@notes/skip.md`, nor @notes/none.md; mail me@example.com\n")
+        self.write(top, "Rules. Also @game/notes/more.md, not `@game/notes/skip.md`, nor @game/notes/none.md; mail "
+                        "me@example.com\n")
         self.write(more, "x" * 40000)
         self.write(skip, "y" * 90000)
         self.write(mine, "z" * 1000)
         self.write(here, "Game rules.\n")
-        user, project = pv.rules_files(self.work)
+        user, project, outside = pv.rules_files(self.work)
         self.assertEqual(user, [mine])
-        self.assertEqual(project, [top, more, here])                         # imports kept, code and missing left out
+        self.assertEqual((project, outside), ([top, more, here], []))      # imports kept, code and missing left out
         notes = pv.task_check(CLEAR, self.work, pv.config())
         self.assertEqual(len(notes), 1)
         chars = sum(len(pv.load_text(p)) for p in user + project)
@@ -106,6 +107,44 @@ class TaskCheck(Cli):
         self.assertIn("started apart", text)
         with open(os.path.join(pv.rate_dir("fast"), "job.json"), encoding="utf-8") as f:
             self.assertTrue(json.load(f)["apart"])
+
+    def test_imports_from_outside_the_folder_are_named_apart_and_not_counted(self):
+        """1.2.8: Claude Code loads a file that a project CLAUDE.md imports from outside the job's folder only after a
+        yes in an interactive session there, which a job cannot give (checked on the author's PC with a local stand-in
+        for the API: a job in a subfolder loaded the parent CLAUDE.md and none of the three files it imports)."""
+        pv.store(("rate", "task_check"), 1)
+        top = os.path.join(self.top, "CLAUDE.md")
+        far = os.path.join(self.top, "notes", "far.md")
+        near = os.path.join(self.work, "near.md")
+        mine = os.path.join(self.user, "CLAUDE.md")
+        mine_more = os.path.join(self.dir, "shared", "mine.md")
+        self.write(top, "x" * 40000 + "\nSee @notes/far.md and @game/near.md\n")
+        self.write(far, "f" * 90000)
+        self.write(near, "n" * 10)
+        self.write(mine, "Mine. @../shared/mine.md\n")
+        self.write(mine_more, "m" * 20)
+        user, project, outside = pv.rules_files(self.work)
+        self.assertEqual(user, [mine, mine_more])                             # the user's own rules: from anywhere
+        self.assertEqual((project, outside), ([top, near], [far]))
+        notes = pv.task_check(CLEAR, self.work, pv.config())
+        self.assertEqual(len(notes), 1)
+        chars = sum(len(pv.load_text(p)) for p in user + project)
+        self.assertIn("about %s tokens" % pv.fmt(chars / 3.5), notes[0])
+        self.assertIn("not counted: %s, imported from outside %s" % (far, self.work), notes[0])
+        self.write(os.path.join(self.user, ".claude.json"),
+                   json.dumps({"projects": {self.work: {"hasClaudeMdExternalIncludesApproved": True}}}))
+        user, project, outside = pv.rules_files(self.work)
+        self.assertEqual((project, outside), ([top, far, near], []))          # after his yes there, they load
+        self.assertNotIn("not counted", pv.task_check(CLEAR, self.work, pv.config())[0])
+
+    def test_imports_stop_after_four_hops(self):
+        """1.2.8: Claude Code follows imports four hops deep (1.2.7 went to five)."""
+        here = os.path.join(self.work, "CLAUDE.md")
+        self.write(here, "@d1.md")
+        for i in range(1, 6):
+            self.write(os.path.join(self.work, "d%d.md" % i), "@d%d.md" % (i + 1))
+        hops = [os.path.join(self.work, "d%d.md" % i) for i in range(1, 5)]
+        self.assertEqual(pv.rules_files(self.work)[1], [here] + hops)
 
 
 if __name__ == "__main__":

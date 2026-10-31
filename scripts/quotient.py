@@ -40,7 +40,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-VERSION = "1.2.7"
+VERSION = "1.2.8"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -7374,34 +7374,58 @@ TASK_GOAL_RE = re.compile(r"\b(?:obiettiv|scopo|goal|aim\b|done\b|finit|finisc|f
 IMPORT_RE = re.compile(r"(?<![\w`])@(~?[\w./\\:-]+)")
 
 
-def rules_files(folder):
-    """The CLAUDE.md files Claude Code loads for a session in `folder`, with the files they import (@path, up to 5
-    levels deep, not inside code): (the user's own, those of the folder and of the folders above it, the drive root
-    excluded). Two lists of paths."""
-    seen = set()
+def external_imports_approved(folder):
+    """1.2.8: True when the user said yes, in an interactive Claude Code session in `folder`, to loading the files
+    its CLAUDE.md rules import from outside it (Claude Code asks once per project and keeps the answer in
+    .claude.json). Without that yes such files stay out, and a job started with -p shows no dialog to give it."""
+    custom = os.environ.get("QUOTIENT_CLAUDE_DIR") or os.environ.get("CLAUDE_CONFIG_DIR")
+    state = load_json(os.path.join(claude_dir() if custom else os.path.expanduser("~"), ".claude.json"), {})
+    projects = state.get("projects") if isinstance(state, dict) else None
+    here = os.path.normcase(os.path.abspath(folder))
+    for path, project in projects.items() if isinstance(projects, dict) else []:
+        if isinstance(project, dict) and os.path.normcase(os.path.abspath(path)) == here:
+            return bool(project.get("hasClaudeMdExternalIncludesApproved"))
+    return False
 
-    def take(path, found, depth=0):
+
+def rules_files(folder):
+    """The CLAUDE.md files Claude Code loads for a session in `folder`, with the files they import (@path, up to four
+    hops as in Claude Code, not inside code): the user's own, those of the folder and of the folders above it (the
+    drive root excluded). 1.2.8: a file that a project CLAUDE.md imports from outside `folder` loads only after a yes
+    to Claude Code's dialog in an interactive session there, and a job started with -p shows no dialog: such files go
+    in a third list, unless that yes is in .claude.json. Three lists of paths: user, project, outside."""
+    seen, outside, approved = set(), [], external_imports_approved(folder)
+    inside = os.path.normcase(os.path.abspath(folder)).rstrip("\\/")
+
+    def within(path):
+        path = os.path.normcase(path)
+        return path == inside or path.startswith(inside + os.sep)
+
+    def take(path, found, depth=0, mine=False):
         path = os.path.abspath(path)
         if os.path.normcase(path) in seen or not os.path.isfile(path):
             return
         seen.add(os.path.normcase(path))
+        if depth and not mine and not approved and not within(path):
+            outside.append(path)      # 1.2.8: Claude Code leaves it out of a job (checked on the author's PC)
+            return
         found.append(path)
-        if depth >= 5:
+        if depth >= 4:
             return
         text = re.sub(r"```.*?```|`[^`\n]*`", "", load_text(path) or "", flags=re.S)
         for ref in IMPORT_RE.findall(text):
             ref = os.path.expanduser(ref.rstrip(".:,;"))
-            take(ref if os.path.isabs(ref) else os.path.join(os.path.dirname(path), ref), found, depth + 1)
+            take(ref if os.path.isabs(ref) else os.path.join(os.path.dirname(path), ref), found, depth + 1, mine)
 
     user, project, chain, here = [], [], [], os.path.abspath(folder)
-    take(os.path.join(claude_dir(), "CLAUDE.md"), user)
+    take(os.path.join(claude_dir(), "CLAUDE.md"), user, mine=True)
     while os.path.dirname(here) != here:
         chain.append(here)
         here = os.path.dirname(here)
     for d in reversed(chain):
         for name in ("CLAUDE.md", os.path.join(".claude", "CLAUDE.md"), "CLAUDE.local.md"):
             take(os.path.join(d, name), project)
-    return user, project
+    return user, project, outside
 
 
 def task_check(task, folder, cfg):
@@ -7420,18 +7444,22 @@ def task_check(task, folder, cfg):
         notes.append("it gives no way to check the work (tests, a command to run, a comparison)")
     if not TASK_GOAL_RE.search(task):
         notes.append("it does not say when the job is finished (the goal, what counts as done)")
-    user, project = rules_files(folder)
+    user, project, outside = rules_files(folder)
     if notes and not project:   # only with a thin task: a detailed one does without (19 of 65 of the author's did)
         notes.append("there is no CLAUDE.md in %s or in the folders above it: the job knows only its task, so the "
                      "task must also give the project's commands and rules" % os.path.abspath(folder))
     chars = sum(len(load_text(p) or "") for p in user + project)
     tokens = chars / float(cfg.get("chars_per_token") or 3.5)
     if r.get("rules_warn_tokens") and tokens > r["rules_warn_tokens"]:
-        notes.append("the rules Claude Code loads for this folder (%s) are about %s tokens, and every step of every "
-                     "installment re-reads them (about %s wt a step, from the cache; counted from the characters, an "
-                     "estimate): what the jobs here do not "
-                     "need could move to files read only when needed" % (
-                         ", ".join(user + project), fmt(tokens), fmt(tokens * cfg["weights"]["cache_read"])))
+        note = ("the rules Claude Code loads for this folder (%s) are about %s tokens, and every step of every "
+                "installment re-reads them (about %s wt a step, from the cache; counted from the characters, an "
+                "estimate): what the jobs here do not need could move to files read only when needed" % (
+                    ", ".join(user + project), fmt(tokens), fmt(tokens * cfg["weights"]["cache_read"])))
+        if outside:   # 1.2.8: named apart and never counted (rules_files)
+            note += ("; not counted: %s, imported from outside %s: Claude Code loads such files only after a yes in "
+                     "an interactive session in that folder, which a job cannot give, so the job does not see them"
+                     % (", ".join(outside), os.path.abspath(folder)))
+        notes.append(note)
     return notes
 
 
