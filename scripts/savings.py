@@ -245,7 +245,7 @@ def chat_tips(q, cfg, ctx, fresh, job_open, usage):
             if group in GROUP_TEXT and share >= (opts.get("tool_share") or float("inf")):
                 en, it = GROUP_TEXT[group]
                 tips.append(_tip("tools-" + group.replace(" ", "-"), wt / 2, share, 10, "tools",
-                                 {"share": share, "wt": q.fmt(wt)}, {"group": en[0], "advice": en[1]},
+                                 {"share": round(share), "wt": q.fmt(wt)}, {"group": en[0], "advice": en[1]},
                                  {"group": it[0], "advice": it[1]}))
     percent = cache_percent(usage) if usage else None
     target = opts.get("cache_min_percent") or 0
@@ -256,7 +256,7 @@ def chat_tips(q, cfg, ctx, fresh, job_open, usage):
                        if usage["changed"] else ("new", 0))
         en, it = (REASONS[kind][0] % count, REASONS[kind][1] % count) if count else REASONS[kind]
         tips.append(_tip("cache", saving, usage["calls"], 100, "cache",
-                         {"percent": percent, "calls": usage["calls"], "target": target, "saving": q.fmt(saving)},
+                         {"percent": round(percent), "calls": usage["calls"], "target": target, "saving": q.fmt(saving)},
                          {"reason": en}, {"reason": it}))
     return sorted(tips, key=lambda t: -t["saving"])
 

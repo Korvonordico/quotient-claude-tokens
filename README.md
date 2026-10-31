@@ -54,6 +54,10 @@ It can sit in Claude Code's status line (`setup-statusline --write`), and it wor
 
 At every step Claude re-reads everything the chat holds. Quotient measures that apart from the work, and when a chat has grown long the window offers a new chat and says how much that saves.
 
+![Where the tokens go: a real chat, tool by tool, with tips in order of what they save](docs/feature-tips.svg)
+
+Turn on `config tips.level 1` or `2` and Quotient also tells you where a chat's tokens went, tool by tool, and what would save most, in that order. You can put a tip off or drop it, and no tip ever asks for shorter replies.
+
 ![A start from other people's numbers: the shared average by model, with its middle half](docs/feature-shared.svg)
 
 Copies of Quotient pool one line of numbers per finished job. The average fills in where you have no numbers yet: your first installments and the size of your plan's limits. Chat quotes start from the measured factors above. Since 1.2.3 it can also stay a small part of your factor (`shared_min_weight`), off by default.

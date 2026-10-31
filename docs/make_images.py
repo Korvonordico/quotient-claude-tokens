@@ -254,6 +254,24 @@ def card_reread():
                 "A real job of 4.67 million weighted tokens: 2.82 million of work and 1.85 million re-reading the 165,000 tokens the chat started with, over 107 steps.")
 
 
+def card_tips():
+    # savings.claude_usage/hermes_usage on a real Hermes chat of the author (31/10/2026): 763 steps, 21.67M wt
+    rows = [("the terminal", 34, PINK), ("screen photos", 15, GREEN), ("the browser", 10, GREEN), ("writing files", 10, GREEN)]
+    b = ""
+    y = 142
+    for name, share, color in rows:
+        b += text(48, y + 24, name, 24, INK) + bar(270, y, 500, 32, share / 100.0, color)
+        b += text(852, y + 24, "%d%%" % share, 24, INK, 700, "end")
+        y += 52
+    b += panel(48, y + 4, 804, 70)
+    b += text(450, y + 48, "The most useful tip first; put one off or drop it.", 24, INK, 700, "middle")
+    b += text(48, y + 112, "Estimates from the logs, numbers only. A tip never asks for shorter replies.", 21, MUTED)
+    return card("tips", PINK, "Where the tokens go", "A real chat, tool by tool. Off by default: config tips.level 1 or 2.", y + 144, b,
+                "A real chat of 21.67 million weighted tokens: the terminal took about 34%, screen photos 15%, the browser "
+                "10% and writing files 10%. Tips come with the most useful first, can be put off or dropped, and never ask "
+                "for shorter replies.")
+
+
 def card_hermes():
     b = ""
     for y, name, note in ((142, "Claude Code", "the plugin"), (242, "Hermes Agent", "two hooks in its config")):
@@ -448,7 +466,7 @@ def main():
     args = ap.parse_args()
     write("demo.svg", demo_svg())
     cards = [f() for f in (card_levels, card_time, card_installments, card_report, card_factor, card_shared, card_limits,
-                           card_reread, card_hermes)]
+                           card_reread, card_tips, card_hermes)]
     print("written: demo.svg, " + ", ".join(cards))
     if args.preview:
         out = os.path.abspath(args.preview)
