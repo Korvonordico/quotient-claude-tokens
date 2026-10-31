@@ -41,6 +41,14 @@
       "min": 0,
       "max": 90
     },
+    "reserve_off_days": {
+      "type": "number",
+      "title": "Reserve off before the reset (days) / Riserva spenta prima dell'azzeramento (giorni)",
+      "description": "In the last days before the weekly limit resets the reserve switches itself off, because what is left would be lost. 0 = never. / Negli ultimi giorni prima dell'azzeramento la riserva si spegne da sola, perché il resto andrebbe perso. 0 = mai.",
+      "default": 2,
+      "min": 0,
+      "max": 6
+    },
     "lang": {
       "type": "string",
       "title": "Report language / Lingua del resoconto",

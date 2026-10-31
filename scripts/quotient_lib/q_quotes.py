@@ -380,11 +380,11 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
         rate_top = max(r["total"] for r in quote_numbers(cfg, options, "rate", wtype=wtype)["rows"])
         room = plan["for_jobs"] - plan["need"]
         need = rate_top / nums["week"]["per_point"]
-        lines.append(("Settimana: resta il %s; tolta la riserva del %d%% per l'uso normale e le rate già aperte, per un "
+        lines.append(("Settimana: resta il %s; tolta la riserva del %d%% per l'uso normale%s e le rate già aperte, per un "
                       "lavoro a rate c'è il %s. Il livello più grande ne chiede circa il %s: %s." if it else
-                      "Week: %s is left; after the %d%% reserve for normal use and the open installment jobs, %s is "
+                      "Week: %s is left; after the %d%% reserve for normal use%s and the open installment jobs, %s is "
                       "there for a job in installments. The biggest level needs about %s: %s.") % (
-            q_rates.percent(plan["left"], lang), plan["reserve"], q_rates.percent(max(0.0, room), lang), q_rates.percent(need, lang),
+            q_rates.percent(plan["left"], lang), plan["reserve"], q_weeks.reserve_note(plan, it), q_rates.percent(max(0.0, room), lang), q_rates.percent(need, lang),
             ("ci sta" if it else "it fits") if need <= room else
             ("non ci sta: più giorni, o meno lavoro" if it else "it does not fit: more days, or less work")))
     learned = q_learning.learning(cfg, kind, wtype)

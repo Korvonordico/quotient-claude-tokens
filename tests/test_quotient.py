@@ -429,6 +429,32 @@ class TestSetup(Base):
                          (500000, 25, "hibernate", True))
 
 
+class TestReserveOff(Base):
+    """1.3.1: the weekly reserve switches itself off in the last days before the reset (Francesco, 31/10/2026)."""
+
+    def test_reserve_off_near_the_reset(self):
+        from quotient_lib import q_weeks
+        cfg = pv.config()
+        now = 1_800_000_000
+        self.assertEqual(cfg["week"]["reserve_off_days"], 2)
+        self.assertEqual(q_weeks.reserve_now(cfg, now + 5 * 86400, now), 20)
+        self.assertEqual(q_weeks.reserve_now(cfg, now + 2 * 86400, now), 0)
+        self.assertEqual(q_weeks.reserve_now(cfg, now + 3600, now), 0)
+        self.assertEqual(q_weeks.reserve_now(cfg, None, now), 20)
+        cfg["week"]["reserve_off_days"] = 0
+        self.assertEqual(q_weeks.reserve_now(cfg, now + 3600, now), 20)
+
+    def test_setup_saves_the_days(self):
+        self.run_hook(lambda: pv.cmd_setup(mock.Mock(threshold=None, reserve=None, reserve_off_days=1, lang=None,
+                                                     after=None)), {})
+        self.assertEqual(pv.config()["week"]["reserve_off_days"], 1)
+
+    def test_note_says_why(self):
+        from quotient_lib import q_weeks
+        self.assertIn("spenta", q_weeks.reserve_note({"reserve": 0, "reserve_set": 20}, True))
+        self.assertEqual(q_weeks.reserve_note({"reserve": 20, "reserve_set": 20}, True), "")
+
+
 class TestWakeChoice(Base):
     """0.7.5: the user decides whether Quotient may wake the PC."""
 

@@ -24,6 +24,16 @@ def open_jobs():
     return jobs
 
 
+def reserve_now(cfg, resets, now=None):
+    """1.3.1: the reserve for normal use, or 0 when the weekly limit resets within week.reserve_off_days days."""
+    reserve = cfg["week"]["reserve_percent"]
+    off = cfg["week"].get("reserve_off_days") or 0
+    now = time.time() if now is None else now
+    if off > 0 and resets and 0 <= resets - now <= off * 86400:
+        return 0
+    return reserve
+
+
 def week_plan(cfg):
     """What the open installment jobs will spend before the weekly limit resets, against what is left.
 
@@ -52,15 +62,23 @@ def week_plan(cfg):
             planned = min(planned, max(0, job["quote"] * factor - spent))
         rows.append({"name": job["name"], "planned": planned, "cap": job["daily_cap"], "runs_left": left_runs})
     total = sum(r["planned"] for r in rows)
-    plan = {"rows": rows, "total": total, "days_left": days_left, "reserve": cfg["week"]["reserve_percent"],
+    plan = {"rows": rows, "total": total, "days_left": days_left, "reserve": reserve_now(cfg, (week or {}).get("resets"), now),
             "used": week["used"] if week else None, "resets": week["resets"] if week else None,
-            "per_point": cap["per_point"] if cap else None}
+            "per_point": cap["per_point"] if cap else None, "reserve_set": cfg["week"]["reserve_percent"]}
     if week and cap:
         plan["left"] = max(0.0, 100 - week["used"])
         plan["for_jobs"] = max(0.0, plan["left"] - plan["reserve"])
         plan["need"] = total / cap["per_point"]
         plan["fits"] = plan["need"] <= plan["for_jobs"]
     return plan
+
+
+def reserve_note(plan, it):
+    """1.3.1: say why the reserve is 0 when it switched itself off near the reset."""
+    if plan["reserve"] == 0 and plan.get("reserve_set"):
+        return (" (spenta: la settimana si azzera fra poco e il resto andrebbe perso)" if it else
+                " (off: the week resets soon and what is left would be lost)")
+    return ""
 
 
 def week_text(plan, lang):
@@ -74,11 +92,11 @@ def week_text(plan, lang):
     if not plan["rows"]:
         lines.append("Nessun lavoro a rate attivo." if it else "No open installment jobs.")
     if "need" in plan:
-        lines.append(("Totale: circa %.0f%% della settimana. Resta il %.0f%%; tolta la riserva del %d%% per l'uso normale, "
+        lines.append(("Totale: circa %.0f%% della settimana. Resta il %.0f%%; tolta la riserva del %d%% per l'uso normale%s, "
                       "per le rate c'è il %.0f%%. %s" if it else
-                      "Total: about %.0f%% of the week. %.0f%% is left; after the %d%% reserve for normal use, "
+                      "Total: about %.0f%% of the week. %.0f%% is left; after the %d%% reserve for normal use%s, "
                       "%.0f%% is there for installments. %s") % (
-            plan["need"], plan["left"], plan["reserve"], plan["for_jobs"],
+            plan["need"], plan["left"], plan["reserve"], reserve_note(plan, it), plan["for_jobs"],
             ("Ci sta." if plan["fits"] else "NON ci sta: scegli quali lavori tenere, rallentare o mettere in pausa.") if it else
             ("It fits." if plan["fits"] else "It does NOT fit: choose which jobs to keep, slow down or pause.")))
     else:

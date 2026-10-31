@@ -241,6 +241,9 @@ DEFAULTS = {
     "week": {
         # Share of the weekly limit kept free for normal use; installments never plan into it.
         "reserve_percent": 20,
+        # 1.3.1: the reserve switches itself off when the weekly limit resets within this many days (0 = never):
+        # what is left of a week that is about to reset is lost anyway, so installments may use it all.
+        "reserve_off_days": 2,
     },
     "rate": {
         # Put in front of every installment prompt (for example a tag your own hooks skip).
@@ -556,6 +559,7 @@ def read_jsonl(path, tail_bytes=None):
 OPTIONS = {  # plugin setting -> (config key path, type)
     "THRESHOLD": (("threshold",), int),
     "RESERVE_PERCENT": (("week", "reserve_percent"), int),
+    "RESERVE_OFF_DAYS": (("week", "reserve_off_days"), int),
     "LANG": (("lang",), str),
     "AFTER": (("rate", "after"), str),
     "WAKE": (("rate", "wake"), "bool"),
@@ -588,10 +592,11 @@ def save_settings(values):
 
 def plugin_options():
     """The plugin's settings, as Claude Code passes them to hooks. Each variable is written out in full, so it
-    is plain which ones Quotient reads: these eight, all of them settings, none of them a credential."""
+    is plain which ones Quotient reads: these nine, all of them settings, none of them a credential."""
     return {
         "THRESHOLD": os.environ.get("CLAUDE_PLUGIN_OPTION_THRESHOLD"),
         "RESERVE_PERCENT": os.environ.get("CLAUDE_PLUGIN_OPTION_RESERVE_PERCENT"),
+        "RESERVE_OFF_DAYS": os.environ.get("CLAUDE_PLUGIN_OPTION_RESERVE_OFF_DAYS"),
         "LANG": os.environ.get("CLAUDE_PLUGIN_OPTION_LANG"),
         "AFTER": os.environ.get("CLAUDE_PLUGIN_OPTION_AFTER"),
         "WAKE": os.environ.get("CLAUDE_PLUGIN_OPTION_WAKE"),

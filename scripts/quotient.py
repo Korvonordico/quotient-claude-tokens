@@ -178,6 +178,7 @@ def main(argv=None):
     p = sub.add_parser("setup", help="set Quotient up: threshold, weekly reserve, language, what the PC does after installments")
     p.add_argument("--threshold", type=int)
     p.add_argument("--reserve", type=int)
+    p.add_argument("--reserve-off-days", type=int, dest="reserve_off_days")
     p.add_argument("--lang", choices=("it", "en"))
     p.add_argument("--after", choices=("nothing", "sleep", "hibernate"))
     p.add_argument("--wake", choices=("yes", "no"), help="may scheduled installments wake the PC")

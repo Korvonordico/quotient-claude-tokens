@@ -151,7 +151,9 @@ def setup_instructions(cfg):
     return ("FIRST USE: Quotient is not set up yet. " + when +
             "open the choice window (AskUserQuestion) in the user's language with four questions, each with a free field: "
             "'Soglia'/'Threshold' (from how many weighted tokens a job gets a quote: 100.000 = often, 300.000 = the default, "
-            "1.000.000 = only huge jobs); 'Riserva'/'Reserve' (share of the weekly limit kept for normal use: 10%%, 20%%, 30%%); "
+            "1.000.000 = only huge jobs); 'Riserva'/'Reserve' (share of the weekly limit kept for normal use: 10%%, 20%%, 30%%; say that it "
+            "switches itself off when the week resets within 2 days, because what is left then would be lost, and that "
+            "the free field can set another number of days, or 0 = never: save it with --reserve-off-days <n>); "
             "'Lingua'/'Language' of the report (italiano, English); 'Piano'/'Plan', the user's Claude subscription: Pro / Max "
             "5x / Max 20x / another one or I don't know (the free field takes another plan's name); say that a chosen plan "
             "lets Quotient start from the size of that plan's limits measured by its other users, and goes in the shared "
@@ -160,7 +162,7 @@ def setup_instructions(cfg):
             "Then open a second choice window. First question, 'Il PC'/'The PC' for scheduled installments: wake it and put it "
             "back to sleep / wake it and hibernate it / wake it and leave it on / never touch the PC (installments run only if it "
             "is already on); current: wake %s, after %s. Save the five answers with: "
-            "%s setup --threshold <n> --reserve <n> --lang it|en --plan pro|max5|max20|other|unknown --wake yes|no "
+            "%s setup --threshold <n> --reserve <n> [--reserve-off-days <n>] --lang it|en --plan pro|max5|max20|other|unknown --wake yes|no "
             "--after sleep|hibernate|nothing  and tell the user that /token-quotient:setup opens these windows again whenever "
             "they want to change them.\n"
             "In that second window add a question, 'Media condivisa'/'Shared average': does the user "
@@ -187,6 +189,9 @@ def cmd_setup(args):
         values[("threshold",)] = int(args.threshold)
     if args.reserve is not None:
         values[("week", "reserve_percent")] = int(args.reserve)
+    off = getattr(args, "reserve_off_days", None)
+    if isinstance(off, int) and off >= 0:
+        values[("week", "reserve_off_days")] = off
     if args.lang:
         values[("lang",)] = args.lang
     if args.after:
@@ -228,11 +233,12 @@ def cmd_setup(args):
         q_settings.out("Hermes chats: Hermes summarizes long chats and Quotient saves no copy.\n")
     if compact:
         q_settings.out(apply_compact(cfg) + "\n")
-    q_settings.out("Quotient is set up: threshold %s wt, reserve %d%% of the week, report in %s, wake the PC for installments: %s, "
+    q_settings.out("Quotient is set up: threshold %s wt, reserve %d%% of the week (off in the last %d days before the reset), report in %s, "
+        "wake the PC for installments: %s, "
         "after installments: %s, sharing anonymous numbers: %s, plan: %s.\nChange it any time with /token-quotient:setup "
         "(sharing: /token-quotient:share).\n" % (
-            q_quotes.fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["lang"],
-            "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], "on" if q_sharing.share_enabled(cfg) else "off",
+            q_quotes.fmt(cfg["threshold"]), cfg["week"]["reserve_percent"], cfg["week"].get("reserve_off_days") or 0,
+            cfg["lang"], "yes" if cfg["rate"]["wake"] else "no", cfg["rate"]["after"], "on" if q_sharing.share_enabled(cfg) else "off",
             cfg.get("subscription") or "not said"))
 
 
