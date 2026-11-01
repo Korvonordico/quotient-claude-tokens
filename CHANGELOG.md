@@ -4,6 +4,10 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+### Fixed
+
+- **A quote written at the end of a job already done no longer opens a job.** On 01/11/2026 one job of 6 ended with `QUOTE: good=130000` and `JOB: CONTINUES` after all the work: Quotient opened a job with that estimate, nothing closed it, and the next job of the chat was measured together with it. A QUOTE line in the last message of a turn that used tools, with no `quote-table` run, no choice window, no earlier QUOTE line and no quote waiting from an earlier turn, now opens no job and leaves no pending quote.
+
 ## [1.3.4] - 2026-11-01
 
 ### Changed

@@ -536,6 +536,12 @@ def hook_stop():
     if had_job and not os.environ.get("QUOTIENT_JOB"):
         q_limits.limits_soon(cfg)                 # 1.1.6: a job open: the limits read every minute, in the background
     pending = state.get("pending")
+    if (quote and not job and not pending and (choice or continues or q_settings.JOB_DONE_RE.search(text))
+            and quote_after_work(turn)):
+        # 1.3.5: a quote written when the work is done is not a quote: on 01/11/2026 one job of 6 ended with
+        # `QUOTE: good=130000` and `JOB: CONTINUES`, which opened a job that nothing closed, and the next job of the
+        # chat was measured with it. No job, no pending quote: the work stays unquoted (counted in the real cost).
+        quote = choice = custom = None
     options = quote or (pending or {}).get("options")
     if (cfg.get("infer_choice") and options and not job and not custom and not os.environ.get("QUOTIENT_JOB")
             and not (choice and (choice in q_settings.DECLINE or q_settings.INSTALLMENT_RE.match(choice)))):
@@ -696,6 +702,28 @@ def hook_stop():
             state["unquoted"] = {"wt": cost, "ts": q_settings.now_iso()}
     q_settings.append_jsonl(os.path.join(q_settings.home(), "turns.jsonl"), row)
     q_settings.save_json(q_settings.session_path(sid), state)
+
+
+def quote_after_work(turn):
+    """1.3.5: True when the turn used tools but made no quote before its last message: no `quote-table` run, no choice
+    window, and no QUOTE line followed by a tool call. A QUOTE line then written in the last message came after the
+    work. A turn without tool calls has no work before its text, so its quote counts."""
+    worked = shown = False
+    for e in turn or []:
+        if e.get("type") != "assistant":
+            continue
+        for b in (e.get("message") or {}).get("content") or []:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "text":
+                shown = shown or bool(q_settings.QUOTE_RE.search(b.get("text") or ""))
+            elif b.get("type") == "tool_use":
+                worked = True
+                command = str((b.get("input") or {}).get("command") or "")
+                if (shown or b.get("name") in q_timing.ASK_TOOLS
+                        or (b.get("name") in ("Bash", "PowerShell") and "quote-table" in command)):
+                    return False
+    return worked
 
 
 # ---------------------------------------------------------------- the level of a quoted job without its CHOICE (1.3.4)
