@@ -44,6 +44,18 @@ REREAD = {"total": 4.67, "work": 2.82, "chat": 1.85, "steps": 107, "start": "165
 # ~/.quotient/average.json as downloaded on 30/10/2026 (updated 2026-10-21)
 SHARED = {"date": "21 October 2026", "jobs": 65, "factor": 1.18, "p25": 0.52, "p75": 1.89}
 
+# ~/.quotient/rate/*/job.json and runs.jsonl on 01/11/2026: every finished installment job with a quote, in the order they
+# were created (the test jobs of the first day left out). Each number: real cost / (quote x factor x (1 + re-reading)).
+# (date the job was created, real / corrected quote)
+JOBS_REAL = [
+    ("10-06", 0.44), ("10-09", 1.31), ("10-14", 4.50), ("10-14", 9.25), ("10-14", 25.70), ("10-15", 2.47), ("10-15", 1.20),
+    ("10-15", 1.71), ("10-15", 1.81), ("10-15", 1.12), ("10-16", 2.72), ("10-16", 0.80), ("10-16", 0.17), ("10-16", 1.46),
+    ("10-16", 2.04), ("10-16", 1.85), ("10-16", 1.19), ("10-16", 0.31), ("10-18", 0.39), ("10-19", 14.85), ("10-19", 7.60),
+    ("10-19", 0.64), ("10-22", 0.65), ("10-22", 0.20), ("10-22", 0.46), ("10-29", 0.33), ("10-29", 0.73), ("10-29", 1.05),
+    ("10-30", 1.60), ("10-30", 0.75), ("10-30", 0.57), ("10-30", 0.61), ("10-30", 0.44), ("10-30", 1.01), ("10-30", 0.68),
+    ("10-30", 0.37), ("10-30", 0.80), ("10-31", 5.66), ("10-31", 0.37), ("10-31", 0.83),
+]
+
 # ---- LOOK --------------------------------------------------------------------------------------------------------
 
 INK, MUTED, DIM, PANEL, LINE = "#f0f3f6", "#c3ccd6", "#8b96a3", "#1a202a", "#343c48"
@@ -272,6 +284,37 @@ def card_tips():
                 "for shorter replies.")
 
 
+def card_accuracy():
+    """Every finished installment job: real cost against the corrected quote, on a log scale (one series, no legend)."""
+    left, right, top, bottom = 92, 852, 150, 396
+    low, high = math.log(0.1), math.log(40)
+
+    def y_of(value):
+        return bottom - (math.log(value) - low) / (high - low) * (bottom - top)
+
+    def x_of(i):
+        return left + 14 + i * (right - left - 28) / (len(JOBS_REAL) - 1)
+
+    b = panel(48, 126, 804, 298)
+    b += rect(left, y_of(1.3), right - left, y_of(0.7) - y_of(1.3), GREEN, 0, ' fill-opacity="0.16"')
+    for value, label in ((0.2, "x0.2"), (0.5, "x0.5"), (1, "x1"), (2, "x2"), (5, "x5"), (10, "x10"), (25, "x25")):
+        b += ('<path d="M%g %.1f H%g" stroke="%s" stroke-width="%s"/>' % (left, y_of(value), right, MUTED if value == 1 else LINE, 2 if value == 1 else 1))
+        b += text(left - 8, y_of(value) + 5, label, 15, INK if value == 1 else MUTED, 700 if value == 1 else None, "end")
+    seen = set()
+    for i, (date, _value) in enumerate(JOBS_REAL):
+        if date in ("10-14", "10-22", "10-31") and date not in seen:
+            seen.add(date)
+            b += text(x_of(i), bottom + 21, "%d Oct" % int(date[3:]), 15, MUTED, None, "middle")
+    for i, (_date, value) in enumerate(JOBS_REAL):
+        b += circle(x_of(i), y_of(value), 5.5, GOLD, ' stroke="%s" stroke-width="2"' % PANEL)
+    b += text(x_of(4) + 12, y_of(25.70) + 5, "x25.7: the factor had been poisoned by a measuring bug", 15, INK)
+    b += text(x_of(19) + 12, y_of(14.85) + 5, "x14.9: two lines of text; each installment pays its start", 15, INK)
+    return card("accuracy", GOLD, "Real cost against the quote", "40 finished installment jobs, in order. Green band: within 30% of the quote.",
+                450, b, "A dot for each of 40 finished installment jobs from 6 to 31 October 2026, real cost divided by the corrected quote on a "
+                "logarithmic scale. Mid October many dots are far above the quote, up to 25.7 times. In the last ten days most dots "
+                "are between 0.3 and 1.6 times the quote, with one at 5.66.")
+
+
 def card_hermes():
     b = ""
     for y, name, note in ((142, "Claude Code", "the plugin"), (242, "Hermes Agent", "two hooks in its config")):
@@ -466,7 +509,7 @@ def main():
     args = ap.parse_args()
     write("demo.svg", demo_svg())
     cards = [f() for f in (card_levels, card_time, card_installments, card_report, card_factor, card_shared, card_limits,
-                           card_reread, card_tips, card_hermes)]
+                           card_reread, card_tips, card_hermes, card_accuracy)]
     print("written: demo.svg, " + ", ".join(cards))
     if args.preview:
         out = os.path.abspath(args.preview)

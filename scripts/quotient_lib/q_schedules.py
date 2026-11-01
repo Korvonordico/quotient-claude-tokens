@@ -92,7 +92,8 @@ RATE_TIME_HELP = """When to run (the --time of `rate once` and `rate schedule`):
   03/11 20:00          day/month of this year (03/11/2027 20:00 for another year)
   tuesday 20:00        a weekday name, English or Italian (martedi, accents optional):
                        always the NEXT one, never today
-A date in the past is refused. The answer repeats the real date in words, for example:
+--date gives the day apart, with --time or the job's own time: --date 03/11 --time 20:00, --date 2026-11-03,
+--date tuesday. A date in the past is refused. The answer repeats the real date in words, for example:
   Scheduled 'book' on Tuesday 03/11 at 20:00.
 With `rate schedule`, a date or a weekday is the day the daily runs start from.
 Times are the PC's local time."""
@@ -391,10 +392,13 @@ def wake_allowed(args):
 def job_time(args, fallback=True):
     """The time of a scheduled installment: --time, else the time the user chose for the job (1.1.3, `rate new --at`
     or a pace with a time), else the setting (03:00) when `fallback`."""
+    date = getattr(args, "date", None)
+    date = date if isinstance(date, str) and date.strip() else None
     if isinstance(args.time, str) and args.time:
-        return args.time
+        return "%s %s" % (date, args.time) if date else args.time
     job = q_settings.load_json(os.path.join(q_rates.rate_dir(args.name), "job.json"), None) or {}
-    return job.get("at") or ((q_settings.config()["rate"].get("time") or "03:00") if fallback else None)
+    at = job.get("at") or ((q_settings.config()["rate"].get("time") or "03:00") if fallback else None)
+    return "%s %s" % (date, at) if date and at else at
 
 
 def rate_schedule(args):

@@ -21,7 +21,7 @@ def entry():
     return ENTRY["module"]
 
 
-VERSION = "1.3.4"
+VERSION = "1.3.5"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -133,7 +133,10 @@ DEFAULTS = {
     # (docs/evidence/quote-accuracy.md).
     # 1.1.9: on for everyone at 27 (it was off in 1.1.8). Measured since: 16 texts of docs/evidence 23 to 56 wt a word,
     # and 4 new texts done as a new user through the API (19/10/2026) 20 to 39: the median of the 20 is about 27.
-    "writing_wt_per_word": 27,
+    # 1.3.5: 40. Measured on 01/11/2026 (13 texts of 400 to 20,000 words asked, Sonnet, new sessions through the API):
+    # the work of a text cost 33 to 63 wt per word asked, median about 40, at every length; with 27 a text of 5,000 to
+    # 10,000 words was quoted at 0.6 to 0.75 of its cost (short texts were saved by the chat part's fixed steps).
+    "writing_wt_per_word": 40,
     # note_web_haiku (1 = on): Claude Code's web searches also run a small model (haiku) that is not in the session's
     # log, so its cost is not in the measure; the report at the end of a research job says so in one line (on the one
     # research job measured: about 12% of the session at list prices, some 14,000 haiku input tokens a search).

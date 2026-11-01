@@ -253,5 +253,37 @@ class TestScheduleAnswer(Base):
                 self.assertIn(part, text, "%s: %s" % (command, part))
 
 
+class TestDateOption(Base):
+    """--date gives the day apart from the time; the rules tell the agent to ask about an ambiguous weekday."""
+
+    def when(self, **given):
+        args = types.SimpleNamespace(name="no-such-job", time=given.get("time"), date=given.get("date"))
+        return pv.job_time(args)
+
+    def test_date_and_time_together(self):
+        self.assertEqual(parse(self.when(date="03/11", time="20:00")), datetime(2026, 11, 3, 20, 0))
+        self.assertEqual(parse(self.when(date="2026-11-03", time="20:00")), datetime(2026, 11, 3, 20, 0))
+        self.assertEqual(parse(self.when(date="martedì", time="20:00")), datetime(2026, 11, 3, 20, 0))
+
+    def test_date_alone_takes_the_default_time(self):
+        self.assertEqual(parse(self.when(date="03/11")), datetime(2026, 11, 3, 3, 0))
+
+    def test_no_date_is_as_before(self):
+        self.assertEqual(self.when(time="20:00"), "20:00")
+        self.assertEqual(self.when(), "03:00")
+
+    def test_a_past_date_is_refused(self):
+        with self.assertRaises(ValueError):
+            parse(self.when(date="31/10", time="20:00"))
+
+    def test_the_rules_ask_about_an_ambiguous_weekday(self):
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        with open(os.path.join(root, "commands", "rate.md"), encoding="utf-8") as f:
+            skill = f.read()
+        self.assertIn("oggi alle 20 o martedì prossimo 10/11", skill)
+        self.assertIn("cioè domani", skill)
+        self.assertIn("today at 20:00 or next Tuesday 10/11", pv.protocol(pv.config(), 1.0))
+
+
 if __name__ == "__main__":
     unittest.main()

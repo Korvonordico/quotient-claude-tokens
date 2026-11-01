@@ -2,10 +2,17 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
-## [Unreleased]
+## [1.3.5] - 2026-11-01
+
+### Changed
+
+- **Long texts are quoted at 40 weighted tokens per word, not 27.** Measured on 01/11/2026: every text of 2,000 words or more cost more than 27 (14 of 14, from 32 to 63 per word asked, about 43 in the middle), so a text of 5,000 to 10,000 words was quoted at 0.6 to 0.75 of its cost. On the same jobs the typical miss goes from 31% to 19%. The cause and the direction are solid, the number itself is weak: `config writing_wt_per_word 27` takes it back. Quotes of code, research and other work do not change.
+- **The README is rewritten** for someone arriving from zero: real jobs with their real numbers, also the wide misses; how the project was born and how it is used; the measured tests of 01/11/2026 with their costs, bad results included. The tests in full are in `docs/evidence/api-tests.md`. A new picture, `docs/feature-accuracy.svg`, shows real cost against the quote on 40 finished jobs.
 
 ### Added
 
+- **`--date` for `rate once` and `rate schedule`**: the day apart from the time, `--date 03/11 --time 20:00`, `--date 2026-11-03` or `--date tuesday`; without `--time` it takes the job's own time.
+- **Claude asks before scheduling on an ambiguous weekday.** When you name only a weekday that is today or tomorrow, or could mean this week or next, the rules tell Claude to ask once: "Tuesday 03/11, so tomorrow?" or "today at 20:00 or next Tuesday 10/11?".
 - **Real dates for `rate once` and `rate schedule`.** `--time` took only `HH:MM` (today, or tomorrow if it had passed). It now also takes a date, `--time 2026-11-03T20:00` or `--time "03/11 20:00"` (`"03/11/2027 20:00"` for another year), and a weekday name in English or Italian, `--time "tuesday 20:00"`, `"martedì 20:00"` or `"martedi 20:00"`: always the next one, never today. A date in the past is refused with a message that says what was asked and what time it is now. `HH:MM` alone works as before. The answer repeats the real date in words (`Scheduled 'book' on Tuesday 03/11 at 20:00.`); with `rate schedule` the daily runs start from that day. Windows task names already carried the full date, so two dates at the same time stay two tasks. Without Windows, `rate once` prints `at -t` with the whole date. `rate --help`, `rate once --help`, `rate schedule --help`, the README and the command list explain the formats. "Tomorrow at HH:MM" is now the same clock time on the next calendar day (it used to add 86400 s, an hour off on the day the clocks change).
 
 ### Fixed
@@ -557,6 +564,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.3.5]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.5
 [1.3.4]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.4
 [1.3.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.3
 [1.3.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.2

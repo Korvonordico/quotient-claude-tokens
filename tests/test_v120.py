@@ -33,7 +33,7 @@ class TestDefaults(Base):
         spec = importlib.util.spec_from_file_location("q119", pv.q_settings.__file__)
         fresh = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(fresh)
-        for key, value in NEW.items():
+        for key, value in dict(NEW, writing_wt_per_word=40).items():   # 1.3.5: 40, was 27 (tests/test_v135.py)
             self.assertEqual(fresh.DEFAULTS[key], value, key)
         self.assertRegex(fresh.VERSION, r"^\d+\.\d+\.\d+$")
 
