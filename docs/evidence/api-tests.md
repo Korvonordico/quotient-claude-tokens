@@ -71,6 +71,8 @@ steps, not from the image. Neither way could tell a long loading from a freeze, 
 
 ### Two community coding skills
 
+[ponytail](https://github.com/DietrichGebert/ponytail) and systematic-debugging (Hermes Agent's version of the one in [superpowers](https://github.com/obra/superpowers)).
+
 2 easy tasks on a copy of a real piece of Quotient, checked with hidden tests.
 
 | | Mean cost | Time | Steps | Checks passed |
