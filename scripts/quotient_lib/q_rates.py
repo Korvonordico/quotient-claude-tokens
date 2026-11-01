@@ -116,7 +116,7 @@ def next_run(name):
     if os.name != "nt":
         return None
     script = ("$t=@(Get-ScheduledTask -TaskName '%s' -ErrorAction SilentlyContinue) + @(Get-ScheduledTask -TaskName "
-              "'%s*' -ErrorAction SilentlyContinue); $t | Where-Object { $_ } | Get-ScheduledTaskInfo | Where-Object "
+              "'%s*' -ErrorAction SilentlyContinue); $t | Where-Object { $_ -and $_.State -ne 'Disabled' } | Get-ScheduledTaskInfo | Where-Object "
               "{ $_.NextRunTime } | ForEach-Object { $_.NextRunTime.ToString('s') }; 'done'" % (
                   task_name(name), task_name(name, once=True)))
     try:

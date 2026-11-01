@@ -672,10 +672,14 @@ def rate_status(args):
             continue
         runs = q_settings.read_jsonl(os.path.join(folder, "runs.jsonl"))
         spent = sum(r.get("wt") or 0 for r in runs)
-        chat = q_rates.find_transcript(job.get("session")) if job.get("session") else None
+        session = job.get("session") or ""
+        chat = q_rates.find_transcript(session) if session and not session.startswith("hermes:") else None
+        where = ("the chat %s" % q_notices.chat_label(chat) if chat else
+                 "the Hermes chat %s" % session[len("hermes:"):] if session.startswith("hermes:") else
+                 "the first chat the user writes in")
         q_settings.out("%s: %s, %d installment(s), %s wt spent, cap %s per installment%s; reports go to %s\n" % (
             name, job["status"], len(runs), q_quotes.fmt(spent), q_quotes.fmt(job["daily_cap"]),
             ", raw quote %s" % q_quotes.fmt(job["quote"]) if job.get("quote") else "",
-            "the chat %s" % q_notices.chat_label(chat) if chat else "the first chat the user writes in"))
+            where))
         for r in runs[-5:]:
             q_settings.out("  %s  %s wt%s\n" % (r["started"][:16], q_quotes.fmt(r.get("wt")), "  error" if r.get("error") else ""))
