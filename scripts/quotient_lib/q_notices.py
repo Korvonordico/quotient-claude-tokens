@@ -267,5 +267,5 @@ def rate_events(sid=None, near=None, own_only=False):
         state["told"], state["notices"] = len(runs), []
         q_settings.save_json(os.path.join(folder, "report.json"), state)
     if reported:
-        lines.append("Commands: %s rate run <name> --force (in the background) | rate once <name> --time HH:MM | rate schedule <name> --time HH:MM | rate stop <name>" % q_quotes.run_cmd())
+        lines.append("Commands: %s rate run <name> --force (in the background) | rate once <name> --time HH:MM (or a date, \"03/11 20:00\", or a weekday, \"tuesday 20:00\") | rate schedule <name> --time HH:MM | rate stop <name>" % q_quotes.run_cmd())
     return lines

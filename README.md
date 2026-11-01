@@ -266,8 +266,8 @@ Run them as `python scripts/quotient.py <command>` from the plugin's folder or a
 | `task-file --out <file> --dir <folder> --what ... --why ... --read <file[:from-to]> --example <file:from-to> --check <command> --goal ...` | write the task file of a job apart or in installments: what and why, the exact files, code examples copied in, the commands to check, and the three stops (goal reached, cap, stuck). In a terminal it asks what you leave out; with `--no-ask`, or from `claude -p`, it never asks |
 | `rate apart <job> --dir <folder> --task-file <file> --quote N [--type ...]` | do a job apart, now: one installment in a separate session, started at once; its report comes back to the chat |
 | `rate run <job> [--force]` | run one installment now (`--force`: even if one already ran today) |
-| `rate once <job> [--time HH:MM]` | one installment at that time (tomorrow if it has passed; without `--time`, the job's own time); wakes the PC |
-| `rate schedule <job> [--time HH:MM] [--force]` | one installment every day at that time (without `--time`: the job's time, else 03:00); wakes the PC |
+| `rate once <job> [--time <when>]` | one installment at that time, on that date or on the next weekday named; without `--time`, the job's own time; wakes the PC. `<when>` is `HH:MM` (today, or tomorrow if it has passed), `2026-11-03T20:00`, `"03/11 20:00"` (or `"03/11/2027 20:00"`) or a weekday name in English or Italian, `"tuesday 20:00"` / `"martedì 20:00"` (always the **next** one, never today). A date in the past is refused, and the answer repeats the real date: `Scheduled 'book' on Tuesday 03/11 at 20:00.` |
+| `rate schedule <job> [--time <when>] [--force]` | one installment every day at that time, starting from the date or weekday if you give one (same `<when>` as `rate once`; without `--time`: the job's time, else 03:00); wakes the PC |
 | `rate after <job> sleep\|hibernate\|nothing` | what the PC does after each installment, if nobody uses it |
 | `rate here <job>` | each installment's report comes to this chat |
 | `rate week` | all open jobs against what is left of the week |

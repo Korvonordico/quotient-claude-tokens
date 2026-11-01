@@ -4,6 +4,10 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+### Added
+
+- **Real dates for `rate once` and `rate schedule`.** `--time` took only `HH:MM` (today, or tomorrow if it had passed). It now also takes a date, `--time 2026-11-03T20:00` or `--time "03/11 20:00"` (`"03/11/2027 20:00"` for another year), and a weekday name in English or Italian, `--time "tuesday 20:00"`, `"martedì 20:00"` or `"martedi 20:00"`: always the next one, never today. A date in the past is refused with a message that says what was asked and what time it is now. `HH:MM` alone works as before. The answer repeats the real date in words (`Scheduled 'book' on Tuesday 03/11 at 20:00.`); with `rate schedule` the daily runs start from that day. Windows task names already carried the full date, so two dates at the same time stay two tasks. Without Windows, `rate once` prints `at -t` with the whole date. `rate --help`, `rate once --help`, `rate schedule --help`, the README and the command list explain the formats. "Tomorrow at HH:MM" is now the same clock time on the next calendar day (it used to add 86400 s, an hour off on the day the clocks change).
+
 ### Fixed
 
 - **A quote written at the end of a job already done no longer opens a job.** On 01/11/2026 one job of 6 ended with `QUOTE: good=130000` and `JOB: CONTINUES` after all the work: Quotient opened a job with that estimate, nothing closed it, and the next job of the chat was measured together with it. A QUOTE line in the last message of a turn that used tools, with no `quote-table` run, no choice window, no earlier QUOTE line and no quote waiting from an earlier turn, now opens no job and leaves no pending quote. The same in Hermes: a QUOTE and CHOICE written after the work no longer open a job (the job would have counted from the start of that reply), and a late QUOTE alone no longer waits for a plain yes; when Hermes' messages cannot be read, the quote counts as before.

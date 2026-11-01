@@ -6,7 +6,8 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+import unicodedata
+from datetime import datetime, timedelta, timezone
 
 from quotient_lib import q_rates, q_settings
 
@@ -67,13 +68,99 @@ def load_text(path):
         return None
 
 
-def next_time(at):
-    """Today at HH:MM, or tomorrow if that time has already passed."""
-    hh, mm = (int(x) for x in check_time(at).split(":"))
-    moment = datetime.now().replace(hour=hh, minute=mm, second=0, microsecond=0)
-    if moment <= datetime.now():
-        moment = moment.fromtimestamp(moment.timestamp() + 86400)
+# ---------------------------------------------------------------- when: a time, a date, or a weekday
+# `--time` takes HH:MM (today, or tomorrow if it has passed), a real date (2026-11-03T20:00, 03/11 20:00,
+# 03/11/2027 20:00) or a weekday name in English or Italian (tuesday 20:00, martedì 20:00): always the NEXT one,
+# never today. A date in the past is refused. Times are the PC's local time, written without time zone.
+
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+WEEKDAY_WORDS = {   # lower case, without accents or a final apostrophe ("martedì" and "martedi'" are "martedi")
+    0: ("monday", "mon", "lunedi", "lun"),
+    1: ("tuesday", "tue", "tues", "martedi", "mar"),
+    2: ("wednesday", "wed", "mercoledi", "mer"),
+    3: ("thursday", "thu", "thur", "thurs", "giovedi", "gio"),
+    4: ("friday", "fri", "venerdi", "ven"),
+    5: ("saturday", "sat", "sabato", "sab"),
+    6: ("sunday", "sun", "domenica", "dom"),
+}
+CLOCK = r"([01]?\d|2[0-3]):([0-5]\d)"
+WHEN_FORMATS = ("HH:MM (today, or tomorrow if it has passed) | 2026-11-03T20:00 | 03/11 20:00 (this year) | "
+                "03/11/2027 20:00 | tuesday 20:00 or martedi 20:00 (always the next one, never today)")
+RATE_TIME_HELP = """When to run (the --time of `rate once` and `rate schedule`):
+  HH:MM                today at that time, or tomorrow if it has passed
+  2026-11-03T20:00     that date and time
+  03/11 20:00          day/month of this year (03/11/2027 20:00 for another year)
+  tuesday 20:00        a weekday name, English or Italian (martedi, accents optional):
+                       always the NEXT one, never today
+A date in the past is refused. The answer repeats the real date in words, for example:
+  Scheduled 'book' on Tuesday 03/11 at 20:00.
+With `rate schedule`, a date or a weekday is the day the daily runs start from.
+Times are the PC's local time."""
+
+
+def weekday_of(word):
+    """0 (Monday) to 6 (Sunday) for a weekday name in English or Italian, with or without accent, in full or in three
+    letters; None for anything else."""
+    folded = unicodedata.normalize("NFKD", str(word)).lower()
+    folded = "".join(c for c in folded if not unicodedata.combining(c)).rstrip("'`’´")
+    for number, words in WEEKDAY_WORDS.items():
+        if folded in words:
+            return number
+    return None
+
+
+def describe(moment, now=None):
+    """'Tuesday 03/11 at 20:00' (with the year, '03/11/2027', when it is not this year)."""
+    now = now or datetime.now()
+    day = moment.strftime("%d/%m" if moment.year == now.year else "%d/%m/%Y")
+    return "%s %s at %s" % (WEEKDAYS[moment.weekday()], day, moment.strftime("%H:%M"))
+
+
+def parse_when(value, now=None):
+    """The moment (local time, naive) that --time means, from `now` (the PC's clock unless a test gives one).
+    Raises ValueError with a message for the user when it cannot be read or it is already past."""
+    now = now or datetime.now()
+    text = " ".join(str(value or "").split())
+    bad = ValueError("cannot read the time '%s'. Write one of: %s" % (text, WHEN_FORMATS))
+    found = re.fullmatch(CLOCK, text)
+    if found:
+        moment = now.replace(hour=int(found.group(1)), minute=int(found.group(2)), second=0, microsecond=0)
+        return moment if moment > now else moment + timedelta(days=1)   # a calendar day: right across the clock change
+    year_given, found = True, re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})[T ]" + CLOCK, text, re.I)
+    if found:
+        y, mo, d, hh, mm = (int(x) for x in found.groups())
+    else:
+        found = re.fullmatch(r"(\d{1,2})/(\d{1,2})(?:/(\d{4}))? " + CLOCK, text)
+        if found:
+            d, mo, y, hh, mm = found.groups()
+            year_given = y is not None
+            d, mo, y, hh, mm = int(d), int(mo), int(y or now.year), int(hh), int(mm)
+        else:
+            found = re.fullmatch(r"(\S+) " + CLOCK, text)
+            day = weekday_of(found.group(1)) if found else None
+            if day is None:
+                raise bad
+            ahead = (day - now.weekday()) % 7 or 7                     # the next one: never today
+            date = (now + timedelta(days=ahead)).date()
+            return datetime(date.year, date.month, date.day, int(found.group(2)), int(found.group(3)))
+    try:
+        moment = datetime(y, mo, d, hh, mm)
+    except ValueError:
+        raise ValueError("'%s' is not a real date: check the day and the month" % text)
+    if moment <= now:
+        raise ValueError("%s (%s) is in the past: now it is %s. Give a date and time still to come%s" % (
+            text, describe(moment, now), describe(now, now),
+            "" if year_given else " (for next year, write the year: %02d/%02d/%d %02d:%02d)" % (d, mo, y + 1, hh, mm)))
     return moment
+
+
+def next_time(at, now=None):
+    """The moment of --time (see parse_when); for HH:MM alone, today at that time or tomorrow if it has passed. Stops
+    with a clear message when it cannot be read or is in the past."""
+    try:
+        return parse_when(at, now)
+    except ValueError as err:
+        sys.exit("quotient: %s" % err)
 
 
 def task_xml(name, start, once, arguments, wake=True):
@@ -110,8 +197,8 @@ def task_xml(name, start, once, arguments, wake=True):
        esc(sys.executable), esc(arguments), esc(q_settings.home()))
 
 
-def schedule(name, at, once, force=False, wake=True):
-    start = next_time(at)
+def schedule(name, at, once, force=False, wake=True, now=None):
+    start = next_time(at, now)
     arguments = '"%s" rate run %s%s' % (launcher(), name, " --force" if once or force else "")
     if os.name == "nt":
         xml = os.path.join(q_rates.rate_dir(name), start.strftime("task-once-%Y%m%d-%H%M.xml") if once else "task-daily.xml")
@@ -122,8 +209,8 @@ def schedule(name, at, once, force=False, wake=True):
                               capture_output=True)
         if proc.returncode != 0:
             sys.exit("quotient: the task was not created: %s" % (proc.stderr or proc.stdout).decode("utf-8", "replace").strip())
-        q_settings.out("%s '%s' at %s%s. %s Remove it with: rate stop %s\n" % (
-            "Scheduled once" if once else "Scheduled every day from", name, start.strftime("%d/%m %H:%M"),
+        q_settings.out("Scheduled '%s' %s %s%s. %s Remove it with: rate stop %s\n" % (
+            name, "on" if once else "every day from", describe(start, now),
             " (with --force: also after another installment the same day)" if force and not once else "",
             "It wakes the PC from sleep or hibernation." if wake else
             "It does not wake the PC: it runs only if the PC is on (or as soon as it is turned on).", name))
@@ -131,9 +218,14 @@ def schedule(name, at, once, force=False, wake=True):
         run = '"%s" %s' % (sys.executable, arguments)
         hh, mm = start.strftime("%H"), start.strftime("%M")
         if once:
-            q_settings.out("Run this once (needs `at`):\necho '%s' | at %s\n" % (run, start.strftime("%H:%M")))
+            # `at -t` takes the whole date (POSIX: [[CC]YY]MMDDhhmm), so a date or a weekday means that day
+            q_settings.out("Run this once on %s (needs `at`):\necho '%s' | at -t %s\n" % (
+                describe(start, now), run, start.strftime("%Y%m%d%H%M")))
         else:
-            q_settings.out("Add this line with `crontab -e`:\n%d %d * * * %s\n" % (int(mm), int(hh), run))
+            far = (start - (now or datetime.now())).total_seconds() > 86400
+            q_settings.out("Add this line with `crontab -e` (it runs every day at %s%s):\n%d %d * * * %s\n" % (
+                start.strftime("%H:%M"), "; cron has no start date, so it runs from the day you add it, not from %s" % describe(
+                    start, now) if far else "", int(mm), int(hh), run))
         q_settings.out("To wake the computer first: macOS `sudo pmset repeat wake MTWRFSU %s:00`; Linux `sudo rtcwake -m no -t <time>`.\n" % start.strftime("%H:%M"))
 
 
@@ -312,7 +404,8 @@ def rate_schedule(args):
 def rate_once(args):
     at = job_time(args, fallback=False)
     if not at:
-        sys.exit("quotient: give the time with --time HH:MM (the job has no time of its own)")
+        sys.exit("quotient: give the time with --time (HH:MM, a date like 03/11 20:00, or a weekday like tuesday 20:00): "
+                 "the job has no time of its own")
     schedule(args.name, at, once=True, wake=wake_allowed(args))
 
 

@@ -153,9 +153,10 @@ from quotient_lib.q_runs import (  # noqa: F401
     save_helpers_note, start_detached,
 )
 from quotient_lib.q_schedules import (  # noqa: F401
-    check_time, found_asleep, go_to_sleep, idle_seconds, job_time, keep_awake, launcher, live_check, load_text,
-    next_time, once_tasks, rate_after, rate_check, rate_once, rate_schedule, rate_stop, refresh_launchers, schedule,
-    statusline_launcher, task_xml, unschedule, wake_allowed, woken_recently,
+    RATE_TIME_HELP, check_time, describe, found_asleep, go_to_sleep, idle_seconds, job_time, keep_awake, launcher,
+    live_check, load_text, next_time, once_tasks, parse_when, rate_after, rate_check, rate_once, rate_schedule,
+    rate_stop, refresh_launchers, schedule, statusline_launcher, task_xml, unschedule, wake_allowed, weekday_of,
+    woken_recently,
 )
 
 q_settings.set_entry(sys.modules[__name__])
@@ -248,7 +249,8 @@ def main(argv=None):
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?")
 
-    rate = sub.add_parser("rate", help="the work in installments")
+    rate = sub.add_parser("rate", help="the work in installments", formatter_class=argparse.RawDescriptionHelpFormatter,
+                          epilog=RATE_TIME_HELP)
     rsub = rate.add_subparsers(dest="rate_cmd")
     p = rsub.add_parser("new", help="split a big job into installments")
     p.add_argument("name")
@@ -274,14 +276,16 @@ def main(argv=None):
     p = rsub.add_parser("repair", help="installments stopped before their end: their real cost, from their transcript")
     p.add_argument("name", nargs="?")
     p.add_argument("--dry", action="store_true", help="only show what would change")
-    p = rsub.add_parser("schedule", help="run an installment every day at a time (wakes the PC)")
+    p = rsub.add_parser("schedule", help="run an installment every day at a time, from a date if you give one (wakes the PC)",
+                        formatter_class=argparse.RawDescriptionHelpFormatter, epilog=RATE_TIME_HELP)
     p.add_argument("name")
-    p.add_argument("--time", help="HH:MM (default: the job's time, else 03:00)")
+    p.add_argument("--time", help="HH:MM, or a date or weekday and time to start from (see below); default: the job's time, else 03:00")
     p.add_argument("--force", action="store_true", help="run even if another installment ran the same day")
     p.add_argument("--no-wake", action="store_true", help="do not wake the PC")
-    p = rsub.add_parser("once", help="run one installment at a time (today, or tomorrow if past)")
+    p = rsub.add_parser("once", help="run one installment once, at a time or on a date or weekday (wakes the PC)",
+                        formatter_class=argparse.RawDescriptionHelpFormatter, epilog=RATE_TIME_HELP)
     p.add_argument("name")
-    p.add_argument("--time", help="HH:MM (default: the job's time)")
+    p.add_argument("--time", help="HH:MM, a date, or a weekday and time (see below); default: the job's time")
     p.add_argument("--no-wake", action="store_true", help="do not wake the PC")
     p = rsub.add_parser("after", help="what the PC does after each installment")
     p.add_argument("name")

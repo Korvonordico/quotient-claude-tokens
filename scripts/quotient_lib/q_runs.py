@@ -101,7 +101,7 @@ def rate_new(args):
         q_timing.fmt_duration(each), ", about %s in all" % q_timing.fmt_duration(whole) if whole else "") if each else "")
     when_text = (("Once at %s (today, or tomorrow if past): %s rate once %s\nEvery day at %s: %s rate schedule %s\n" % (
         at, q_quotes.run_cmd(), args.name, at, q_quotes.run_cmd(), args.name)) if at else
-        ("Once today at a time: %s rate once %s --time HH:MM\nEvery day: %s rate schedule %s --time HH:MM\n" % (
+        ("Once at a time or on a date (--time HH:MM, \"03/11 20:00\" or \"tuesday 20:00\"): %s rate once %s --time HH:MM\nEvery day: %s rate schedule %s --time HH:MM\n" % (
             q_quotes.run_cmd(), args.name, q_quotes.run_cmd(), args.name)))
     q_settings.out("Job '%s' ready: %s wt per installment%s, working in %s\nJob files: %s\n%s"
         "Run one installment now: %s rate run %s\n%s%s" % (
