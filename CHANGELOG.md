@@ -4,6 +4,20 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-11-01
+
+### Changed
+
+- **A small job pays almost nothing for Quotient.** Measured on 01/11/2026 (4 small jobs, 3 times each, with and without the plugin): the quote turn cost about 2.3 times the same turn without Quotient. Three causes, each fixed:
+  - **The session starts with the short rules** (about 2,300 characters instead of 11,200): when to quote, how, and the machine lines. The whole protocol was longer than what Claude Code shows of a hook (about 10,000 characters), so it was cut and saved to a file, and the agent spent one more call reading that file, in every session. The rest of the rules (choice window, paces, installments, the week) and the first-use questions now come with the quote of a job above the threshold, once per chat. `lean_start 0` gives the whole protocol as before.
+  - **A small job's quote is one line** (`small_quote_line` is now on for everyone): no table to copy, no window.
+- **The chat part of a quote counts the steps every job takes** (`chat.steps_base`, 3): until the steps are learned, a job's steps were its work divided by 30,000 alone, about a third of the real steps on 107 measured jobs, so small jobs (texts and "other" above all) were quoted about half their cost.
+- **A quoted job is measured even without its CHOICE line** (`infer_choice`): once the reply did the work (a JOB line, or the stopwatch started), the level is the one the user named ("the biggest", "max", the window's answer) or the quote's only one. A CHOICE naming a level the quote did not have is read the same way. 4 jobs of 11 had gone unmeasured.
+
+### Fixed
+
+- With `CLAUDE_CONFIG_DIR` set, `quote-table` found no transcript and showed the chat part as "?".
+
 ## [1.3.3] - 2026-11-01
 
 ### Added
@@ -535,6 +549,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.3.4]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.4
 [1.3.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.3
 [1.3.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.2
 [1.3.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.1

@@ -79,6 +79,11 @@ def find_transcript(session_id, near=None):
     if not safe:
         return None
     roots = [os.path.join(os.path.expanduser("~"), ".claude", "projects")]
+    custom = os.environ.get("CLAUDE_CONFIG_DIR")
+    if custom:
+        # 1.3.4: Claude Code keeps the chats under CLAUDE_CONFIG_DIR when it is set; without it, quote-table run in such
+        # a chat found no transcript and showed the chat part as '?' (found on 01/11/2026)
+        roots.insert(0, os.path.join(custom, "projects"))
     if near:
         roots.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(near))))
     for root in roots:

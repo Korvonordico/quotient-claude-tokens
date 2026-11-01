@@ -315,14 +315,16 @@ class TestWindow(Base):
 
     def test_session_protocol_and_short_prompt(self):
         protocol = self.run_hook(pv.hook_session, {})
-        self.assertIn("AskUserQuestion", protocol)
-        self.assertIn("free field", protocol)
-        self.assertIn("ONE DAY of work", protocol)
-        self.assertIn("never bare numbers in parentheses", protocol)
+        # 1.3.4 (lean_start): the window, the paces and installments come with the quote of a big job
+        details = pv.protocol_details(pv.config(), 1.0)
+        self.assertIn("AskUserQuestion", details)
+        self.assertIn("free field", details)
+        self.assertIn("ONE DAY of work", details)
+        self.assertIn("never bare numbers in parentheses", details)
+        self.assertIn("rate here <name>", details)
         # 06/10/2026: QUOTE/CHOICE/PACE written in a progress note mid-reply were kept only as a summary
         self.assertIn("LAST message of your reply", protocol)
         self.assertIn("Write QUOTE and CHOICE once", protocol)
-        self.assertIn("rate here <name>", protocol)
         line = self.run_hook(pv.hook_prompt, {"session_id": "s1", "transcript_path": self.t.path})
         self.assertLess(len(line), 600)
         with mock.patch.dict(os.environ, {"QUOTIENT_JOB": "book"}):

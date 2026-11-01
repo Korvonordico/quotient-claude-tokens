@@ -44,9 +44,22 @@ def hook_session():
         telemetry.ensure(q_settings.entry(), cfg)   # 1.1.6: the receiver of Claude Code's telemetry, when it is on
     except Exception:
         pass
-    text = q_quotes.protocol(cfg, q_learning.learning(cfg)["factor"])
-    if not cfg.get("configured"):
-        text += q_longchats.setup_instructions(cfg)
+    factor = q_learning.learning(cfg)["factor"]
+    if cfg.get("lean_start"):
+        # 1.3.4: the short rules; the rest and the first-use questions come with the first quote above the threshold
+        text = q_quotes.protocol_lean(cfg, factor)
+        if not cfg.get("configured"):
+            text += ("FIRST USE: Quotient is not set up yet. Its first-use questions come with the first quote above the "
+                     "threshold, or when the user asks to set it up (/token-quotient:setup).\n")
+        if sid and data.get("source") in ("clear", "compact"):
+            # the rest of the rules, given with an earlier big quote, is no longer in the chat
+            state = q_settings.load_json(q_settings.session_path(sid), {})
+            if state.pop("details_given", None):
+                q_settings.save_json(q_settings.session_path(sid), state)
+    else:
+        text = q_quotes.protocol(cfg, factor)
+        if not cfg.get("configured"):
+            text += q_longchats.setup_instructions(cfg)
     try:
         moving = chat_jobs_text(cfg, sid)
     except Exception:  # an unreadable file of open jobs must never stop a session
@@ -523,7 +536,18 @@ def hook_stop():
     if had_job and not os.environ.get("QUOTIENT_JOB"):
         q_limits.limits_soon(cfg)                 # 1.1.6: a job open: the limits read every minute, in the background
     pending = state.get("pending")
-    if (cfg.get("small_quote_line") and pending and not (job or quote or choice) and len(pending.get("options") or {}) == 1
+    options = quote or (pending or {}).get("options")
+    if (cfg.get("infer_choice") and options and not job and not custom and not os.environ.get("QUOTIENT_JOB")
+            and not (choice and (choice in q_settings.DECLINE or q_settings.INSTALLMENT_RE.match(choice)))):
+        # 1.3.4: the CHOICE line forgotten, or naming a level the quote did not have: the level the user named, or the
+        # quote's only one, once the reply did the work (a JOB line, or the stopwatch started)
+        timer = timer_level(turn)
+        level = infer_choice(options, choice, turn_words(turn),
+                             bool(continues or q_settings.JOB_DONE_RE.search(text) or timer), timer)
+        if level:
+            choice = level
+            pace = pace or "today"
+    elif (cfg.get("small_quote_line") and pending and not (job or quote or choice) and len(pending.get("options") or {}) == 1
             and (continues or q_settings.JOB_DONE_RE.search(text)) and not os.environ.get("QUOTIENT_JOB")):
         # 1.1.8: a one-line quote gets a plain yes, and on 17/10/2026 one job of 22 came back with only `JOB: CLOSE`, no
         # CHOICE: it went unmeasured. The work done (a JOB line) chooses the quote's one level, done today
@@ -672,6 +696,77 @@ def hook_stop():
             state["unquoted"] = {"wt": cost, "ts": q_settings.now_iso()}
     q_settings.append_jsonl(os.path.join(q_settings.home(), "turns.jsonl"), row)
     q_settings.save_json(q_settings.session_path(sid), state)
+
+
+# ---------------------------------------------------------------- the level of a quoted job without its CHOICE (1.3.4)
+
+BIGGEST_RE = re.compile(r"pi[uù]\s+grand|pi[uù]\s+alt|massim|\bbiggest\b|\blargest\b|\bmaximum\b|\bmax\b|\bhighest\b", re.I)
+SMALLEST_RE = re.compile(r"pi[uù]\s+piccol|pi[uù]\s+bass|minim|\bsmallest\b|\bcheapest\b|\blowest\b", re.I)
+TIMER_LEVEL_RE = re.compile(r"\btimer\s+start\b[^\n]*?--level\s+[\"']?([^\W\d][\w-]*)", re.I)
+
+
+def level_pattern(name):
+    """A level's name and its words in both languages (LEVEL_WORDS), as whole words."""
+    words = q_settings.LEVEL_WORDS.get(name) or {}
+    found = (name,) + tuple(words.get("also", ())) + tuple(w for w in (words.get("it"), words.get("en")) if w)
+    return re.compile(r"(?<![\w])(?:%s)(?![\w])" % "|".join(re.escape(w) for w in found), re.I)
+
+
+def infer_choice(options, choice, said, worked, timer=None):
+    """1.3.4 (infer_choice): the level of a quoted job whose reply has no usable CHOICE line, or None. `choice` is the
+    CHOICE line's level (None when missing), `said` the user's words in the turn (the prompt and the choice window's
+    answers), `worked` whether the reply did the work (a JOB line or the stopwatch), `timer` the level of a `timer
+    start` it ran. A CHOICE that names one of the quote's levels is kept as it is (None). Without a CHOICE line the
+    level is inferred only once the work is done or started: an answer that only asks something is not a choice."""
+    if not options or (choice and choice in options):
+        return None
+    if not choice and not worked:
+        return None
+    names = list(options)
+    if timer in options:
+        return timer
+    for text in ([choice] if choice else []) + [said or ""]:
+        named = {n for n in names if level_pattern(n).search(text)}
+        if len(named) == 1:
+            return named.pop()
+        if not named and BIGGEST_RE.search(text):
+            return max(names, key=lambda n: options[n])
+        if not named and SMALLEST_RE.search(text):
+            return min(names, key=lambda n: options[n])
+    return names[0] if len(names) == 1 else None
+
+
+def turn_words(turn):
+    """The user's own words in a turn: its prompt and the answers given in the choice window, one text."""
+    asks, parts = set(), []
+    for i, e in enumerate(turn or []):
+        content = (e.get("message") or {}).get("content")
+        if i == 0 and e.get("type") == "user":
+            parts.append(content if isinstance(content, str) else " ".join(
+                str(b.get("text") or "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text"))
+        for b in content if isinstance(content, list) else []:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "tool_use" and b.get("name") in q_timing.ASK_TOOLS:
+                asks.add(b.get("id"))
+            elif b.get("type") == "tool_result" and b.get("tool_use_id") in asks:
+                c = b.get("content")
+                parts.append(c if isinstance(c, str) else " ".join(
+                    str(x.get("text") or "") for x in c or [] if isinstance(x, dict)))
+    return "\n".join(p for p in parts if p)
+
+
+def timer_level(turn):
+    """The level of a `timer start --level <level>` the reply ran (the protocol's step after the choice), or None."""
+    for e in turn or []:
+        if e.get("type") != "assistant":
+            continue
+        for b in (e.get("message") or {}).get("content") or []:
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Bash", "PowerShell"):
+                m = TIMER_LEVEL_RE.search(str((b.get("input") or {}).get("command") or ""))
+                if m:
+                    return m.group(1).lower()
+    return None
 
 
 BIND_RE = re.compile(r"""\brate\s+(new|here|apart)\s+(?:"([^"]+)"|'([^']+)'|([\w.-]+))""")

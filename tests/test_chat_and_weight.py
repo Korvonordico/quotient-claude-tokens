@@ -112,8 +112,10 @@ class TestChatPart(ChatBase):
     def test_protocol_asks_for_the_work_and_knows_the_new_chat(self):
         protocol = self.run_hook(pv.hook_session, {"session_id": "s1"})
         self.assertIn("Estimate the WORK", protocol)
-        self.assertIn("PACE: new chat", protocol)
-        self.assertIn("JOB: RESUME", protocol)
+        # 1.3.4 (lean_start): the paces come with the quote of a big job, in the rest of the rules
+        details = pv.protocol_details(pv.config(), 1.0)
+        self.assertIn("PACE: new chat", details)
+        self.assertIn("JOB: RESUME", details)
 
     def test_parsing(self):
         self.assertEqual(pv.parse_pace("PACE: new chat"), "new-chat")

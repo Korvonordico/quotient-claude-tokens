@@ -12,7 +12,7 @@ from q_patch import patch_q
 
 from test_quotient import Base, pv, usage
 
-KEYS = ("note_web_haiku", "small_quote_line", "margin_percent")   # writing_wt_per_word: 27 from 1.1.9   # requote_on_addition: on from 1.1.9 (test_v120)
+KEYS = ("note_web_haiku", "margin_percent")   # writing_wt_per_word: 27 from 1.1.9   # requote_on_addition: on from 1.1.9 (test_v120)   # small_quote_line: on from 1.3.4 (test_v134)
 
 
 class TestOffByDefault(Base):
@@ -21,6 +21,7 @@ class TestOffByDefault(Base):
             self.assertEqual(pv.DEFAULTS[key], 0, key)
 
     def test_nothing_new_while_off(self):
+        pv.store(("small_quote_line",), 0)
         cfg = pv.config()
         text = pv.protocol(cfg, 1.0)
         for new in ("TEXTS (kind=writing)", "ADDITIONS:", "a task added to it", "ONE line"):
@@ -62,6 +63,7 @@ class TestWritingRule(Base):
         self.assertIn("--words <n>", text)
 
     def test_quote_table_with_the_words(self):
+        pv.store(("small_quote_line",), 0)   # the table's line for texts (a small job's quote is one line from 1.3.4)
         table = pv.quote_table(pv.config(), {"good": 250000}, lang="it", wtype="writing", words=5000)
         self.assertIn("Testo di circa 5.000 parole: con la regola dei testi (50 token pesati a parola finale, fra 25 e "
                       "55) il lavoro grezzo è circa 250.000, fra 125.000 e 275.000.", table)
@@ -80,6 +82,7 @@ class TestWritingRule(Base):
         self.assertNotIn("--words", pv.quote_table(pv.config(), {"good": 400000}, lang="en", wtype="code"))
 
     def test_the_command_takes_the_words(self):
+        pv.store(("small_quote_line",), 0)
         said = self.run_hook(lambda: pv.main(["quote-table", "--raw", "good=250000", "--type", "writing", "--words",
                                               "5000", "--lang", "en"]), {})
         self.assertIn("A text of about 5,000 words", said)
@@ -105,8 +108,9 @@ class TestSmallQuoteLine(Base):
 
     def test_the_biggest_level_and_the_chat_part(self):
         text = pv.quote_table(pv.config(), {"essential": 40000, "good": 100000}, context=200000, lang="en")
-        # re-reading 200k tokens (20k wt) at each of ~3.3 calls of 30k wt of work: about +67k
-        self.assertIn("about 166,667 weighted tokens (work 100,000 + chat part 66,667)", text)
+        # re-reading 200k tokens (20k wt) at each of ~3.3 calls of 30k wt of work, plus the 3 steps every job takes
+        # (1.3.4, chat.steps_base): about +127k
+        self.assertIn("about 226,667 weighted tokens (work 100,000 + chat part 126,667)", text)
         self.assertIn("QUOTE: good=100000", text)
 
     def test_the_full_table_over_the_threshold_and_for_installments(self):
@@ -144,6 +148,7 @@ class TestSmallQuoteLine(Base):
 
     def test_not_without_the_key_nor_without_a_job_line(self):
         pv.store(("small_quote_line",), 0)
+        pv.store(("infer_choice",), 0)   # 1.3.4: on by default, it measures this job too (test_v134)
         self.one_line_then_close()
         self.assertEqual(pv.finished_jobs(), [])
         pv.store(("small_quote_line",), 1)

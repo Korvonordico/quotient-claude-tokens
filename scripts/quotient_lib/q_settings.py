@@ -21,7 +21,7 @@ def entry():
     return ENTRY["module"]
 
 
-VERSION = "1.3.3"
+VERSION = "1.3.4"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -49,6 +49,12 @@ DEFAULTS = {
     "chat": {
         # Weighted tokens of work per model call, until Quotient has learned it from finished jobs.
         "work_per_call": 30000,
+        # 1.3.4: the steps every job takes whatever its size (reading the task, the last answer, a check), added to
+        # work / work_per_call until the steps are learned (steps_per_million). On the 107 jobs of docs/evidence the old
+        # count (work / 30,000 alone) gave 0.31 times the real steps (median), so the chat part of a small job came out
+        # about 3 times too low (texts and "other" were quoted about half their real cost on 01/11/2026); with 3 more
+        # steps, 1.0 times (typical miss 15%). 0 = as before.
+        "steps_base": 3,
         # Tokens an installment starts with (it runs in a new chat), until Quotient has measured it.
         "installment_start": 50000,
         # From this share of OLDER conversation on (percent of the work), the window offers a new chat.
@@ -135,7 +141,21 @@ DEFAULTS = {
     # small_quote_line (1 = on): a quote the user asks for a job under the threshold is one line (work, total, time,
     # shares) instead of the full table and the choice window, and the first-use questions wait for the first job above
     # the threshold: in a new session the full quote cost about 70,000 wt, more than the small job itself.
-    "small_quote_line": 0,
+    # 1.3.4: on for everyone (it was off): on 4 small jobs measured on 01/11/2026 the quote turn cost 2.3 times the
+    # same turn without Quotient, and the table, copied into the reply, was a good part of it.
+    "small_quote_line": 1,
+    # lean_start (1.3.4, 1 = on): the session starts with the short rules (about 2,000 characters: when to quote, how,
+    # the machine lines) instead of the whole protocol (about 11,000). The rest (the choice window, the paces,
+    # installments, the week) comes with the quote of a job above the threshold, the only one that needs it. Measured
+    # on 01/11/2026: Claude Code cuts a hook's text over about 10,000 characters and saves it to a file, so with the
+    # whole protocol the agent spent one more call to read that file (about 9,000 wt, half of what the quote turn
+    # added), and every later call re-read the protocol twice (the preview and the file). 0 = the whole protocol.
+    "lean_start": 1,
+    # infer_choice (1.3.4, 1 = on): a quoted job is measured even when the agent forgets the CHOICE line, or writes a
+    # level the quote did not have: when the reply did the work (a JOB line, or the stopwatch started), the level is
+    # the one the user named ("il più grande", "max", the window's answer) or the quote's only level. On 01/11/2026 4
+    # jobs of 11 went unmeasured this way (3 with only `JOB: CLOSE`, 1 with `CHOICE: max` for a quote with only good).
+    "infer_choice": 1,
     # margin_percent: the same job done again cost from -9% to +10%, and the quote of the same task changed too; at the
     # end of a job a miss under this many percent is said to be within the margin, noise and not a signal (15 suggested).
     "margin_percent": 0,

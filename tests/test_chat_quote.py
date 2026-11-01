@@ -159,6 +159,7 @@ class TestSmallQuoteOnHermes(ChatQuote):
         self.assertEqual(self.state()["job"]["raw_estimate"], 100000)
 
     def test_off_nothing_is_measured(self):
+        pv.store(("small_quote_line",), 0)   # on by default from 1.3.4
         self.turn("QUOTE: good=100000")
         self.assertEqual(self.turn("Fatto.\nJOB: CLOSE"), {})
         self.assertIsNone(self.state().get("job"))

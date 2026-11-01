@@ -85,8 +85,9 @@ from quotient_lib.q_sharing import (  # noqa: F401
     share_row, share_status, store, write_outbox,
 )
 from quotient_lib.q_quotes import (  # noqa: F401
-    WRITING_MARGIN, addition_hint, additions_rule, calibration, chat_context, chat_steps_note, cmd_quote_table, fmt,
-    fmt_miss, incomplete_line, level_count, level_label, level_sizes, pace_options, protocol, quote_gaps,
+    DETAILS_FROM, WRITING_MARGIN, addition_hint, additions_rule, calibration, chat_context, chat_steps_note,
+    cmd_quote_table, details_once, fmt, fmt_miss, incomplete_line, level_count, level_label, level_sizes, pace_options,
+    protocol, protocol_details, protocol_items, protocol_lean, quote_gaps,
     quote_numbers, quote_table, run_cmd, small_quote, task_file_hint, window_options, writing_notes, writing_raw,
     writing_rule,
 )
@@ -100,8 +101,9 @@ from quotient_lib.q_longchats import (  # noqa: F401
     save_json_pretty, setup_instructions,
 )
 from quotient_lib.q_hooks import (  # noqa: F401
-    BIND_RE, CAP_RE, HEREDOC_RE, SAVE_TOOLS, add_injected, bind_from_commands, chat_hint, chat_jobs, chat_jobs_path,
-    chat_jobs_text, chat_share, close_job, hook_pretool, hook_prompt, hook_session, hook_stop, main_transcript,
+    BIGGEST_RE, BIND_RE, CAP_RE, HEREDOC_RE, SAVE_TOOLS, SMALLEST_RE, TIMER_LEVEL_RE, add_injected, bind_from_commands,
+    chat_hint, chat_jobs, chat_jobs_path, chat_jobs_text, chat_share, close_job, hook_pretool, hook_prompt, hook_session,
+    hook_stop, infer_choice, level_pattern, main_transcript, timer_level, turn_words,
     new_chat_allowed, note_chat_job, piece_check, pieces_path, quotient_action, quotient_weight, run_pieces,
     saving_line, scheduled_prompt, step_weight, take_chat_job, work_per_call, write_only,
 )

@@ -139,6 +139,7 @@ class TestQuoteTable(Known):
 
     def test_the_agent_is_told_how_many_levels_and_in_what_order(self):
         self.known()
+        pv.store(("small_quote_line",), 0)   # the full table under the threshold too (one line by default from 1.3.4)
         cfg = pv.config()
         text = pv.quote_table(cfg, {"essential": 50000, "good": 200000, "max": 400000}, lang="en")
         self.assertIn("Quotient gives 2 levels (good, max); you gave 3", text)

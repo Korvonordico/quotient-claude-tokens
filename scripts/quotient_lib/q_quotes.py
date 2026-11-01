@@ -5,7 +5,7 @@ import re
 import sys
 import time
 
-from quotient_lib import q_costs, q_hooks, q_learning, q_limits, q_rates, q_settings, q_timing, q_weeks
+from quotient_lib import q_costs, q_hooks, q_learning, q_limits, q_longchats, q_rates, q_settings, q_timing, q_weeks
 
 # ---------------------------------------------------------------- formatting
 
@@ -109,7 +109,8 @@ def quote_numbers(cfg, options, kind="chat", context=None, wtype=None, factor=No
         if kind == "rate":
             chat = work * overhead + start
         elif per_step is not None:
-            usual = steps[0] * work / 1e6 if steps else work / max(wpc, 1.0)
+            # 1.3.4: until the steps are learned, every job takes steps_base steps more than its work alone gives
+            usual = steps[0] * work / 1e6 if steps else (float(cfg["chat"].get("steps_base") or 0) + work / max(wpc, 1.0))
             counted = q_learning.chat_steps(cfg, raw, usual)
             chat = (counted[0] if counted else usual) * per_step
         else:
@@ -233,13 +234,16 @@ def small_quote(cfg, options, kind, context, wtype, lang):
         line += " " + prudent
     raw = round(top["raw"])
     q_settings.save_json(os.path.join(q_settings.home(), "quote-table.json"), {"options": {"good": raw}, "kind": kind, "small": True,
-                                                          "epoch": round(time.time()), "session": q_rates.chat_id(), "type": wtype})
+                                                          "epoch": round(time.time()), "session": q_rates.chat_id(), "type": wtype,
+                                                          "shown": {"good": round(top["total"])}})
     return "\n".join([line, "", "[for the agent, not to copy] A small job: copy the line above as it is, in the user's "
                       "language, and ask in one short sentence whether to go on: no table, no choice window, and the "
                       "first-use questions wait for the first job above the threshold. When the user says yes, write "
                       "`CHOICE: good` and `PACE: today` and do the work.",
                       "Machine line, in the LAST message of the reply: QUOTE: good=%d%s" % (
-                          raw, " kind=%s" % wtype if wtype else "")]) + "\n"
+                          raw, " kind=%s" % wtype if wtype else "")] +
+                     ([] if wtype else ["Add the type of work to the QUOTE line: kind=code, kind=writing, kind=research "
+                                        "or kind=other: each type learns its own factor."])) + "\n"
 
 
 def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=None, lang="en", wtype=None, words=None):
@@ -432,9 +436,33 @@ def quote_table(cfg, options, kind="chat", context=None, fresh=None, new_chat=No
         notes.append("The window shows 4 options at most: keep 4 levels.")
     if [options[n] for n in names] != sorted(options.values()):
         notes.append("Write the levels from the smallest to the biggest.")
+    if cfg.get("lean_start"):
+        # 1.3.4: the session started with the short rules; the rest, once per chat, with the first table that needs it
+        notes += [""] + details_once(cfg, nums["factor"])
     q_settings.save_json(os.path.join(q_settings.home(), "quote-table.json"), {"options": options, "kind": kind, "epoch": round(time.time()),
-                                                          "session": q_rates.chat_id(), "type": wtype})
+                                                          "session": q_rates.chat_id(), "type": wtype,
+                                                          "shown": {r["name"]: round(r["total"]) for r in rows}})
     return "\n".join(lines + notes) + "\n"
+
+
+def details_once(cfg, factor):
+    """1.3.4 (lean_start): the rest of the rules and, before the first setup, the first-use questions, as lines for the
+    agent; once per chat (Claude Code passes the chat to the commands it runs: without it, every time). A compaction
+    makes them due again (hook_session gives the short rules again after it)."""
+    sid = q_rates.chat_id()
+    path = q_settings.session_path(sid) if sid else None
+    state = q_settings.load_json(path, {}) if path else {}
+    if path and state.get("details_given"):
+        return ["[for the agent] The rest of the rules (choice window, paces, installments) is already in this chat, "
+                "with the first big quote."]
+    out = [protocol_details(cfg, factor).rstrip("\n")]
+    if not cfg.get("configured"):
+        out.append(q_longchats.setup_instructions(cfg).rstrip("\n"))
+    if path:
+        state = q_settings.load_json(path, {})
+        state["details_given"] = True
+        q_settings.save_json(path, state)
+    return out
 
 
 def quote_gaps(cfg, quote, text, window=()):
@@ -567,14 +595,51 @@ def addition_hint(cfg):
             if cfg.get("requote_on_addition") else "")
 
 
+DETAILS_FROM = 6   # 1.3.4: protocol_items from here on (step 4 on) come with a big job's quote when lean_start is on
+
+
 def protocol(cfg, factor):
-    """The full rules, given once at the start of a session (and after a compaction)."""
+    """The full rules, given once at the start of a session (and after a compaction); with lean_start (1.3.4) the
+    short rules instead (protocol_lean), and the rest with the quote of a job above the threshold (protocol_details)."""
+    return "\n".join([x for x in protocol_items(cfg, factor) if x]) + "\n"
+
+
+def protocol_details(cfg, factor):
+    """1.3.4 (lean_start): the rules the short start leaves out (the choice window, the paces, installments, limits,
+    the week), for the agent, at the end of the quote table of a job above the threshold."""
+    return "\n".join(["[for the agent, not to copy] The rest of Quotient's rules, for this quote and what follows:"] +
+                     [x for x in protocol_items(cfg, factor)[DETAILS_FROM:] if x]) + "\n"
+
+
+def protocol_lean(cfg, factor):
+    """1.3.4 (lean_start): the rules a session starts with, about 2,000 characters. The whole protocol (about 11,000)
+    was over what Claude Code shows of a hook (about 10,000): it was cut, saved to a file, and the agent spent one more
+    call reading it, in every session, even with no quote at all. Measured on 01/11/2026 (docs/evidence/small-jobs.md)."""
+    cmd = run_cmd()
+    sizes = level_sizes(cfg)
+    per = float(cfg.get("writing_wt_per_word") or 0)
+    texts = (" Texts (kind=writing): about %s wt per word of the final text, and give quote-table --words <n>." %
+             ("{:,}".format(int(per)) if per == int(per) else per)) if per > 0 else ""
+    added = (" A task added to an open job (not a fix or a detail of it) gets a quote of its own before you do it."
+             if cfg.get("requote_on_addition") else "")
+    return "\n".join([x for x in [
+        "[Quotient %s] Quotes, short rules (the rest comes with the quote of a big job). Unit: weighted tokens (wt) = input + 1.25 x cache write (2 x for 1-hour cache) + 0.1 x cache read + 5 x output." % q_settings.VERSION,
+        "WHEN: quote before work that will likely cost more than the threshold (%s wt), and whenever the user asks for a quote or calls a job big: then do not start the work, quote first. Under the threshold, if nobody asks, just work: no quote and no machine lines." % fmt(cfg["threshold"]),
+        "HOW: Estimate the WORK of the job itself (reading, writing, checking), raw: re-reading what the chat already holds is added by Quotient, never put it in the estimate.%s%s Levels, by the size of the biggest one corrected (x%.2f now): up to %s wt one, `good`; up to %s two, `good max`; up to %s three, `essential good max`; above, four, `essential good full max`. Run `%s quote-table --raw good=<n> --type <type> --lang <the user's language>` (more levels smallest first: --raw essential=<n> good=<n> max=<n>) and copy what it prints AS IT IS, following its notes for the agent: under the threshold it is one line; above it, a table, the choice window and the rest of the rules." % (
+            texts, q_learning.claude_runs_text(cfg), factor, fmt(sizes["one"]), fmt(sizes["two"]), fmt(sizes["three"]), cmd),
+        "MACHINE LINES, always in English, in the LAST message of your reply (after your last tool call): `QUOTE: good=<n> kind=<type>` with a quote (your raw numbers; the type is code, writing, research or other, and goes to quote-table as --type <type>); after the user chooses, `CHOICE: <level>` (`CHOICE: none` if they decline) and `PACE: today` (or the pace they chose); `JOB: CONTINUES` at the end of a reply when a quoted job is not finished; `ASIDE` for a reply about something else while a job is open. Write QUOTE and CHOICE once: later replies of the same job carry only the JOB line.%s" % added,
+        "LIMITS: when the Quotient line of a message has no plan limits and you have a tool that reads them (for example get_usage), call it before a quote and write LIMITS: five_hour=<used %> seven_day=<used %> five_hour_resets=<ISO time> seven_day_resets=<ISO time>.",
+    ] if x]) + "\n"
+
+
+def protocol_items(cfg, factor):
+    """The whole protocol, one item per paragraph ('' for one that is off)."""
     cmd = run_cmd()
     sizes = level_sizes(cfg)
     small = (" If the user asks for a quote anyway, run quote-table as below: for a job under the threshold it gives "
              "ONE line, without the table and the window." if cfg.get("small_quote_line") else "")
     added = (", that a task added to it gets a quote of its own" if cfg.get("requote_on_addition") else "")
-    return "\n".join([x for x in [
+    return [
         "[Quotient %s] Quote protocol for this session. Unit: weighted tokens (wt) = input + 1.25 x cache write (2 x for 1-hour cache) + 0.1 x cache read + 5 x output, the ratios of the API prices." % q_settings.VERSION,
         "WHEN: before work that will likely cost more than the threshold (%s wt), and whenever the user calls a job big or asks for a quote. Do not start the work: quote first. Under the threshold, if nobody asks, just work.%s" % (fmt(cfg["threshold"]), small),
         "HOW:",
@@ -592,4 +657,4 @@ def protocol(cfg, factor):
         "Read the limits before running quote-table, so its shares are fresh. When the table says a level does not fit in what is left of the 5 hours, say so in the window and suggest a pace in days. At the end of a quoted job, tell the user in one line how much of each limit is used and how much is left; at the next message Quotient gives the job's real cost and working time against the expected ones: tell them in one line.",
         "WEEK: before creating installments, run `%s rate week`: it adds up all open installment jobs until the weekly limit resets, against what is left minus a reserve for normal use (%d%%). If the new job would not fit with the others, say so in the window and offer: keep all, slow some down (`rate set <name> --daily <n>`), pause some (`rate pause <name>`), or pace the new one over more days." % (run_cmd(), cfg["week"]["reserve_percent"]),
         "Every decision Quotient needs from the user goes through the choice window, with a free field.",
-    ] if x]) + "\n"
+    ]
