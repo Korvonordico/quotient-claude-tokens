@@ -339,6 +339,54 @@ def reply_texts(sid, since, until, home=None):
     return found
 
 
+def turn_events(sid, since, until, home=None):
+    """1.3.5: what Hermes' agent wrote and called in a chat between two moments, in the shape of Claude Code's
+    transcript, so that quote_after_work reads a Hermes reply too: for each assistant message its text, then its tool
+    calls. Hermes' clarify tool is the choice window (named like Claude Code's, AskUserQuestion) and a tool call with a
+    `command` is a shell run (Bash); a command is kept only when it runs quote-table. Only Hermes' own messages, never the
+    user's; read in memory, kept nowhere. [] if the session store cannot be read."""
+    path = db_path(home)
+    if not sid or not os.path.isfile(path):
+        return []
+    try:
+        con = sqlite3.connect("file:" + path.replace("\\", "/") + "?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return []
+    try:
+        cols = {r[1] for r in con.execute("pragma table_info(messages)")}
+        if not {"session_id", "role", "timestamp", "content", "tool_calls"} <= cols:
+            return []
+        rows = con.execute("select content, tool_calls from messages where session_id = ? and role = 'assistant' and "
+                           "timestamp >= ? and timestamp <= ? order by timestamp, id", (sid, since, until)).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+    events = []
+    for content, tool_calls in rows:
+        blocks = [{"type": "text", "text": content}] if isinstance(content, str) else []
+        try:
+            listed = json.loads(tool_calls) if tool_calls else []
+        except (TypeError, ValueError):
+            listed = []
+        for call in listed if isinstance(listed, list) else []:
+            f = (call.get("function") or {}) if isinstance(call, dict) else {}
+            name, args = str(f.get("name") or ""), f.get("arguments")
+            try:
+                args = json.loads(args) if isinstance(args, str) else args
+            except ValueError:
+                args = None
+            command = (args or {}).get("command") if isinstance(args, dict) else None
+            if name.endswith("clarify"):
+                name = "AskUserQuestion"
+            elif isinstance(command, str):
+                name = "Bash"
+            blocks.append({"type": "tool_use", "name": name,
+                           "input": {"command": command} if isinstance(command, str) and "quote-table" in command else {}})
+        events.append({"type": "assistant", "message": {"content": blocks}})
+    return events
+
+
 def last_user_message(sid, before, home=None):
     """When the user last wrote in a chat, at or before a moment (the start of that turn), or None."""
     rows = messages(sid, before - 7 * 86400, before, home) or []

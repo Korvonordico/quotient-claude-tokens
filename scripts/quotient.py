@@ -104,8 +104,8 @@ from quotient_lib.q_hooks import (  # noqa: F401
     BIGGEST_RE, BIND_RE, CAP_RE, HEREDOC_RE, SAVE_TOOLS, SMALLEST_RE, TIMER_LEVEL_RE, add_injected, bind_from_commands,
     chat_hint, chat_jobs, chat_jobs_path, chat_jobs_text, chat_share, close_job, hook_pretool, hook_prompt, hook_session,
     hook_stop, infer_choice, level_pattern, main_transcript, timer_level, turn_words,
-    new_chat_allowed, note_chat_job, piece_check, pieces_path, quotient_action, quotient_weight, run_pieces,
-    saving_line, scheduled_prompt, step_weight, take_chat_job, work_per_call, write_only,
+    new_chat_allowed, note_chat_job, piece_check, pieces_path, quote_after_work, quotient_action, quotient_weight,
+    run_pieces, saving_line, scheduled_prompt, step_weight, take_chat_job, work_per_call, write_only,
 )
 from quotient_lib.q_limits import (  # noqa: F401
     WINDOWS, capacity, cfg_limits, cmd_plan_changed, five_capacity, latest_limits, left_text, limits_due,

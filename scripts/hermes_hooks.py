@@ -371,6 +371,15 @@ def save_copies(q, cfg, sid, chat, now):
     return written
 
 
+def _after_work(q, sid, since, until):
+    """1.3.5: True when this reply used tools and made no quote before its last message (quote_after_work). When
+    Hermes' messages cannot be read it is False: the quote counts, as it always did."""
+    try:
+        return q.quote_after_work(hs.turn_events(sid, since, until))
+    except Exception:
+        return False
+
+
 def post_llm_call(q, payload):
     cfg = q.config()
     sid = payload.get("session_id") or ""
@@ -397,6 +406,12 @@ def post_llm_call(q, payload):
         return max(0.0, now - since) if secs is None else secs
 
     if q.same_quote(quote, choice, chat.get("job") or chat.get("closed")):
+        quote = choice = custom = None
+    if (quote and not (chat.get("job") or chat.get("quote"))
+            and (choice or q.CONTINUES_RE.search(text) or q.JOB_DONE_RE.search(text))
+            and _after_work(q, sid, t0, now + 1)):
+        # 1.3.5, as in Claude Code: a quote written when the work is done is not a quote. The job would count from the
+        # start of this reply, against an estimate made after it, and a late QUOTE alone would wait for a plain yes.
         quote = choice = custom = None
     if quote:
         # 1.1.3: a quote the user saw without the time or the shares of a level is given again at the next message.
