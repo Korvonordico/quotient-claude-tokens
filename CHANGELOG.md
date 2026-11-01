@@ -4,6 +4,13 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-11-01
+
+### Fixed
+
+- **The next installment is no longer shown for a schedule you turned off.** A disabled daily task in Task Scheduler still has a next run time, and the reports said "Next installment: Mon 03:00" although nothing would start. Disabled tasks are now skipped.
+- **`rate status` names the Hermes chat that gets the reports.** For jobs whose reports go to a Hermes chat it said "the first chat the user writes in"; it now says "the Hermes chat <id>".
+
 ## [1.3.1] - 2026-10-31
 
 ### Added
@@ -517,6 +524,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.3.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.2
 [1.3.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.1
 [1.3.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.0
 [1.2.9]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.2.9
