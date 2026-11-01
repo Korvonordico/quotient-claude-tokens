@@ -57,7 +57,7 @@ too high: the test added up the two parts of a resumed session, and a resumed se
 Measured again in test 3, the extra cost was 47%. One job also hung for 12 minutes on a search of the whole disk, not
 Quotient's fault, and was left out of the means.
 
-### Screen recorder (a tool not published yet)
+### Screen recorder ([Iris Insight](https://github.com/Korvonordico/iris-insight))
 
 5 problems from a game's real recordings. With: 25 frames in one image. Without: the same 25 frames as separate images.
 

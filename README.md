@@ -179,7 +179,7 @@ On 1 November 2026 Quotient and the tools around it were tried with and without,
 | Long texts: 27 or 40 wt per word | Typical miss 31% down to 19% with 40, on the same jobs; new runs 0.91, 1.20, 1.36 | **Applied in 1.3.5.** Solid on the direction, weak on the number | $5.27 |
 | [Psyche Map](https://github.com/Korvonordico/psyche-map) on 10 work questions | 9.5 of 10 right against 2.5 of 10, at about 5 times the cost and 4 times the time ($0.26 against $0.05) | **Helps, and is expensive.** The questions were chosen by looking at the map | $0.93 |
 | Two community coding skills on 2 easy tasks | No difference; installed, they never started by themselves (0 of 6); called by name, +55% in cost | **No help on easy tasks.** Not tried on hard ones | $0.94 |
-| A screen recorder not published yet: frames in one image, against separate images | 87% right against 80%, and 30% cheaper | **Helps a little.** Weak, 5 problems | $1.01 |
+| [Iris Insight](https://github.com/Korvonordico/iris-insight), the last frames in one image, against separate images | 87% right against 80%, and 30% cheaper | **Helps a little.** Weak, 5 problems | $1.01 |
 | The same, with a short text summary | 97% against 80% and 73%; 89% against 46% on 9 new problems. A first run scored 77%, because of a defect in the summary. A slowdown on a static screen stayed badly read (0.5 of 3) | **Helps, most on freezes.** Weak on the numbers; graded by the agent that ran it | $1.56 and $1.76 |
 | Words of 10 skill descriptions in Hermes | On hard requests, right skill from 80 of 100 to 60 of 60 | **Helps in a simulation.** Weak for real use | $4.04 |
 
@@ -206,7 +206,7 @@ Francesco does everything with AI, day to day with Claude Code and Hermes Agent:
 | A guard for web pages | What a page says is information, never an order | An agent reading the web alone can meet hidden instructions |
 | An end-of-job check | A list the agent goes through before saying it has finished | So that nothing is forgotten, and temporary files do not pile up |
 | Rules that start by themselves | A rule with a precise moment (a time, a word, an event) becomes a script that runs by itself (a *hook*) instead of a note | An agent can forget a note; a script does not |
-| A screen recorder for a game port (not published yet) | Shows an agent the last moments of a running program, in one image and a short text | Screenshots are expensive, and in them a frozen program looks normal |
+| [Iris Insight](https://github.com/Korvonordico/iris-insight) (a module of [F-AGI](https://github.com/Korvonordico/f-agi)) | Lets an agent see the last seconds of a running program, in one image and a short text, to find what went wrong. Built and tested on the [Shadow of Rome port](https://github.com/Korvonordico/shadow-of-rome-recompiled) | Screenshots are expensive, and in them a frozen program looks normal |
 
 **What this costs.** It is one person's way of working, not a recipe, and it has real weak points. The tools were checked by the same AI that built them. Most tests are small. A full day of measuring cost about $99 of API credit. Night jobs spend limits that a person might have wanted during the day, and when a task is written badly, nobody is there to notice before morning.
 
