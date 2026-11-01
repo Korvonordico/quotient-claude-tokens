@@ -150,6 +150,11 @@ def notify(title, body, link=None):
     """A desktop notification, so the user sees that an installment ran without opening anything. On Windows
     it stays in the notification center, and with a link (the report page) a click opens it. The notification
     itself writes no file. Best effort: it never stops an installment."""
+    try:   # 1.3.3: the same notice on the phone, if a way is set up (never stops the desktop one)
+        from quotient_lib import q_phone
+        q_phone.send(title, body.replace("Clicca per aprire il resoconto.", "").replace("Click to open the report.", "").strip(), link)
+    except Exception:
+        pass
     if not q_settings.config()["rate"].get("notify", True):
         return False
     try:
@@ -324,6 +329,9 @@ def installment_toast(name, job, runs, cfg, page=None):
             body += (" · %s di lavoro%s" if it else " · %s of work%s") % (
                 q_timing.fmt_duration(q_notices.run_seconds(run)), ((" (previsti circa %s)" if it else " (about %s expected)") % q_timing.fmt_duration(
                     run["predicted_seconds"])) if run.get("predicted_seconds") else "")
+        five_point = (q_limits.five_capacity(cfg) or {}).get("per_point")   # 1.3.3
+        if five_point and run.get("wt"):
+            body += (" · %s delle 5 ore" if it else " · %s of the 5 hours") % percent(run["wt"] / five_point, cfg.get("lang"))
         if per_point and run.get("wt"):
             body += (" · %s della settimana (stima)" if it else " · %s of the week (estimate)") % percent(
                 run["wt"] / per_point, cfg.get("lang"))

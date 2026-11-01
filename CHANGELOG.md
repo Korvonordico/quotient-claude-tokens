@@ -4,6 +4,17 @@ All notable changes to Token Quotient (Quotient for short; called Quotient up to
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-11-01
+
+### Added
+
+- **Notices on your phone.** The notice at the end of each installment can also go to Telegram (your own bot), to the free ntfy app, or to any webhook (Discord, Slack, Home Assistant...). Each way is off until you set it up; secrets are read from an environment variable or a file, never from the config. `phone test` sends one notice and says what happened. Other apps can be added: see CONTRIBUTING.md.
+- The notice and the report give the installment's share of the 5 hours too, next to the share of the week.
+
+### Changed
+
+- **Shorter installment reports in the chat.** Claude now gives only the essential: quote against cost, time, share of the 5 hours and of the week, the result in a sentence or two, what is left in one line, and when the next one starts.
+
 ## [1.3.2] - 2026-11-01
 
 ### Fixed
@@ -524,6 +535,7 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.3.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.3
 [1.3.2]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.2
 [1.3.1]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.1
 [1.3.0]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.0

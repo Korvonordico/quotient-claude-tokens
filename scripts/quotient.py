@@ -223,6 +223,8 @@ def main(argv=None):
     p.add_argument("--every", type=float, help="not if read or tried within these seconds (default: limits.job_every)")
     p = sub.add_parser("prices", help="the price table of the Claude models; `prices update` downloads it again")
     p.add_argument("action", nargs="?", choices=["update"])
+    p = sub.add_parser("phone", help="the installment notices on your phone (Telegram, ntfy, webhook): `phone test`")
+    p.add_argument("action", nargs="?", choices=["test"], default="test")
     p = sub.add_parser("budget", help="the budget of the normal chats against the plan's limits")
     p = sub.add_parser("tips", help="the tips for saving tokens, most useful first: put one off (later) or drop it")
     p.add_argument("what", nargs="?", choices=("list", "later", "drop", "back"), default="list")
@@ -334,6 +336,9 @@ def main(argv=None):
         q_longchats.cmd_setup(args)
     elif args.cmd == "share":
         q_prices.cmd_share(args)
+    elif args.cmd == "phone":
+        from quotient_lib import q_phone
+        q_phone.cmd_phone(args)
     elif args.cmd == "prices":
         q_prices.cmd_prices(args)
     elif args.cmd == "commands":

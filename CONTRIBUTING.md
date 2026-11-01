@@ -55,6 +55,10 @@ GitHub Actions runs both at every push and pull request: the Python tests on Ubu
 - **Plain words for users.** Short sentences, numbers with their unit, no jargon where a common word works.
 - **Privacy is part of the change.** If a change touches what Quotient reads, keeps, sends or fetches, update [PRIVACY.md](PRIVACY.md) (both languages) and the "Everything Quotient runs, sends and fetches" list in both READMEs in the same pull request. The shared line (`v`, `q`, `family`, `estimate`, `actual`) is fixed: the service refuses anything else, so changing it needs an issue first.
 
+## Adding a way to send notices to the phone
+
+The phone notices live in `scripts/quotient_lib/q_phone.py`. A new app (WhatsApp, Signal, Matrix, Pushover...) is one function `send_<app>(conf, title, body, link)` that returns the HTTP status (or `None` when it is not set up), one entry in `SENDERS`, its defaults under `"phone"` in `q_settings.DEFAULTS` (with `"enabled": False`), a few tests in `tests/test_phone.py` with the network mocked, and a line in the README section "Notices on your phone". Secrets (tokens, private addresses) are read only through `secret()`, from an environment variable or a file, never from the config, and must never appear in an error message. Please say in the pull request whether you tried it with the real app.
+
 ## Pull requests
 
 1. Fork the repository and branch from `main`.

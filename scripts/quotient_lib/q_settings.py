@@ -21,7 +21,7 @@ def entry():
     return ENTRY["module"]
 
 
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -244,6 +244,13 @@ DEFAULTS = {
         # 1.3.1: the reserve switches itself off when the weekly limit resets within this many days (0 = never):
         # what is left of a week that is about to reset is lost anyway, so installments may use it all.
         "reserve_off_days": 2,
+    },
+    # 1.3.3: the installment notices on the phone too, each way off until set up. Secrets (the bot token, the
+    # webhook address) are never written here: only the NAME of an environment variable or a file holding them.
+    "phone": {
+        "telegram": {"enabled": False, "token_env": "QUOTIENT_TELEGRAM_TOKEN", "token_file": "", "chat_id": "", "thread_id": ""},
+        "ntfy": {"enabled": False, "server": "https://ntfy.sh", "topic": ""},
+        "webhook": {"enabled": False, "kind": "json", "url_env": "QUOTIENT_WEBHOOK_URL", "url_file": ""},
     },
     "rate": {
         # Put in front of every installment prompt (for example a tag your own hooks skip).

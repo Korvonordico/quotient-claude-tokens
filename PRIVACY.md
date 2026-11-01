@@ -16,6 +16,7 @@ Since 1.1.4, to tell when something around your jobs changes (a plugin installed
 
 Since 1.1.6, Quotient sets its measures against others. These stay on your computer too, as numbers only:
 
+- **Notices on your phone, only if you set them up** (since 1.3.3). At the end of each installment Quotient sends the notice's short text (job name, times, cost, shares of the 5 hours and of the week) to the way you chose: Telegram (your bot), ntfy (the server you chose, ntfy.sh by default) or your webhook address. That service then has the text, under its own privacy policy. Nothing else is sent; the token and the address are read from your environment variable or file, never written by Quotient.
 - **Claude Code's own telemetry, only if you turn it on** (`telemetry on`). Claude Code then sends its token and cost counters (OpenTelemetry) to a small receiver of Quotient's on `127.0.0.1:4318`, which only this computer can reach. The receiver keeps tokens by type, cost, model, kind of call, session and time in `~/.quotient/otel.jsonl`, and drops everything else Claude Code attaches (e-mail, account and organization ids). The settings Quotient prints ask Claude Code for metrics only: no events, no prompts, no account id. `telemetry on --write` and `telemetry off --write` change the `env` block of `~/.claude/settings.json`, after a copy of it; without `--write` nothing is written. The receiver stops by itself after 2 hours without data.
 - **Hermes' own estimate of each chat's cost**, from the same read-only session store.
 - **The cost the status line gets**, if you set the status line up: Claude Code's cost of the session, in `statusline-cost.jsonl`.
@@ -26,7 +27,7 @@ Since 1.1.6, Quotient sets its measures against others. These stay on your compu
 To help everyone start from real numbers instead of from zero, Quotient shares **one line of numbers for each finished job**. Exactly this, and nothing else:
 
 ```json
-{"v":1,"q":"1.3.2","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.3.3","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 | Field | What it is |
@@ -104,7 +105,7 @@ Dalla 1.1.6 Quotient mette le sue misure accanto ad altre. Anche queste restano 
 **Cosa viene condiviso**: una riga di numeri per ogni lavoro finito, esattamente questa e nient'altro:
 
 ```json
-{"v":1,"q":"1.3.2","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.3.3","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e il costo vero del lavoro in token pesati (dalla 0.9.5 senza la rilettura di quello che la chat conteneva quando il lavoro è cominciato, che la stima non riguarda), arrotondati a 3 cifre. Dalla 1.1.6, solo quando si sanno: il piano (`plan`), solo se l'hai scelto nelle impostazioni di Quotient, e quanti token pesati tiene l'1% della tua settimana (`per_point`, arrotondato a 3 cifre), solo quando Quotient l'ha imparato dalle tue letture dei limiti; dalla 1.1.7 lo stesso per la finestra di 5 ore (`per_point_5h`). Servono perché un utente nuovo dello stesso piano parta dalla misura vera dell'1% della settimana e delle 5 ore di quel piano invece che da zero, e perché i limiti di ogni piano li confermino altre persone. Quello che riceve l'utente nuovo è una stima di partenza presa da altri utenti, con il suo margine, non una certezza: Anthropic non pubblica i limiti in token e li cambia. Senza, la riga resta di cinque campi come prima. Niente date né orari, niente nomi, testi, percorsi, codici di sessione o di persona, niente account. La riga parte all'inizio della sessione successiva, mai a metà di una risposta, e niente parte prima che tu sia avvisato: la prima volta Claude Code ti mostra un messaggio che dice cosa viene condiviso e come spegnerlo. Va a un piccolo servizio su Cloudflare Workers, il cui codice è pubblico in [`server/`](server/), che accetta solo righe di quella forma.

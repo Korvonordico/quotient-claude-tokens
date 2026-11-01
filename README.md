@@ -109,7 +109,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.3.2","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.3.3","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - No dates, no times, no names, no text, no paths, no session or user ids. The service that collects the lines ([code in `server/`](server/)) does not keep IP addresses.
@@ -544,6 +544,16 @@ Yes, a little: about 2,800 tokens of rules at the start of a session and a line 
 Quotes, measuring, limits and the report work wherever Claude Code, Python 3.8+ and `sh` run. Waking the PC and putting it back to sleep work only on Windows; on macOS and Linux Quotient gives you the line to schedule installments yourself, and notifications use `osascript` or `notify-send`. The automatic tests run on Windows and Ubuntu.
 
 </details>
+
+### Notices on your phone
+
+The notice at the end of each installment can also reach your phone, so you see it away from the PC. There are three ways; each stays off until you set it up, and you can use more than one. The phone gets the same short text as the PC: times, cost, share of the 5 hours and of the week.
+
+- **Telegram.** Make a bot of your own with @BotFather and copy its token. The token is a secret: put it in an environment variable called `QUOTIENT_TELEGRAM_TOKEN` (or in a file of yours, then `config phone.telegram.token_file <path>`), never in the config. Write one message to your bot, find your chat id (for example with @userinfobot), then `config phone.telegram.chat_id <id>` and `config phone.telegram.enabled true`.
+- **ntfy.** A free app ([ntfy.sh](https://ntfy.sh)), no account. Pick a topic name nobody can guess, subscribe to it in the app, then `config phone.ntfy.topic <name>` and `config phone.ntfy.enabled true`. Your own ntfy server works too (`phone.ntfy.server`).
+- **Webhook.** Any address that takes a POST: a Discord or Slack "incoming webhook", Home Assistant, n8n and so on. Put the address in `QUOTIENT_WEBHOOK_URL` (or in a file: `phone.webhook.url_file`), choose `config phone.webhook.kind discord`, `slack` or `json`, then `config phone.webhook.enabled true`.
+
+`phone test` sends one notice to every way you set up and says what happened. A failed send never stops an installment. Telegram and ntfy were tried for real; the Discord and Slack formats were tested only with sample data so far, so if you use them please tell us in an issue whether they work. Other apps (WhatsApp, Signal, Matrix, Pushover...) are not built in yet: if you want one, [CONTRIBUTING.md](CONTRIBUTING.md) says how to add it.
 
 ## How the code is organized
 
