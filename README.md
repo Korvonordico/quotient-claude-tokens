@@ -187,7 +187,7 @@ On 1 November 2026 Quotient and the tools around it were tried with and without,
 
 On 1 October 2026 the weekly limit stopped three days of work. Francesco Candela wanted what you get from any builder: a price before the job, so he could stop in time. The first version of Quotient was running on 5 October.
 
-Francesco is not a programmer. He does everything with AI, day to day with Claude Code and Hermes Agent: every line of this project was written by Claude, from his ideas and his choices. That changes what he can trust. He does not judge the code by reading it, so the proof has to come from elsewhere: tests that run at every change, measures, and reports in plain words.
+Francesco does everything with AI, day to day with Claude Code and Hermes Agent: every line of this project was written by Claude, from his ideas and his choices.
 
 **The method:**
 
