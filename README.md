@@ -81,6 +81,23 @@ In Claude Code:
 
 You need Python 3.8 or newer (standard library only, nothing else to install) and `sh`, which on Windows comes with Git for Windows, already used by Claude Code.
 
+### With OpenAI Codex (experimental, new in 1.3.6)
+
+Quotient also runs inside [Codex](https://developers.openai.com/codex), OpenAI's coding agent, through Codex's hooks. It is new and has been tested only on sample session logs, not yet in a long real use: please [open an issue](https://github.com/Korvonordico/quotient-claude-tokens/issues) when something looks wrong.
+
+1. Download Quotient: `git clone https://github.com/Korvonordico/quotient-claude-tokens` (or "Code > Download ZIP" on GitHub, then unzip it).
+2. In a terminal, inside that folder: `python scripts/quotient.py setup-codex` (`python3` on macOS and Linux). This adds three Quotient hooks to `~/.codex/hooks.json`; hooks you already have there stay as they are.
+3. Open Codex, type `/hooks` and trust the three Quotient hooks. Codex skips new hooks until you trust them.
+
+Then work as usual: the quotes, the measured cost of each job and the correction learned from it work as in Claude Code. The 5-hour and weekly limits are read from Codex's own session log; after some use Quotient learns their size, and the quote says how much of them a job takes. What is different:
+
+- **The numbers are an estimate of an estimate.** Weighted tokens use the price ratios of Claude's API (cache reads at 0.1, output at 5 times the input). OpenAI's ratios are not the same, and OpenAI says that a plan's usage does not follow API prices.
+- **Not in Codex yet:** installments (they run with Claude Code), the status line, the slash commands (run them as `python scripts/quotient.py <command>`, for example `report`) and the cap that stops an installment.
+- **Sharing is off.** The shared average is per Claude plan, so `setup-codex` turns sharing off.
+- **OpenAI says its session log is not a stable format.** If a Codex update changes it, Quotient may stop measuring until it is updated.
+
+To remove it, delete the Quotient entries from `~/.codex/hooks.json`.
+
 ## Quick start
 
 Work as usual. Under the threshold Claude just works; above it, or when you say "this is a big job", you get a quote first. Under the threshold you can still ask for the price: you get one line.
@@ -216,7 +233,7 @@ Everything Quotient records stays on your computer, in `~/.quotient/` (or `QUOTI
 One thing leaves your computer, and you can turn it off: after each finished job, one line of numbers for the shared average, exactly this:
 
 ```json
-{"v":1,"q":"1.3.5","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.3.6","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 - No dates, no times, no names, no text, no paths, no session or user ids. The service that collects the lines ([code in `server/`](server/)) does not keep IP addresses.
@@ -598,7 +615,7 @@ Three sets of numbers, from the most real to the most controlled: [real jobs](#r
 
 The correction learns from the measures: if the measures are wrong, it learns the wrong thing. This is how Quotient checks them, and what is not shown yet.
 
-- **Automatic tests.** 654 tests run at every change, on Windows and Ubuntu with Python 3.9 and 3.13, on made-up chats whose costs are known in advance: each API call counted once, the chat part, the working time, jobs that move between chats, installments, Hermes.
+- **Automatic tests.** 664 tests run at every change, on Windows and Ubuntu with Python 3.9 and 3.13, on made-up chats whose costs are known in advance: each API call counted once, the chat part, the working time, jobs that move between chats, installments, Hermes.
 - **Errors found and fixed.** Up to 1.0.0 the jobs measured in Hermes turned out to be 57 pieces of 4 real jobs: the agent wrote its quote again at every message, and each copy opened a new job. The correction factor had fallen to x0.14. The cause was fixed in 1.0.0; the pieces already made were not repaired automatically. On 15/10/2026 a piece of a job was found counted apart from it, and it was put back by hand; since 1.1.4 Quotient finds such cases itself and proposes `fix`.
 - **The measures against the week (1.1.1).** Anthropic shows the share of the weekly limit used, and Quotient estimates how many weighted tokens 1% holds. Each finished job and each installment is set against how much the week rose in the same time. If the two are more than 3 times apart (`config check.factor`) and no other job was running, Claude tells you once that the measure of that job does not match the week, and the report lists it. Quotient changes nothing by itself. Jobs under 4 points of the week are not judged, because the percentages are whole numbers. Other chats, and use Quotient cannot see (claude.ai, the phone), move the week too: a warning is a hint to check, not a proof.
 - **The week against the 5 hours (1.1.2).** The size of the week is estimated in two ways: from the weighted tokens measured against its own rise, and from the ratio between the rises of the 5 hours and of the week, times the size of the 5 hours. On the author's readings of 5 to 15 October 2026 the two came out the same (x1.00 apart: 8.7 points of the 5 hours for 1 point of the week, from 84 points of the week in 24 windows). The report shows both, and says when they part.
@@ -703,6 +720,7 @@ Installed it as `quotient@quotient`, before version 0.9.8? Remove that one first
 | `q_tasks` | the task check and `task-file` |
 | `q_runs` | new job, apart, one run with its cap, its status |
 | `q_schedules` | scheduled installments on Windows, and the PC: awake, idle, asleep |
+| `q_codex` | OpenAI Codex (experimental): its session log read as a transcript, its limits, `setup-codex` |
 
 Beside them: `hermes_hooks.py` and `hermes_source.py` (Hermes), `savings.py` (the tips, the budget, what if), `telemetry.py`, `limits_usage.py`.
 

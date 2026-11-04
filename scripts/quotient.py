@@ -165,6 +165,10 @@ q_settings.set_entry(sys.modules[__name__])
 # ---------------------------------------------------------------- main
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if "--codex" in argv:   # 1.3.6: the hooks `setup-codex` writes say they run inside Codex
+        argv.remove("--codex")
+        os.environ["QUOTIENT_CODEX"] = "1"
     parser = argparse.ArgumentParser(prog="quotient", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=q_settings.VERSION)
@@ -178,6 +182,7 @@ def main(argv=None):
     p = sub.add_parser("share", help="the shared average: what is sent, and turning sharing on or off")
     p.add_argument("what", nargs="?", choices=("", "status", "on", "off", "send"), default="status")
     p.add_argument("--into", help="(maintainers) add your finished jobs, numbers only, to a JSON-lines file")
+    sub.add_parser("setup-codex", help="(experimental) add Quotient's hooks to OpenAI Codex (~/.codex/hooks.json)")
     p = sub.add_parser("setup", help="set Quotient up: threshold, weekly reserve, language, what the PC does after installments")
     p.add_argument("--threshold", type=int)
     p.add_argument("--reserve", type=int)
@@ -328,7 +333,8 @@ def main(argv=None):
         return  # the live test of `rate check` is not a chat: nothing to measure or to tell
     if args.cmd in hooks:
         try:
-            hooks[args.cmd]()
+            from quotient_lib import q_codex   # 1.3.6: the same hooks also run inside Codex
+            q_codex.run_hook(hooks[args.cmd], args.cmd)
         except Exception as exc:  # a broken hook must never block the user's work
             sys.stderr.write("quotient: %s\n" % exc)
         return
@@ -340,6 +346,9 @@ def main(argv=None):
             sys.stderr.write("quotient: %s\n" % exc)
     elif args.cmd == "setup-statusline":
         q_repairs.setup_statusline(args)
+    elif args.cmd == "setup-codex":
+        from quotient_lib import q_codex
+        q_codex.setup(args)
     elif args.cmd == "setup":
         q_longchats.cmd_setup(args)
     elif args.cmd == "share":

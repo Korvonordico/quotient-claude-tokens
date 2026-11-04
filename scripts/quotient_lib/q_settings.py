@@ -21,7 +21,7 @@ def entry():
     return ENTRY["module"]
 
 
-VERSION = "1.3.5"
+VERSION = "1.3.6"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -583,6 +583,10 @@ def read_jsonl(path, tail_bytes=None):
                     pass
     except OSError:
         pass
+    if rows and isinstance(rows[-1], dict) and "payload" in rows[-1]:
+        from quotient_lib import q_codex   # 1.3.6: a Codex session log, read as a Claude Code transcript
+        if q_codex.is_codex_row(rows[-1]):
+            rows = q_codex.convert(rows)
     return rows
 
 

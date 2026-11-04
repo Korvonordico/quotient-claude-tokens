@@ -158,6 +158,13 @@ def context_size(transcript_path):
 def first_context(transcript_path):
     """The prompt of a chat's first call: what any new chat costs to read (system, tools, rules, first
     message). Above it, a long chat carries its older conversation."""
+    from quotient_lib import q_codex
+    if q_codex.is_codex_file(transcript_path):   # 1.3.6
+        for e in q_settings.read_jsonl(transcript_path):
+            size = prompt_tokens((e.get("message") or {}).get("usage")) if e.get("type") == "assistant" else 0
+            if size:
+                return size
+        return 0
     try:
         with open(transcript_path, "rb") as f:
             for n, line in enumerate(f):

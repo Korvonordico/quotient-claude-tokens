@@ -2,6 +2,12 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.3.6] - 2026-11-04
+
+### Added
+
+- **Quotient in OpenAI Codex (experimental).** `python scripts/quotient.py setup-codex` adds Quotient's hooks to Codex (`~/.codex/hooks.json`, or `$CODEX_HOME`); then `/hooks` in Codex to trust them. Codex's session log (`rollout-*.jsonl`) is read as a Claude Code transcript: the user's messages, one model call per usage record (cached input counted as a cache read, cache writes as cache writes), the model's text. Both shapes of the log are read: one `token_usage_record` per call (newer Codex) and the running `token_count` events (older). The 5-hour and weekly limits come from the same log, so inside Codex Quotient never runs `claude -p /usage`. The Stop hook prints only JSON there, as Codex asks. `setup-codex` turns sharing off (the shared average is per Claude plan). Installments, the status line and the slash commands stay Claude Code only. Tested on sample logs written to the format of Codex's source (`codex-rs/protocol`), not yet in a long real use; OpenAI says the log format may change. README: "With OpenAI Codex".
+
 ## [1.3.5] - 2026-11-01
 
 ### Changed
