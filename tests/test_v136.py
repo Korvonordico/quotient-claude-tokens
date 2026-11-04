@@ -116,9 +116,10 @@ class TestHooks(CodexLog):
                 "session_id": "c1", "transcript_path": path, "turn_id": "t2", "prompt": "fix the bug",
                 "hook_event_name": "UserPromptSubmit"})
             self.assertEqual(os.environ.get("QUOTIENT_LIMITS_LIVE"), "0")
+            last = pv.read_jsonl(q_limits.limits_path())[-1]   # 1.3.7: in Codex's own folder
         self.assertIn("[Quotient", said)
-        last = pv.read_jsonl(q_limits.limits_path())[-1]
         self.assertEqual((last["source"], last["five_hour"], last["seven_day"]), ("codex", 14.5, 40.0))
+        self.assertEqual(pv.read_jsonl(q_limits.limits_path()), [])   # Claude Code's limits are not touched
 
     def test_stop_prints_json_or_nothing(self):
         path = self.write(old_log())
@@ -146,7 +147,10 @@ class TestHooks(CodexLog):
         self.assertTrue(handler["commandWindows"].endswith("hook-prompt --codex"))
         self.assertFalse(handler["commandWindows"].startswith('"'))   # PowerShell would not run a quoted first word
         self.assertEqual(handler["additionalContextLimit"], 0)
-        self.assertFalse(pv.config()["share"]["enabled"])
+        shared = pv.config()["share"]["enabled"]   # 1.3.7: Claude Code's sharing stays as it was
+        with mock.patch.dict(os.environ, {"QUOTIENT_CODEX": "1"}):
+            self.assertFalse(pv.config()["share"]["enabled"])
+        self.assertEqual(pv.config()["share"]["enabled"], shared)
 
 
 class TestCommandLine(CodexLog):
@@ -160,7 +164,7 @@ class TestCommandLine(CodexLog):
                               capture_output=True, env=env, timeout=60)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn(b"[Quotient", done.stdout)
-        rows = pv.read_jsonl(os.path.join(self.dir, "home2", "limits.jsonl"))
+        rows = pv.read_jsonl(os.path.join(self.dir, "home2", "codex", "limits.jsonl"))
         self.assertEqual(rows[-1]["source"], "codex")
 
 

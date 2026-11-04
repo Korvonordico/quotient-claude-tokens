@@ -200,7 +200,8 @@ def task_xml(name, start, once, arguments, wake=True):
 
 def schedule(name, at, once, force=False, wake=True, now=None):
     start = next_time(at, now)
-    arguments = '"%s" rate run %s%s' % (launcher(), name, " --force" if once or force else "")
+    arguments = '"%s" rate run %s%s%s' % (launcher(), name, " --force" if once or force else "",
+                                          " --codex" if os.environ.get("QUOTIENT_CODEX") else "")   # 1.3.7
     if os.name == "nt":
         xml = os.path.join(q_rates.rate_dir(name), start.strftime("task-once-%Y%m%d-%H%M.xml") if once else "task-daily.xml")
         os.makedirs(os.path.dirname(xml), exist_ok=True)

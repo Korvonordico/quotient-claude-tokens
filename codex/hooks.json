@@ -1,0 +1,45 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$PLUGIN_ROOT/scripts/run.sh\" hook-session --codex",
+            "commandWindows": "\"%PLUGIN_ROOT%\\codex\\run.cmd\" hook-session --codex",
+            "timeout": 20,
+            "statusMessage": "Token Quotient",
+            "additionalContextLimit": 0
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$PLUGIN_ROOT/scripts/run.sh\" hook-prompt --codex",
+            "commandWindows": "\"%PLUGIN_ROOT%\\codex\\run.cmd\" hook-prompt --codex",
+            "timeout": 20,
+            "statusMessage": "Token Quotient",
+            "additionalContextLimit": 0
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$PLUGIN_ROOT/scripts/run.sh\" hook-stop --codex",
+            "commandWindows": "\"%PLUGIN_ROOT%\\codex\\run.cmd\" hook-stop --codex",
+            "timeout": 30,
+            "statusMessage": "Token Quotient"
+          }
+        ]
+      }
+    ]
+  }
+}

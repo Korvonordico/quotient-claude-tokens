@@ -35,7 +35,7 @@ def rate_dir(name):
 
 def task_name(name, once=False, at=None):
     """One daily task per job; one task per time for `rate once`, so a second time does not replace the first."""
-    base = "quotient-" + re.sub(r"[^\w-]", "_", name)
+    base = "quotient-" + ("codex-" if os.environ.get("QUOTIENT_CODEX") else "") + re.sub(r"[^\w-]", "_", name)
     if not once:
         return base
     return base + "-once" + (at.strftime("-%Y%m%d-%H%M") if at else "")
@@ -75,6 +75,9 @@ def find_claude(cfg):
 
 def find_transcript(session_id, near=None):
     """A chat's transcript, or None if it is gone. `near` is another transcript: chats are kept next to it."""
+    if os.environ.get("QUOTIENT_CODEX"):
+        from quotient_lib import q_codex
+        return q_codex.find_rollout(session_id)   # 1.3.7: a Codex session's log
     safe = re.sub(r"[^\w-]", "", session_id or "")
     if not safe:
         return None

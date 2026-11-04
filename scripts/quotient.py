@@ -169,6 +169,7 @@ def main(argv=None):
     if "--codex" in argv:   # 1.3.6: the hooks `setup-codex` writes say they run inside Codex
         argv.remove("--codex")
         os.environ["QUOTIENT_CODEX"] = "1"
+        os.environ["QUOTIENT_LIMITS_LIVE"] = "0"   # 1.3.7: inside Codex never `claude -p /usage`
     parser = argparse.ArgumentParser(prog="quotient", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=q_settings.VERSION)
@@ -182,7 +183,8 @@ def main(argv=None):
     p = sub.add_parser("share", help="the shared average: what is sent, and turning sharing on or off")
     p.add_argument("what", nargs="?", choices=("", "status", "on", "off", "send"), default="status")
     p.add_argument("--into", help="(maintainers) add your finished jobs, numbers only, to a JSON-lines file")
-    sub.add_parser("setup-codex", help="(experimental) add Quotient's hooks to OpenAI Codex (~/.codex/hooks.json)")
+    sp = sub.add_parser("setup-codex", help="(experimental) add Quotient's hooks to OpenAI Codex (~/.codex/hooks.json)")
+    sp.add_argument("--remove", action="store_true", help="take Quotient's hooks away (1.3.7: for who moves to the plugin)")
     p = sub.add_parser("setup", help="set Quotient up: threshold, weekly reserve, language, what the PC does after installments")
     p.add_argument("--threshold", type=int)
     p.add_argument("--reserve", type=int)

@@ -21,7 +21,7 @@ def entry():
     return ENTRY["module"]
 
 
-VERSION = "1.3.6"
+VERSION = "1.3.7"
 
 DEFAULTS = {
     # False until the user has set Quotient up (first-use window, /token-quotient:setup, or Claude Code's plugin settings).
@@ -328,6 +328,10 @@ DEFAULTS = {
         "task_file_lines": 60,
         "task_file_stuck": 3,
         "extra_args": [],
+        # 1.3.7: an installment of a job made in Codex runs `codex exec` with this sandbox (read-only, workspace-write,
+        # danger-full-access) and these extra arguments; Quotient stops it from outside at its cap.
+        "codex_sandbox": "workspace-write",
+        "codex_args": [],
     },
     # 1.1.1: each finished job (and each installment) is set against how much the weekly limit rose meanwhile. A miss
     # beyond x`factor`, with no other job running, is told once; Quotient changes nothing by itself. Jobs smaller than
@@ -524,6 +528,17 @@ TYPE_RE = re.compile(r"(?<![\w])(?:kind|type|tipo)\s*=\s*([^\W\d][\w-]*)", re.I)
 
 def home():
     path = os.environ.get("QUOTIENT_HOME") or os.path.join(os.path.expanduser("~"), ".quotient")
+    if os.environ.get("QUOTIENT_CODEX"):
+        # 1.3.7: Codex keeps its own limits, jobs, learning and settings, in a folder of their own; its first settings
+        # are a copy of Claude Code's (1.3.6 wrote both in one folder, so Claude's limits and Codex's got mixed)
+        base, path = path, os.path.join(path, "codex")
+        if not os.path.isdir(path):
+            os.makedirs(path, exist_ok=True)
+            try:
+                import shutil
+                shutil.copyfile(os.path.join(base, "config.json"), os.path.join(path, "config.json"))
+            except OSError:
+                pass
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -608,7 +623,10 @@ def to_bool(value):
 
 
 def config():
-    return merge(DEFAULTS, load_json(os.path.join(home(), "config.json"), {}))
+    cfg = merge(DEFAULTS, load_json(os.path.join(home(), "config.json"), {}))
+    if os.environ.get("QUOTIENT_CODEX"):
+        cfg["share"] = dict(cfg.get("share") or {}, enabled=False)   # 1.3.7: the shared averages are per Claude plan
+    return cfg
 
 
 def save_settings(values):

@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone
 
 from quotient_lib import q_costs, q_hooks, q_learning, q_limits, q_notices, q_quotes, q_rates, q_repairs, q_schedules, q_settings, q_sharing, q_tasks, q_timing, q_weeks
+from quotient_lib import q_codex
 
 def rate_new(args):
     folder = q_rates.rate_dir(args.name)
@@ -77,6 +78,11 @@ def rate_new(args):
         "session": (getattr(args, "session", None) if isinstance(getattr(args, "session", None), str) else None) or q_rates.chat_id(),
     }
     apart = getattr(args, "apart", False) is True
+    if q_codex.active():
+        job["engine"] = "codex"   # 1.3.7: made in Codex, so `codex exec` does its installments
+        found = q_codex.find_codex()
+        if found:
+            job["codex_path"] = found[0]
     if apart:
         job["apart"] = True      # 1.1.1: done apart, now (rate apart)
     if at:
@@ -123,7 +129,7 @@ def start_detached(argv, log):
     with open(log, "ab") as f:
         for flag in flags:
             try:
-                subprocess.Popen([exe, q_settings.ENTRY_FILE] + list(argv), stdin=subprocess.DEVNULL, stdout=f,
+                subprocess.Popen([exe, q_settings.ENTRY_FILE] + list(argv) + (["--codex"] if q_codex.active() else []), stdin=subprocess.DEVNULL, stdout=f,
                                  stderr=f, close_fds=True, cwd=q_settings.home(), **(dict(kw, creationflags=flag) if flag else kw))
                 return True
             except OSError:  # breaking away from the chat's job object may not be allowed: try without
@@ -145,11 +151,11 @@ def rate_apart(args):
         q_settings.out("Job '%s' is ready, but it could not be started in the background: run `%s rate run %s` in the background.\n"
             % (args.name, q_quotes.run_cmd(), args.name))
         return
-    q_settings.out("Job '%s' started apart, now: one installment of up to %s wt (the whole corrected quote) in a separate Claude "
-        "Code session (claude -p), working in %s.%s It cannot be talked to while it works and asks no questions; a "
+    q_settings.out("Job '%s' started apart, now: one installment of up to %s wt (the whole corrected quote) in a separate %s, working in %s.%s It cannot be talked to while it works and asks no questions; a "
         "command that needs a permission may stop it. Its report comes back to %s when it ends, and a notification "
         "shows it. Log: %s\n" % (
-            args.name, q_quotes.fmt(job["daily_cap"]), job["dir"],
+            args.name, q_quotes.fmt(job["daily_cap"]),
+            "Codex session (codex exec)" if q_codex.active() else "Claude Code session (claude -p)", job["dir"],
             " Expected time: about %s." % q_timing.fmt_duration(each) if each else "",
             "this chat" if job.get("session") else "the first chat you write in", log))
 
@@ -471,7 +477,12 @@ def run_installment(args):
             "today's limit): rate run %s --force\n" % (args.name, args.name))
         return
     it = cfg.get("lang") == "it"
-    claude = q_rates.find_claude(cfg)
+    codex = q_codex.active(job)   # 1.3.7: a job made in Codex is done by `codex exec`
+    claude = q_codex.find_codex(job) if codex else q_rates.find_claude(cfg)
+    if not claude and codex:
+        q_rates.notify(("Quotient · la rata di «%s» non è partita" if it else "Quotient · the installment of '%s' did not start") % args.name,
+               "Codex non trovato: QUOTIENT_CODEX_BIN=<percorso>." if it else "Codex not found: QUOTIENT_CODEX_BIN=<path>.")
+        sys.exit("quotient: codex not found; set QUOTIENT_CODEX_BIN to its path")
     if not claude:
         q_rates.notify(("Quotient · la rata di «%s» non è partita" if it else "Quotient · the installment of '%s' did not start") % args.name,
                "Claude Code non trovato: config claude_path <percorso>." if it else "Claude Code not found: config claude_path <path>.")
@@ -509,6 +520,9 @@ def run_installment(args):
     if job.get("usd_per_wt"):
         cmd += ["--max-budget-usd", "%.2f" % (cap * job["usd_per_wt"] * rc["usd_cap_margin"])]
     cmd += list(rc["extra_args"])
+    if codex:
+        prompt = q_codex.installment_prompt(prompt)
+        cmd = q_codex.exec_cmd(claude, job, folder, rc)
     os.makedirs(os.path.join(folder, "notes"), exist_ok=True)   # where helpers save as they go (1.1.1)
     started = q_settings.now_iso()
     os.environ.pop("HERMES_SESSION_ID", None)   # hermes branch: an installment measures itself, not in the chat that started it
@@ -518,13 +532,21 @@ def run_installment(args):
     # work in the last rate.close_minutes.
     stop_at = time.time() + rc["timeout_minutes"] * 60
     os.environ["QUOTIENT_STOP_AT"] = str(stop_at)
-    cmd[2] = prompt + TIME_LINE % datetime.fromtimestamp(stop_at).strftime("%H:%M")
+    full = prompt + TIME_LINE % datetime.fromtimestamp(stop_at).strftime("%H:%M")
+    if not codex:
+        cmd[2] = full
     q_settings.save_json(open_run_path(folder), {"started": started, "cap": cap})
-    reader = q_limits.limits_reader(cfg)   # 1.1.6: the limits read every minute while the installment works
+    reader = None if codex else q_limits.limits_reader(cfg)   # 1.1.6: the limits read every minute while the installment works
+    codex_result, codex_log = None, None
     try:
-        proc = subprocess.run(cmd, cwd=job["dir"], capture_output=True, timeout=rc["timeout_minutes"] * 60)
-        stdout = proc.stdout.decode("utf-8", "replace")
-        stderr = proc.stderr.decode("utf-8", "replace")
+        if codex:   # 1.3.7: measured as it goes and stopped from outside at its cap
+            codex_result, codex_log, stderr = q_codex.run_exec(cmd, full, job["dir"], rc["timeout_minutes"] * 60, cap,
+                                                               cfg["weights"])
+            stdout = ""
+        else:
+            proc = subprocess.run(cmd, cwd=job["dir"], capture_output=True, timeout=rc["timeout_minutes"] * 60)
+            stdout = proc.stdout.decode("utf-8", "replace")
+            stderr = proc.stderr.decode("utf-8", "replace")
     except subprocess.TimeoutExpired:
         stdout, stderr = "", "timeout"
     finally:
@@ -540,8 +562,10 @@ def run_installment(args):
             break
         except ValueError:
             continue
+    if codex_result is not None:
+        result = codex_result
     sid = result.get("session_id")
-    transcript = q_rates.find_transcript(sid) if sid else None
+    transcript = codex_log or (q_rates.find_transcript(sid) if sid else None)
     if not transcript:
         # 31/10/2026: stopped by the timeout or killed, it printed nothing: its transcript still holds what it spent
         transcript = q_costs.find_run_transcript(folder, started, q_settings.now_iso(), {r.get("session") for r in runs})
@@ -569,6 +593,9 @@ def run_installment(args):
         low = said.lower()
         error = (q_rates.LOGIN_ERROR if "logged in" in low or "/login" in said or "authenticate" in low or "oauth" in low
                  else (said.strip()[-300:] or "error"))
+    if codex:   # Codex's own error, its login included
+        error = ((result.get("result") or "error") if result.get("is_error")
+                 else None if sid else (stderr.strip()[-300:] or "error"))
     helpers = helper_work(transcript) if transcript else []
     if helpers and not done and (error or any(h["stopped"] for h in helpers) or capped(transcript)):
         save_helpers_note(folder, helpers, len(runs) + 1, cfg.get("lang"))
@@ -585,6 +612,8 @@ def run_installment(args):
            "predicted_seconds": round(expected_run) if expected_run else None,
            "helpers": len(helpers), "helpers_stopped": sum(1 for h in helpers if h["stopped"]),
            "check": 1}   # 1.1.1: set against the week (measure_checks)
+    if codex:
+        run["engine"], run["stopped"] = "codex", result.get("stopped")   # stopped: "cap" or "timeout"
     stuck = (q_settings.load_json(os.path.join(folder, "stuck.json"), {}) or {}).get(str(sid or ""))
     if stuck:
         run["stuck"] = stuck      # improvement 11
@@ -593,7 +622,9 @@ def run_installment(args):
             import savings
             run.update(savings.run_numbers(q_settings.entry(), q_settings.read_jsonl(transcript), cfg))
         run["env"] = q_learning.record_env(cfg, job.get("dir"))   # 1.1.4: the plugins, MCP servers and hooks it ran with
-        run["elsewhere"] = q_learning.elsewhere_wt(q_limits.ts_epoch(started), q_limits.ts_epoch(finished_at), {sid} if sid else ())
+        if codex and transcript:
+            q_codex.record_limits_from(transcript)   # the plan's limits, from the run's own log
+        run["elsewhere"] = None if codex else q_learning.elsewhere_wt(q_limits.ts_epoch(started), q_limits.ts_epoch(finished_at), {sid} if sid else ())
     except Exception:
         pass
     # Read the job again: a chat may have changed it while the installment worked (`rate here`, `rate set`).

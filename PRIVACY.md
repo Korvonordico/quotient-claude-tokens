@@ -12,6 +12,8 @@ An installment job also remembers which chat created it (the chat's id), so each
 
 If you use Hermes Agent, Quotient also reads Hermes' local session store, read-only: the token counters (also those of its calls in the background), the model and the title of each chat. Since 1.1.5, when a reply of Hermes gives a quote, Quotient also reads what Hermes wrote in that reply and the choices of its clarify window, only to check that the quote shows the time and the shares of each level; it keeps none of it. It never reads your messages. This stays on your computer too.
 
+If you use Token Quotient in OpenAI Codex (since 1.3.6), Quotient reads Codex's session logs on your computer (`~/.codex/sessions/`, or `CODEX_HOME`): the token counts of each turn, the model, the limits Codex writes there (the share used and when it resets) and, only to find the log of an installment it started, the first message of a session. Since 1.3.7 everything it records for Codex is kept apart, in `~/.quotient/codex/`. An installment runs `codex exec`, which works with your own Codex login, as Codex does when you use it; Quotient never sees that login. Nothing of this is sent anywhere by Quotient, and Codex jobs are never shared.
+
 Since 1.1.4, to tell when something around your jobs changes (a plugin installed, for example), Quotient also reads the **names** of the plugins turned on, of the MCP servers and of the hooks, from Claude Code's settings files and from Hermes' `config.yaml`. For a hook it keeps the event and the name of the script it runs. It never keeps their command lines, arguments, settings, keys or other secrets. The names stay in `~/.quotient/` (`env.jsonl` and your jobs) and are not part of the shared line.
 
 Since 1.1.6, Quotient sets its measures against others. These stay on your computer too, as numbers only:
@@ -27,7 +29,7 @@ Since 1.1.6, Quotient sets its measures against others. These stay on your compu
 To help everyone start from real numbers instead of from zero, Quotient shares **one line of numbers for each finished job**. Exactly this, and nothing else:
 
 ```json
-{"v":1,"q":"1.3.6","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.3.7","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 | Field | What it is |
@@ -93,6 +95,8 @@ Un lavoro a rate ricorda anche quale chat l'ha creato (il codice della chat), co
 
 Se usi Hermes Agent, Quotient legge anche il suo archivio locale delle sessioni, in sola lettura: i contatori dei token (anche quelli delle sue chiamate in sottofondo), il modello e il titolo di ogni chat. Dalla 1.1.5, quando una risposta di Hermes dà un preventivo, Quotient legge anche quello che Hermes ha scritto in quella risposta e le scelte della sua finestra clarify, solo per controllare che il preventivo mostri il tempo e le quote di ogni livello; non ne tiene niente. Non legge mai i tuoi messaggi. Anche questo resta sul tuo computer.
 
+Se usi Token Quotient in OpenAI Codex (dalla 1.3.6), Quotient legge i registri delle sessioni di Codex sul tuo computer (`~/.codex/sessions/`, o `CODEX_HOME`): i contatori dei token di ogni turno, il modello, i limiti che Codex vi scrive (la quota usata e quando si azzera) e, solo per trovare il registro di una rata che ha avviato, il primo messaggio di una sessione. Dalla 1.3.7 tutto quello che registra per Codex sta a parte, in `~/.quotient/codex/`. Una rata avvia `codex exec`, che lavora con il tuo accesso a Codex, come fa Codex quando lo usi; Quotient non vede mai quell'accesso. Quotient non manda niente di tutto questo da nessuna parte, e i lavori di Codex non vengono mai condivisi.
+
 Dalla 1.1.4, per accorgersi quando cambia qualcosa intorno ai tuoi lavori (per esempio un plugin installato), Quotient legge anche i **nomi** dei plugin accesi, dei server MCP e degli hook, dai file delle impostazioni di Claude Code e dal `config.yaml` di Hermes. Di un hook tiene l'evento e il nome dello script che lancia. Non tiene mai le righe di comando, gli argomenti, le impostazioni, le chiavi o altri segreti. I nomi restano in `~/.quotient/` (`env.jsonl` e i tuoi lavori) e non fanno parte della riga condivisa.
 
 Dalla 1.1.6 Quotient mette le sue misure accanto ad altre. Anche queste restano sul tuo computer, solo numeri:
@@ -105,7 +109,7 @@ Dalla 1.1.6 Quotient mette le sue misure accanto ad altre. Anche queste restano 
 **Cosa viene condiviso**: una riga di numeri per ogni lavoro finito, esattamente questa e nient'altro:
 
 ```json
-{"v":1,"q":"1.3.6","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
+{"v":1,"q":"1.3.7","family":"opus","estimate":225000,"actual":259000,"plan":"max5","per_point":3220000,"per_point_5h":322000}
 ```
 
 Il formato, la versione di Quotient, la famiglia del modello, la stima grezza e il costo vero del lavoro in token pesati (dalla 0.9.5 senza la rilettura di quello che la chat conteneva quando il lavoro è cominciato, che la stima non riguarda), arrotondati a 3 cifre. Dalla 1.1.6, solo quando si sanno: il piano (`plan`), solo se l'hai scelto nelle impostazioni di Quotient, e quanti token pesati tiene l'1% della tua settimana (`per_point`, arrotondato a 3 cifre), solo quando Quotient l'ha imparato dalle tue letture dei limiti; dalla 1.1.7 lo stesso per la finestra di 5 ore (`per_point_5h`). Servono perché un utente nuovo dello stesso piano parta dalla misura vera dell'1% della settimana e delle 5 ore di quel piano invece che da zero, e perché i limiti di ogni piano li confermino altre persone. Quello che riceve l'utente nuovo è una stima di partenza presa da altri utenti, con il suo margine, non una certezza: Anthropic non pubblica i limiti in token e li cambia. Senza, la riga resta di cinque campi come prima. Niente date né orari, niente nomi, testi, percorsi, codici di sessione o di persona, niente account. La riga parte all'inizio della sessione successiva, mai a metà di una risposta, e niente parte prima che tu sia avvisato: la prima volta Claude Code ti mostra un messaggio che dice cosa viene condiviso e come spegnerlo. Va a un piccolo servizio su Cloudflare Workers, il cui codice è pubblico in [`server/`](server/), che accetta solo righe di quella forma.

@@ -343,6 +343,9 @@ def find_run_transcript(folder, started, finished, known=(), root=None):
     if not lo or not hi:
         return None
     task = os.path.join(folder, "TASK.md")
+    if os.environ.get("QUOTIENT_CODEX") and not root:
+        from quotient_lib import q_codex
+        return q_codex.find_run_rollout(task, lo, hi, known)   # 1.3.7: a `codex exec` run
     root = root or os.path.join(os.path.expanduser("~"), ".claude", "projects")
     found = []
     for path in glob.glob(os.path.join(root, "*", "*.jsonl")):

@@ -1,0 +1,46 @@
+{
+  "name": "token-quotient",
+  "version": "1.3.7",
+  "description": "Token Quotient: a quote before a big AI job, its real cost after, and installments that respect your 5-hour and weekly limits. Experimental in Codex.",
+  "author": {
+    "name": "Francesco Candela (Korvonordico)",
+    "url": "https://github.com/Korvonordico"
+  },
+  "homepage": "https://korvonordico.github.io/quotient-claude-tokens/",
+  "repository": "https://github.com/Korvonordico/quotient-claude-tokens",
+  "license": "MIT",
+  "keywords": [
+    "tokens",
+    "cost",
+    "quote",
+    "usage limits",
+    "budget",
+    "installments"
+  ],
+  "skills": "./codex/skills/",
+  "hooks": "./codex/hooks.json",
+  "interface": {
+    "displayName": "Token Quotient",
+    "shortDescription": "A quote before a big job, its real cost after, within your plan's limits",
+    "longDescription": "Before a big job Codex gives you a quote in three levels, with the time and the share of your 5-hour and weekly limits each one takes; after it, Token Quotient measures what the job really cost from Codex's own session log and learns from the difference. Big jobs can be split into daily installments, each stopped at its cap. Experimental in Codex: the numbers are estimates. Everything stays on your computer.",
+    "developerName": "Francesco Candela (Korvonordico)",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://korvonordico.github.io/quotient-claude-tokens/",
+    "privacyPolicyURL": "https://github.com/Korvonordico/quotient-claude-tokens/blob/main/PRIVACY.md",
+    "defaultPrompt": [
+      "Show me the Token Quotient report",
+      "Split this job into installments with Token Quotient"
+    ],
+    "brandColor": "#E3B341",
+    "composerIcon": "./.claude-plugin/icon.png"
+  },
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./codex/skills/setup/SKILL.md"
+    }
+  }
+}

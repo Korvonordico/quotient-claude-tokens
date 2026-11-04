@@ -2,6 +2,21 @@
 
 All notable changes to Token Quotient (Quotient for short; called Quotient up to 0.9.7) are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are those of `.claude-plugin/plugin.json`; dates are those of the commits. Each version links to the commit that released it; from 0.9.7 on, it also has a GitHub release with the same notes.
 
+## [1.3.7] - 2026-11-04
+
+### Added
+
+- **Quotient as an OpenAI Codex plugin (experimental).** In a terminal `codex plugin marketplace add Korvonordico/quotient-claude-tokens`, then `/plugins` in Codex to install Token Quotient and `/hooks` to trust its three hooks. The package is `.codex-plugin/plugin.json`, listed for Codex by `.agents/plugins/marketplace.json`: three hooks in `codex/hooks.json` (they find the plugin through Codex's `PLUGIN_ROOT`; on Windows `codex/run.cmd` starts Python with the `py` launcher, or with `python`) and four skills in `codex/skills/` in place of the slash commands: setup (also the plugin's first-use skill), report, rate and help. The hooks keep the whole text Quotient adds (`additionalContextLimit: 0`), not the 2,500-token preview Codex keeps by default.
+- **Installments in Codex.** A job made in Codex (`"engine": "codex"` in its `job.json`) runs each installment, and `rate apart`, with `codex exec --json` in the job's work folder: the task on standard input, `--sandbox workspace-write` (setting `rate.codex_sandbox`; more arguments in `rate.codex_args`), the job's handoff folder added with `--add-dir`. Quotient reads the run's session log every 10 seconds and stops the run when it reaches its cap or its time limit. Codex has no hook that can refuse a step, so the stop comes from outside, and the task asks the run to save its work after each step. Scheduled installments made in Codex get their own Windows tasks (`quotient-codex-<job>`). A run that finds Codex logged out says so (`codex login`); `QUOTIENT_CODEX_BIN` tells Quotient where Codex is when it does not find it.
+- `quotient.py setup-codex --remove` takes away the hooks that 1.3.6's `setup-codex` added, for who moves to the plugin.
+
+### Changed
+
+- **Codex keeps its own numbers.** Inside Codex, Quotient's folder is `~/.quotient/codex/`: limits, jobs, learning and settings (the first settings are a copy of Claude Code's). In 1.3.6 they mixed with Claude Code's in `~/.quotient` on a PC with both.
+- With the plugin and 1.3.6's hooks both in Codex, each event reaches Quotient twice: only the first copy works (a mark file in `hook-marks/`, kept a day), so nothing is counted twice.
+
+Tested with a stand-in for Codex (`tests/test_v137.py`: the real command line on Windows, the plugin package, installments with their cap, a logged-out Codex) and on sample logs; not yet in a long real use. OpenAI says the session log is not a stable format.
+
 ## [1.3.6] - 2026-11-04
 
 ### Added
@@ -570,6 +585,8 @@ For the second check of Anthropic's plugin directory. Nothing changes in what Qu
 
 - First version: a quote before big jobs (*essential*, *good*, *max*) above a threshold you choose; the real cost after, read from Claude Code's transcripts, in weighted tokens; a correction factor learned from the difference; big jobs in daily installments with a spending cap (`rate new`, `rate run`, `rate schedule`, `rate status`); `/quotient:report` and `/quotient:rate`.
 
+[1.3.7]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.7
+[1.3.6]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.6
 [1.3.5]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.5
 [1.3.4]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.4
 [1.3.3]: https://github.com/Korvonordico/quotient-claude-tokens/releases/tag/v1.3.3

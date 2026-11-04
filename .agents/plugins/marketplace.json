@@ -1,0 +1,20 @@
+{
+  "name": "token-quotient",
+  "interface": {
+    "displayName": "Token Quotient"
+  },
+  "plugins": [
+    {
+      "name": "token-quotient",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
