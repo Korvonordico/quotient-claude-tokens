@@ -265,13 +265,12 @@ class TestCodexInstallments(CodexBase):
             self.assertTrue(q_runs.start_detached(["rate", "run", "book"], os.path.join(self.dir, "log")))
         self.assertEqual(seen[0][-4:], ["rate", "run", "book", "--codex"])
         self.assertTrue(pv.task_name("book").startswith("quotient-codex-"))
+        if os.name != "nt":
+            return   # scheduled installments are Windows tasks (Task Scheduler): elsewhere there is no task to read
         with mock.patch.object(q_schedules.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=b"", stderr=b"")):
-            said = self.run_hook(lambda: q_schedules.schedule("book", "03:00", once=False), {})
-        if os.name == "nt":
-            with open(os.path.join(pv.rate_dir("book"), "task-daily.xml"), encoding="utf-16") as f:
-                self.assertIn("rate run book --codex", f.read())
-        else:
-            self.assertIn("rate run book --codex", said)
+            self.run_hook(lambda: q_schedules.schedule("book", "03:00", once=False), {})
+        with open(os.path.join(pv.rate_dir("book"), "task-daily.xml"), encoding="utf-16") as f:
+            self.assertIn("rate run book --codex", f.read())
 
     def test_events_of_codex_exec(self):
         lines = [json.dumps({"type": "thread.started", "thread_id": "t1"}),
